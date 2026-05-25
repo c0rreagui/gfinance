@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { 
   Wallet, 
   ArrowUpCircle, 
@@ -10,9 +12,12 @@ import {
   ArrowDownLeft, 
   Zap, 
   Activity,
-  ChevronRight 
+  ChevronRight,
+  Sparkles,
+  Lock
 } from 'lucide-react';
 import { TiltCard } from '@/components/TiltCard';
+import { supabase } from '@/lib/supabase';
 
 // Lucide Icon mapping dictionary helper
 const iconMap: { [key: string]: React.ComponentType<any> } = {
@@ -27,7 +32,7 @@ const iconMap: { [key: string]: React.ComponentType<any> } = {
 };
 
 interface Stat {
-  id: number;
+  id: string;
   label: string;
   value: string;
   trend: string;
@@ -36,65 +41,162 @@ interface Stat {
 }
 
 interface Transaction {
-  id: number;
+  id: string;
   date: string;
-  desc: string;
-  cat: string;
-  value: number;
+  description: string;
+  category: string;
+  amount: number;
   icon: string;
 }
 
 interface Reminder {
-  id: number;
+  id: string;
   title: string;
-  due: string;
-  amount: string;
+  due_date: string;
+  amount: number;
   urgency: 'high' | 'medium' | 'low';
 }
 
 interface Goal {
-  id: number;
+  id: string;
   name: string;
-  progress: number;
+  target_amount: number;
+  current_amount: number;
   color: string;
 }
 
-const MOCK_DATA = {
-  stats: [
-    { id: 1, label: 'Saldo Total', value: 'R$ 14.580,20', trend: '+3.2%', icon: 'Wallet', color: 'emerald' },
-    { id: 2, label: 'Receitas (Maio)', value: 'R$ 9.400,00', trend: '+15%', icon: 'ArrowUpCircle', color: 'emerald' },
-    { id: 3, label: 'Despesas (Maio)', value: 'R$ 4.120,50', trend: '-8%', icon: 'ArrowDownCircle', color: 'orange' },
-  ] as Stat[],
-  transactions: [
-    { id: 1, date: '24 Mai', desc: 'Netflix Premium', cat: 'Lazer', value: -55.90, icon: 'Tv' },
-    { id: 2, date: '23 Mai', desc: 'Supermercado Silva', cat: 'Alimentação', value: -342.10, icon: 'ShoppingCart' },
-    { id: 3, date: '22 Mai', desc: 'Salário G-Tech', cat: 'Renda', value: 6500.00, icon: 'ArrowDownLeft' },
-    { id: 4, date: '21 Mai', desc: 'Posto Shell', cat: 'Transporte', value: -180.00, icon: 'Zap' },
-    { id: 5, date: '20 Mai', desc: 'Academia Fit', cat: 'Saúde', value: -120.00, icon: 'Activity' },
-  ] as Transaction[],
-  reminders: [
-    { id: 1, title: 'Fatura Nubank', due: 'Hoje', amount: 'R$ 1.250,00', urgency: 'high' },
-    { id: 2, title: 'Aluguel Casa', due: 'Em 3 dias', amount: 'R$ 2.800,00', urgency: 'medium' }
-  ] as Reminder[],
-  goals: [
-    { id: 1, name: 'Reserva Emergência', progress: 85, color: 'emerald' },
-    { id: 2, name: 'Viagem Japão', progress: 42, color: 'emerald' }
-  ] as Goal[]
-};
-
 export default function Home() {
+  const router = useRouter();
   const [mounted, setMounted] = useState(false);
+  const [user, setUser] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  // Dynamic dashboard states
+  const [stats, setStats] = useState<Stat[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [reminders, setReminders] = useState<Reminder[]>([]);
+  const [goals, setGoals] = useState<Goal[]>([]);
 
   useEffect(() => {
     setMounted(true);
+    checkUser();
   }, []);
+
+  const checkUser = async () => {
+    try {
+      setLoading(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        // Redirect to Auth page
+        router.push('/auth');
+        return;
+      }
+      setUser(user);
+      await fetchDashboardData(user.id);
+    } catch (err) {
+      console.error('Error verifying auth state:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchDashboardData = async (userId: string) => {
+    try {
+      // 1. Fetch Balances
+      const { data: dbBalances } = await supabase
+        .from('balances')
+        .select('*')
+        .eq('user_id', userId);
+      
+      if (dbBalances && dbBalances.length > 0) {
+        const formattedStats = dbBalances.map((b: any) => ({
+          id: b.id,
+          label: b.label,
+          value: b.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
+          trend: b.trend || '+0%',
+          icon: b.icon || 'Wallet',
+          color: b.type === 'expense' ? 'orange' : 'emerald'
+        }));
+        setStats(formattedStats);
+      } else {
+        // Initialize default empty stats for new user
+        setStats([
+          { id: '1', label: 'Saldo Total', value: 'R$ 0,00', trend: '+0%', icon: 'Wallet', color: 'emerald' },
+          { id: '2', label: 'Receitas', value: 'R$ 0,00', trend: '+0%', icon: 'ArrowUpCircle', color: 'emerald' },
+          { id: '3', label: 'Despesas', value: 'R$ 0,00', trend: '-0%', icon: 'ArrowDownCircle', color: 'orange' }
+        ]);
+      }
+
+      // 2. Fetch Transactions
+      const { data: dbTransactions } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('user_id', userId)
+        .order('date', { ascending: false })
+        .limit(5);
+      
+      setTransactions(dbTransactions || []);
+
+      // 3. Fetch Reminders
+      const { data: dbReminders } = await supabase
+        .from('reminders')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('paid', false)
+        .order('due_date', { ascending: true })
+        .limit(2);
+      
+      setReminders(dbReminders || []);
+
+      // 4. Fetch Goals
+      const { data: dbGoals } = await supabase
+        .from('goals')
+        .select('*')
+        .eq('user_id', userId)
+        .limit(2);
+      
+      setGoals(dbGoals || []);
+
+    } catch (err) {
+      console.error('Error fetching dashboard records:', err);
+    }
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    router.push('/auth');
+  };
+
+  if (loading) {
+    return (
+      <div className="flex-1 flex justify-center items-center h-full">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-emerald-500"></div>
+      </div>
+    );
+  }
 
   return (
     <main className="flex-1 overflow-y-auto p-8 no-scrollbar relative h-full">
       <div className="max-w-6xl mx-auto space-y-8 animate-in">
+        {/* Welcome Section */}
+        <div className="flex justify-between items-center bg-white/40 dark:bg-slate-800/40 p-6 rounded-[32px] border border-white/50 dark:border-white/5">
+          <div>
+            <h3 className="text-lg font-black dark:text-white flex items-center gap-2">
+              Olá, {user?.user_metadata?.full_name || user?.email} <Sparkles className="w-5 h-5 text-emerald-500" />
+            </h3>
+            <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mt-1">Conta Premium Vinculada ao Supabase</p>
+          </div>
+          <button 
+            onClick={handleLogout}
+            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-[10px] font-black rounded-xl uppercase tracking-widest transition-all cursor-pointer"
+          >
+            Sair
+          </button>
+        </div>
+
         {/* Stat Cards Grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-          {MOCK_DATA.stats.map((stat, i) => {
+          {stats.map((stat, i) => {
             const Icon = iconMap[stat.icon] || Wallet;
             const isPositive = stat.trend.startsWith('+');
             return (
@@ -149,38 +251,44 @@ export default function Home() {
             <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md rounded-[40px] border border-white/50 dark:border-white/5 shadow-sm overflow-hidden">
               <div className="p-8 border-b border-white/20 flex justify-between items-center">
                 <h4 className="font-black text-xl dark:text-white">Transações Recentes</h4>
-                <a href="/transactions" className="text-emerald-500 font-bold text-sm hover:underline">
+                <Link href="/transactions" className="text-emerald-500 font-bold text-sm hover:underline">
                   Ver todas
-                </a>
+                </Link>
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                  <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                    {MOCK_DATA.transactions.map((tx) => {
-                      const Icon = iconMap[tx.icon] || Wallet;
-                      return (
-                        <tr key={tx.id} className="hover:bg-white/40 dark:hover:bg-white/5 transition-colors">
-                          <td className="px-8 py-5 flex items-center gap-4">
-                            <div className="w-10 h-10 bg-slate-100 dark:bg-slate-700 rounded-full flex items-center justify-center text-slate-500">
-                              <Icon className="w-[18px] h-[18px]" />
-                            </div>
-                            <div>
-                              <p className="text-sm font-black dark:text-white">{tx.desc}</p>
-                              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">
-                                {tx.cat}
-                              </p>
-                            </div>
-                          </td>
-                          <td className="px-8 py-5 text-right font-black">
-                            <span className={tx.value > 0 ? 'text-emerald-600' : 'dark:text-white'}>
-                              {tx.value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                {transactions.length === 0 ? (
+                  <div className="text-center py-10 text-slate-400 text-sm">
+                    Nenhuma transação registrada. Vá para a aba "Transações" para adicionar.
+                  </div>
+                ) : (
+                  <table className="w-full text-left">
+                    <tbody className="divide-y divide-slate-100 dark:divide-white/5">
+                      {transactions.map((tx) => {
+                        const Icon = iconMap[tx.icon] || Wallet;
+                        return (
+                          <tr key={tx.id} className="hover:bg-white/40 dark:hover:bg-white/5 transition-colors">
+                            <td className="px-8 py-5 flex items-center gap-4">
+                              <div className="w-10 h-10 bg-slate-100 dark:bg-slate-700 rounded-full flex items-center justify-center text-slate-500">
+                                <Icon className="w-[18px] h-[18px]" />
+                              </div>
+                              <div>
+                                <p className="text-sm font-black dark:text-white">{tx.description}</p>
+                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">
+                                  {tx.category}
+                                </p>
+                              </div>
+                            </td>
+                            <td className="px-8 py-5 text-right font-black">
+                              <span className={tx.amount > 0 ? 'text-emerald-600' : 'dark:text-white'}>
+                                {tx.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
               </div>
             </div>
           </div>
@@ -204,19 +312,25 @@ export default function Home() {
             <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md p-8 rounded-[40px] border border-white/50 dark:border-white/5">
               <h4 className="font-black text-lg mb-6 dark:text-white tracking-tight">Próximos Pagamentos</h4>
               <div className="space-y-4">
-                {MOCK_DATA.reminders.map((rem) => (
-                  <div key={rem.id} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-white/5 flex justify-between items-center">
-                    <div>
-                      <p className="text-sm font-black dark:text-white">{rem.title}</p>
-                      <p className={`text-[10px] font-bold uppercase ${
-                        rem.urgency === 'high' ? 'text-red-500' : 'text-blue-500'
-                      }`}>
-                        {rem.due} • {rem.amount}
-                      </p>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-slate-300" />
+                {reminders.length === 0 ? (
+                  <div className="text-center py-6 text-slate-400 text-xs">
+                    Sem faturas pendentes.
                   </div>
-                ))}
+                ) : (
+                  reminders.map((rem) => (
+                    <div key={rem.id} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-white/5 flex justify-between items-center">
+                      <div>
+                        <p className="text-sm font-black dark:text-white">{rem.title}</p>
+                        <p className={`text-[10px] font-bold uppercase ${
+                          rem.urgency === 'high' ? 'text-red-500' : 'text-blue-500'
+                        }`}>
+                          Vence em: {new Date(rem.due_date).toLocaleDateString('pt-BR')} • {rem.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        </p>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-slate-300" />
+                    </div>
+                  ))
+                )}
               </div>
             </div>
 
@@ -224,20 +338,29 @@ export default function Home() {
             <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md p-8 rounded-[40px] border border-white/50 dark:border-white/5">
               <h4 className="font-black text-lg mb-6 dark:text-white tracking-tight">Metas Ativas</h4>
               <div className="space-y-6">
-                {MOCK_DATA.goals.map((goal) => (
-                  <div key={goal.id}>
-                    <div className="flex justify-between mb-2">
-                      <span className="text-xs font-bold dark:text-white">{goal.name}</span>
-                      <span className="text-xs font-bold text-emerald-600">{goal.progress}%</span>
-                    </div>
-                    <div className="h-2 bg-slate-100 dark:bg-white/5 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-emerald-500 rounded-full transition-all duration-1000" 
-                        style={{ width: `${goal.progress}%` }}
-                      ></div>
-                    </div>
+                {goals.length === 0 ? (
+                  <div className="text-center py-6 text-slate-400 text-xs">
+                    Nenhuma meta de investimento.
                   </div>
-                ))}
+                ) : (
+                  goals.map((goal) => {
+                    const percentage = Math.min(Math.round((goal.current_amount / goal.target_amount) * 100), 100);
+                    return (
+                      <div key={goal.id}>
+                        <div className="flex justify-between mb-2">
+                          <span className="text-xs font-bold dark:text-white">{goal.name}</span>
+                          <span className="text-xs font-bold text-emerald-600">{percentage}%</span>
+                        </div>
+                        <div className="h-2 bg-slate-100 dark:bg-white/5 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-emerald-500 rounded-full transition-all duration-1000" 
+                            style={{ width: `${percentage}%` }}
+                          ></div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
               </div>
             </div>
           </div>
