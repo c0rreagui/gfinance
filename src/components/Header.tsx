@@ -1,0 +1,77 @@
+'use client';
+
+import React, { useEffect, useState } from 'react';
+import { Sun, Moon, User } from 'lucide-react';
+
+export const Header: React.FC = () => {
+  const [isDark, setIsDark] = useState(false);
+
+  useEffect(() => {
+    try {
+      const theme = localStorage.getItem('theme');
+      if (
+        theme === 'dark' ||
+        (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)
+      ) {
+        document.documentElement.classList.add('dark');
+        setIsDark(true);
+      } else {
+        document.documentElement.classList.remove('dark');
+        setIsDark(false);
+      }
+    } catch (e) {
+      console.warn('LocalStorage blocked or not available', e);
+    }
+  }, []);
+
+  const toggleTheme = () => {
+    const html = document.documentElement;
+    if (html.classList.contains('dark')) {
+      html.classList.remove('dark');
+      setIsDark(false);
+      try {
+        localStorage.setItem('theme', 'light');
+      } catch (e) {}
+    } else {
+      html.classList.add('dark');
+      setIsDark(true);
+      try {
+        localStorage.setItem('theme', 'dark');
+      } catch (e) {}
+    }
+  };
+
+  const getMonthYear = () => {
+    const date = new Date();
+    const months = [
+      'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+      'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+    ];
+    return `${months[date.getMonth()]} ${date.getFullYear()}`;
+  };
+
+  return (
+    <header className="h-20 px-8 flex items-center justify-between glass border-b border-slate-200 dark:border-white/5 sticky top-0 z-20">
+      <div className="flex items-center gap-4">
+        <h2 className="text-xl font-black dark:text-white">Dashboard</h2>
+        <div className="h-4 w-px bg-slate-200 dark:bg-white/10"></div>
+        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+          {getMonthYear()}
+        </p>
+      </div>
+      <div className="flex items-center gap-4">
+        <button
+          onClick={toggleTheme}
+          className="p-2 text-slate-400 hover:text-emerald-500 transition-colors cursor-pointer"
+          aria-label="Toggle Theme"
+        >
+          {isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+        </button>
+        <div className="w-10 h-10 rounded-full bg-white dark:bg-slate-800 border-2 border-emerald-100 dark:border-white/10 flex items-center justify-center text-slate-400 shadow-sm">
+          <User className="w-5 h-5" />
+        </div>
+      </div>
+    </header>
+  );
+};
+export default Header;
