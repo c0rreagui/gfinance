@@ -1,3 +1,8 @@
+/**
+ * G-Finance — Root Layout
+ * Built with Next.js, TS & Supabase Security (RLS Audited)
+ */
+
 import type { Metadata } from "next";
 import "./globals.css";
 import { Sidebar } from "@/components/Sidebar";
