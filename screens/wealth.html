@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>G-Finance | Metas & Investimentos</title>
+    <!-- React & Babel -->
+    <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        :root {
+            --bg: oklch(98% 0.004 240);
+            --surface: oklch(100% 0 0);
+            --fg: oklch(20% 0.02 240);
+            --muted: oklch(50% 0.018 240);
+            --border: oklch(90% 0.006 240);
+            --accent: oklch(56% 0.12 170); /* Emerald */
+            --font-display: 'SF Pro Display', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            --font-body: 'SF Pro Text', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        }
+
+        body { background-color: var(--bg); transition: background-color 0.3s, color 0.3s; }
+        .dark body { background-color: #020617; color: #f8fafc; } color: var(--fg); font-family: var(--font-body); -webkit-font-smoothing: antialiased; overflow: hidden; }
+        .glass { background: rgba(255, 255, 255, 0.4); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%); border: 1px solid rgba(255, 255, 255, 0.3); }
+        .mesh-gradient { transition: all 0.5s; position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: -1; background-color: #f8fafc; background-image: radial-gradient(at 0% 0%, hsla(160, 100%, 95%, 1) 0, transparent 50%), radial-gradient(at 50% 0%, hsla(220, 100%, 95%, 1) 0, transparent 50%), radial-gradient(at 100% 0%, hsla(260, 100%, 95%, 1) 0, transparent 50%), radial-gradient(at 50% 50%, hsla(180, 100%, 98%, 1) 0, transparent 50%), radial-gradient(at 0% 100%, hsla(200, 100%, 95%, 1) 0, transparent 50%), radial-gradient(at 100% 100%, hsla(150, 100%, 95%, 1) 0, transparent 50%); filter: blur(100px); animation: meshMove 20s ease infinite alternate; }
+        .dark .mesh-gradient { background-color: #020617; background-image: radial-gradient(at 0% 0%, hsla(160, 100%, 15%, 1) 0, transparent 50%), radial-gradient(at 50% 0%, hsla(220, 100%, 15%, 1) 0, transparent 50%), radial-gradient(at 100% 0%, hsla(260, 100%, 15%, 1) 0, transparent 50%), radial-gradient(at 50% 50%, hsla(180, 100%, 10%, 1) 0, transparent 50%), radial-gradient(at 0% 100%, hsla(200, 100%, 15%, 1) 0, transparent 50%), radial-gradient(at 100% 100%, hsla(150, 100%, 15%, 1) 0, transparent 50%); }
+        @keyframes meshMove { 0% { transform: scale(1) translate(0, 0); } 100% { transform: scale(1.1) translate(-2%, -2%); } }
+        .animate-in { animation: slideUp 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .tilt-card { transform-style: preserve-3d; perspective: 1000px; transition: transform 0.1s ease-out; }
+        .tilt-card-inner { transform: translateZ(20px); }
+    </style>
+
+    <script>
+        tailwind.config = { darkMode: 'class' }
+    </script>
+</head>
+<body class="h-screen flex">
+    <div class="mesh-gradient"></div>
+    <div id="root" class="flex-1 flex overflow-hidden"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        const useTilt = () => {
+            const ref = useRef(null);
+            const [style, setStyle] = useState({});
+            const onMouseMove = (e) => {
+                if (!ref.current) return;
+                const { left, top, width, height } = ref.current.getBoundingClientRect();
+                const x = (e.clientX - left) / width;
+                const y = (e.clientY - top) / height;
+                const rotateX = (y - 0.5) * -15;
+                const rotateY = (x - 0.5) * 15;
+                setStyle({ transform: `perspective(1000px) rotateX(${rotateX}deg) rotateY(${rotateY}deg)` });
+            };
+            const onMouseLeave = () => setStyle({ transform: 'perspective(1000px) rotateX(0deg) rotateY(0deg)' });
+            return { ref, style, onMouseMove, onMouseLeave };
+        };
+
+        const Icon = ({ name, className, size = 20 }) => {
+            useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, [name]);
+            return <i data-lucide={name.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()} className={className} style={{ width: size, height: size }}></i>;
+        };
+
+        const Sidebar = ({ activePage }) => (
+            <aside className="w-64 glass border-r border-slate-200 dark:border-slate-700/50/50 flex flex-col h-full z-10 overflow-y-auto no-scrollbar">
+                <div class="p-8">
+                    <div className="flex items-center gap-3 mb-12">
+                        <div className="w-10 h-10 bg-[#10B981] rounded-2xl flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-emerald-500/20">G</div>
+                        <span className="font-black text-xl tracking-tight">G-Finance</span>
+                    </div>
+                    
+                    <nav className="space-y-1">
+                        {[
+                            { name: 'Visão Geral', icon: 'LayoutGrid', path: '../index.html' },
+                            { name: 'Transações', icon: 'Receipt', path: 'transactions.html' },
+                            { name: 'Cartões', icon: 'CreditCard', path: 'cards.html' },
+                            { name: 'Dívidas', icon: 'Landmark', path: 'debts.html' },
+                            { name: 'Metas & Invest.', icon: 'Target', active: activePage === 'wealth', path: 'wealth.html' },
+                            { name: 'Assinaturas', icon: 'Repeat', path: 'subscriptions.html' },
+                            { name: 'Relatórios', icon: 'BarChart3', path: 'analytics.html' },
+                            { name: 'Cripto', icon: 'Coins', path: 'crypto.html' },
+                            { name: 'Integrações', icon: 'Link', path: 'integrations.html' },
+                            { name: 'Configurações', icon: 'Settings', path: 'settings.html' },
+                        ].map((item) => (
+                            <a 
+                                key={item.name}
+                                href={item.path}
+                                className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 group ${
+                                    item.active ? 'bg-emerald-500 text-white font-bold shadow-lg shadow-emerald-500/20' : 'text-slate-500 hover:bg-white/50 hover:text-slate-900'
+                                }`}
+                            >
+                                <Icon name={item.icon} className={item.active ? 'text-white' : 'group-hover:text-emerald-600'} size={18} />
+                                <span className="text-sm">{item.name}</span>
+                            </a>
+                        ))}
+                    </nav>
+                </div>
+            </aside>
+        );
+
+        const Header = ({ title }) => (
+            <header className="h-20 border-b border-slate-200 dark:border-slate-700/50/50 px-8 flex items-center justify-between glass sticky top-0 z-10">
+                <h2 className="text-2xl font-black tracking-tighter" style={{ fontFamily: 'var(--font-display)' }}>{title}</h2>
+                <div className="flex items-center gap-3">
+                    <div className="text-right hidden sm:block">
+                        <p className="text-sm font-bold leading-tight">Guilherme</p>
+                        <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider">Conta Platinum</p>
+                    </div>
+                    <div className="w-10 h-10 rounded-full bg-white dark:bg-slate-800 border-2 border-emerald-100 shadow-sm flex items-center justify-center text-slate-400">
+                        <Icon name="User" size={20} />
+                    </div>
+                </div>
+            </header>
+        );
+
+        const WealthPage = () => {
+            const [selic, setSelic] = useState(10.75);
+            return (
+                <div className="flex-1 flex flex-col overflow-hidden relative">
+                    <Header title="Metas & Investimentos" />
+                    <main className="flex-1 overflow-y-auto p-8 no-scrollbar relative z-0">
+                        <div className="max-w-6xl mx-auto space-y-8">
+                            {/* Summary Cards */}
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                                {[
+                                    { label: 'Total Investido', value: 'R$ 84.200,00', trend: '+5.2%', icon: 'TrendingUp' },
+                                    { label: 'Rendimento Mês', value: 'R$ 892,40', trend: '+0.8%', icon: 'PieChart' },
+                                    { label: 'Dividendos', value: 'R$ 320,15', trend: '+12%', icon: 'Gift' }
+                                ].map((stat, i) => (
+                                    <div key={i} className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md p-6 rounded-[32px] border border-white/50 shadow-sm animate-in" style={{ animationDelay: `${i*0.1}s` }}>
+                                        <div className="flex justify-between items-center mb-4">
+                                            <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl"><Icon name={stat.icon} /></div>
+                                            <span className="text-xs font-black text-emerald-600 px-2 py-1 bg-emerald-50 rounded-lg">{stat.trend}</span>
+                                        </div>
+                                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{stat.label}</p>
+                                        <h3 className="text-2xl font-black">{stat.value}</h3>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                                {/* Asset Allocation */}
+                                <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md p-8 rounded-[40px] border border-white/50 shadow-sm animate-in" style={{ animationDelay: '0.3s' }}>
+                                    <h4 className="font-black text-xl mb-8">Alocação de Ativos</h4>
+                                    <div className="space-y-6">
+                                        {[
+                                            { label: 'Renda Fixa', value: 45, color: 'emerald' },
+                                            { label: 'Ações BR', value: 25, color: 'blue' },
+                                            { label: 'Ações EUA', value: 15, color: 'indigo' },
+                                            { label: 'FIIs', value: 10, color: 'purple' },
+                                            { label: 'Outros', value: 5, color: 'slate' }
+                                        ].map((asset) => (
+                                            <div key={asset.label}>
+                                                <div className="flex justify-between text-sm font-bold mb-2">
+                                                    <span>{asset.label}</span>
+                                                    <span>{asset.value}%</span>
+                                                </div>
+                                                <div className="h-2 bg-slate-100 dark:bg-slate-800/50 rounded-full overflow-hidden">
+                                                    <div className={`h-full bg-${asset.color}-500`} style={{ width: `${asset.value}%` }}></div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Simulator */}
+                                <div className="bg-slate-900 rounded-[40px] p-8 text-white shadow-2xl animate-in" style={{ animationDelay: '0.4s' }}>
+                                    <h4 className="font-black text-xl mb-6">Simulador CDI/Selic</h4>
+                                    <div className="space-y-6">
+                                        <div>
+                                            <label className="text-xs font-bold text-slate-400 uppercase tracking-widest block mb-4">Taxa Selic Atual</label>
+                                            <input 
+                                                type="range" min="5" max="15" step="0.25" value={selic} 
+                                                onChange={(e) => setSelic(e.target.value)}
+                                                className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-400"
+                                            />
+                                            <div className="flex justify-between mt-2 text-xl font-black">{selic}% <span className="text-xs text-slate-500 dark:text-slate-400 mt-2 font-bold">AO ANO</span></div>
+                                        </div>
+                                        <div className="p-6 bg-white/5 rounded-3xl border border-white/10">
+                                            <p className="text-xs font-bold text-slate-400 uppercase mb-2">Rendimento Estimado (12 meses)</p>
+                                            <p className="text-3xl font-black text-emerald-400">R$ {(84200 * (selic/100)).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                                            <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-2 italic">*Simulação bruta sem considerar IR</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Goals */}
+                            <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md p-8 rounded-[48px] border border-white/50 shadow-sm animate-in" style={{ animationDelay: '0.5s' }}>
+                                <div className="flex justify-between items-center mb-8">
+                                    <h4 className="font-black text-xl">Metas de Longo Prazo</h4>
+                                    <button className="px-4 py-2 bg-emerald-50 text-emerald-700 text-xs font-black rounded-xl uppercase tracking-widest">Nova Meta</button>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                    {[
+                                        { title: 'Independência Financeira', target: 'R$ 1.000.000', current: 'R$ 84.200', progress: 8.4, color: 'emerald' },
+                                        { title: 'Casa Própria', target: 'R$ 450.000', current: 'R$ 120.000', progress: 26.6, color: 'blue' }
+                                    ].map((goal, i) => (
+                                        <div key={i} className="p-6 bg-white/40 dark:bg-slate-800/40 rounded-3xl border border-white/50 shadow-sm">
+                                            <div className="flex justify-between mb-4">
+                                                <h5 className="font-black text-slate-900 dark:text-white">{goal.title}</h5>
+                                                <Icon name="Target" className={`text-${goal.color}-500`} />
+                                            </div>
+                                            <div className="flex justify-between text-xs font-bold text-slate-500 dark:text-slate-400 mb-2">
+                                                <span>Progresso: {goal.current}</span>
+                                                <span>Alvo: {goal.target}</span>
+                                            </div>
+                                            <div className="h-4 bg-slate-100 dark:bg-slate-800/50 rounded-full overflow-hidden border border-white p-0.5">
+                                                <div className={`h-full bg-${goal.color}-500 rounded-full shadow-lg shadow-${goal.color}-500/20`} style={{ width: `${goal.progress}%` }}></div>
+                                            </div>
+                                            <p className="text-right text-[10px] font-black text-slate-400 mt-2 uppercase tracking-widest">{goal.progress}% CONCLUÍDO</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    </main>
+                </div>
+            );
+        };
+
+        const App = () => {
+            useEffect(() => {
+                try {
+                    const theme = localStorage.getItem('theme');
+                    if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                        document.documentElement.classList.add('dark');
+                    }
+                } catch (e) {}
+            }, []);
+        return (
+            <div className="flex w-full h-full">
+                <Sidebar activePage="wealth" />
+                <WealthPage />
+            </div>
+        );
+
+        try { const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />); } catch (e) { console.error(e); }
+    </script>
+</body>
+</html>

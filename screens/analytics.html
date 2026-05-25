@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>G-Finance | Relatórios & Analytics</title>
+    <!-- React & Babel -->
+    <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        :root {
+            --bg: oklch(98% 0.004 240);
+            --surface: oklch(100% 0 0);
+            --fg: oklch(20% 0.02 240);
+            --muted: oklch(50% 0.018 240);
+            --border: oklch(90% 0.006 240);
+            --accent: oklch(56% 0.12 170); /* Emerald */
+            --font-display: 'SF Pro Display', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            --font-body: 'SF Pro Text', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        }
+
+        body { background-color: var(--bg); color: var(--fg); font-family: var(--font-body); -webkit-font-smoothing: antialiased; overflow: hidden; transition: background-color 0.5s, color 0.5s; }
+        .dark body { background-color: #020617; color: #f8fafc; }
+        .glass { background: rgba(255, 255, 255, 0.4); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%); border: 1px solid rgba(255, 255, 255, 0.3); }
+        .dark .glass { background: rgba(15, 23, 42, 0.6); border-color: rgba(255, 255, 255, 0.05); }
+        .mesh-gradient { transition: all 0.5s; position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: -1; background-color: #f8fafc; background-image: radial-gradient(at 0% 0%, hsla(160, 100%, 95%, 1) 0, transparent 50%), radial-gradient(at 50% 0%, hsla(220, 100%, 95%, 1) 0, transparent 50%), radial-gradient(at 100% 0%, hsla(260, 100%, 95%, 1) 0, transparent 50%), radial-gradient(at 50% 50%, hsla(180, 100%, 98%, 1) 0, transparent 50%), radial-gradient(at 0% 100%, hsla(200, 100%, 95%, 1) 0, transparent 50%), radial-gradient(at 100% 100%, hsla(150, 100%, 95%, 1) 0, transparent 50%); filter: blur(100px); animation: meshMove 20s ease infinite alternate; }
+        .dark .mesh-gradient { background-color: #020617; background-image: radial-gradient(at 0% 0%, hsla(160, 100%, 15%, 1) 0, transparent 50%), radial-gradient(at 50% 0%, hsla(220, 100%, 15%, 1) 0, transparent 50%), radial-gradient(at 100% 0%, hsla(260, 100%, 15%, 1) 0, transparent 50%), radial-gradient(at 50% 50%, hsla(180, 100%, 10%, 1) 0, transparent 50%), radial-gradient(at 0% 100%, hsla(200, 100%, 15%, 1) 0, transparent 50%), radial-gradient(at 100% 100%, hsla(150, 100%, 15%, 1) 0, transparent 50%); }
+        @keyframes meshMove { 0% { transform: scale(1) translate(0, 0); } 100% { transform: scale(1.1) translate(-2%, -2%); } }
+        .animate-in { animation: slideUp 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+
+    <script>
+        tailwind.config = { darkMode: 'class' }
+    </script>
+</head>
+<body class="h-screen flex">
+    <div class="mesh-gradient"></div>
+    <div id="root" class="flex-1 flex overflow-hidden"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        const Icon = ({ name, className, size = 20 }) => {
+            useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, [name]);
+            return <i data-lucide={name.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()} className={className} style={{ width: size, height: size }}></i>;
+        };
+
+        const Sidebar = ({ activePage }) => (
+            <aside className="w-64 glass border-r border-slate-200 dark:border-slate-700/50/50 flex flex-col h-full z-10 overflow-y-auto no-scrollbar">
+                <div class="p-8">
+                    <div className="flex items-center gap-3 mb-12">
+                        <div className="w-10 h-10 bg-[#10B981] rounded-2xl flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-emerald-500/20">G</div>
+                        <span className="font-black text-xl tracking-tight">G-Finance</span>
+                    </div>
+                    
+                    <nav className="space-y-1">
+                        {[
+                            { name: 'Visão Geral', icon: 'LayoutGrid', path: '../index.html' },
+                            { name: 'Transações', icon: 'Receipt', path: 'transactions.html' },
+                            { name: 'Cartões', icon: 'CreditCard', path: 'cards.html' },
+                            { name: 'Dívidas', icon: 'Landmark', path: 'debts.html' },
+                            { name: 'Metas & Invest.', icon: 'Target', path: 'wealth.html' },
+                            { name: 'Assinaturas', icon: 'Repeat', path: 'subscriptions.html' },
+                            { name: 'Relatórios', icon: 'BarChart3', active: activePage === 'analytics', path: 'analytics.html' },
+                            { name: 'Cripto', icon: 'Coins', path: 'crypto.html' },
+                            { name: 'Integrações', icon: 'Link', path: 'integrations.html' },
+                            { name: 'Configurações', icon: 'Settings', path: 'settings.html' },
+                        ].map((item) => (
+                            <a 
+                                key={item.name}
+                                href={item.path}
+                                className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 group ${
+                                    item.active ? 'bg-emerald-500 text-white font-bold shadow-lg shadow-emerald-500/20' : 'text-slate-500 hover:bg-white/50 hover:text-slate-900'
+                                }`}
+                            >
+                                <Icon name={item.icon} className={item.active ? 'text-white' : 'group-hover:text-emerald-600'} size={18} />
+                                <span className="text-sm">{item.name}</span>
+                            </a>
+                        ))}
+                    </nav>
+                </div>
+            </aside>
+        );
+
+        const Header = ({ title }) => {
+            const [isDark, setIsDark] = useState(false);
+            useEffect(() => {
+                if (document.documentElement.classList.contains('dark')) setIsDark(true);
+            }, []);
+            const toggleTheme = () => {
+                const html = document.documentElement;
+                if (html.classList.contains('dark')) {
+                    html.classList.remove('dark'); setIsDark(false); localStorage.setItem('theme', 'light');
+                } else {
+                    html.classList.add('dark'); setIsDark(true); localStorage.setItem('theme', 'dark');
+                }
+            };
+            return (
+                <header className="h-20 border-b border-slate-200 dark:border-white/5 px-8 flex items-center justify-between glass sticky top-0 z-10 transition-colors">
+                    <div className="flex items-center gap-4">
+                        <h2 className="text-xl font-black tracking-tight dark:text-white" style={{ fontFamily: 'var(--font-display)' }}>{title}</h2>
+                    </div>
+                    <div className="flex items-center gap-6">
+                        <button onClick={toggleTheme} className="p-2 text-slate-400 hover:text-emerald-500 transition-colors">
+                            <Icon name={isDark ? 'Sun' : 'Moon'} size={20} />
+                        </button>
+                        <div className="flex items-center gap-3 pl-6 border-l border-slate-200 dark:border-white/5">
+                            <div className="text-right hidden sm:block">
+                                <p className="text-sm font-bold dark:text-white">Guilherme R.</p>
+                                <p className="text-[10px] text-emerald-500 font-bold uppercase tracking-wider">Conta Platinum</p>
+                            </div>
+                            <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 border-2 border-emerald-100 dark:border-white/10 flex items-center justify-center text-slate-400">
+                                <Icon name="User" size={20} />
+                            </div>
+                        </div>
+                    </div>
+                </header>
+            );
+        };
+
+        const AnalyticsPage = () => {
+            return (
+                <div className="flex-1 flex flex-col overflow-hidden relative">
+                    <Header title="Relatórios & Analytics" />
+                    <main className="flex-1 overflow-y-auto p-8 no-scrollbar relative z-0">
+                        <div className="max-w-6xl mx-auto space-y-8">
+                            {/* Filters Header */}
+                            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 animate-in">
+                                <div>
+                                    <h3 className="font-black text-slate-900 dark:text-white text-xl">Resumo Anual 2024</h3>
+                                    <p className="text-sm text-slate-500 dark:text-slate-400">Análise de gastos e evolução patrimonial</p>
+                                </div>
+                                <div className="flex gap-2 p-1 bg-white/40 dark:bg-slate-800/40 glass rounded-2xl shadow-sm">
+                                    {['7D', '1M', '3M', '6M', '1A'].map(p => (
+                                        <button key={p} className={`px-4 py-2 text-[10px] font-black rounded-xl transition-all ${p === '1A' ? 'bg-emerald-500 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}>{p}</button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                                {/* Expense by Category */}
+                                <div className="lg:col-span-2 bg-white/60 dark:bg-slate-800/60 backdrop-blur-md p-8 rounded-[40px] border border-white/50 dark:border-white/5 shadow-sm animate-in" style={{ animationDelay: '0.2s' }}>
+                                    <h4 className="font-black text-lg mb-8 dark:text-white">Gastos por Categoria</h4>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
+                                        <div className="relative w-48 h-48 mx-auto">
+                                            <svg viewBox="0 0 100 100" className="w-full h-full transform -rotate-90">
+                                                <circle cx="50" cy="50" r="40" fill="transparent" stroke="#f1f5f9" strokeWidth="20" />
+                                                <circle cx="50" cy="50" r="40" fill="transparent" stroke="#10b981" strokeWidth="20" strokeDasharray="251.2" strokeDashoffset="62.8" className="transition-all duration-1000" />
+                                                <circle cx="50" cy="50" r="40" fill="transparent" stroke="#3b82f6" strokeWidth="20" strokeDasharray="251.2" strokeDashoffset="188.4" className="transition-all duration-1000" />
+                                            </svg>
+                                            <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+                                                <span className="text-[10px] font-black text-slate-400 uppercase">Total</span>
+                                                <span className="text-xl font-black dark:text-white">R$ 15,2k</span>
+                                            </div>
+                                        </div>
+                                        <div className="space-y-4">
+                                            {[
+                                                { label: 'Moradia', value: 'R$ 4.500', color: 'emerald', percent: 35 },
+                                                { label: 'Alimentação', value: 'R$ 3.200', color: 'blue', percent: 25 },
+                                                { label: 'Transporte', value: 'R$ 1.800', color: 'amber', percent: 15 },
+                                                { label: 'Lazer', value: 'R$ 2.400', color: 'purple', percent: 20 },
+                                                { label: 'Outros', value: 'R$ 3.300', color: 'slate', percent: 5 },
+                                            ].map((cat) => (
+                                                <div key={cat.label} className="flex justify-between items-center group">
+                                                    <div className="flex items-center gap-3">
+                                                        <div className={`w-2 h-2 rounded-full bg-${cat.color}-500`}></div>
+                                                        <span className="text-sm font-bold text-slate-600 dark:text-slate-300">{cat.label}</span>
+                                                    </div>
+                                                    <span className="text-sm font-black text-slate-900 dark:text-white">{cat.value}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Monthly Trend */}
+                                <div className="bg-slate-900 rounded-[40px] p-8 text-white shadow-2xl animate-in" style={{ animationDelay: '0.4s' }}>
+                                    <h4 className="font-black text-lg mb-8">Tendência Mensal</h4>
+                                    <div className="space-y-8">
+                                        {[
+                                            { month: 'Janeiro', val: 4500, max: 6000 },
+                                            { month: 'Fevereiro', val: 5200, max: 6000 },
+                                            { month: 'Março', val: 3800, max: 6000 },
+                                            { month: 'Abril', val: 5900, max: 6000 },
+                                            { month: 'Maio', val: 4200, max: 6000 },
+                                        ].map((m) => (
+                                            <div key={m.month}>
+                                                <div className="flex justify-between text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">
+                                                    <span>{m.month}</span>
+                                                    <span>R$ {m.val.toLocaleString()}</span>
+                                                </div>
+                                                <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                                    <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${(m.val/m.max)*100}%` }}></div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Export Section */}
+                            <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md p-10 rounded-[48px] border border-white/50 dark:border-white/5 shadow-sm flex flex-col md:flex-row justify-between items-center gap-8 animate-in" style={{ animationDelay: '0.6s' }}>
+                                <div>
+                                    <h4 className="font-black text-2xl mb-2 dark:text-white">Exportar Relatórios</h4>
+                                    <p className="text-sm text-slate-500 dark:text-slate-400">Gere documentos PDF ou CSV com todos os seus dados filtrados.</p>
+                                </div>
+                                <div className="flex gap-4">
+                                    <button className="px-8 py-4 bg-slate-900 dark:bg-slate-700 text-white text-xs font-black rounded-2xl uppercase tracking-widest hover:scale-105 transition-transform flex items-center gap-2">
+                                        <Icon name="FileText" size={16} /> Exportar PDF
+                                    </button>
+                                    <button className="px-8 py-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white text-xs font-black rounded-2xl uppercase tracking-widest hover:bg-slate-50 transition-colors flex items-center gap-2">
+                                        <Icon name="Download" size={16} /> CSV
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </main>
+                </div>
+            );
+        };
+
+        const App = () => {
+            useEffect(() => {
+                try {
+                    const theme = localStorage.getItem('theme');
+                    if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                        document.documentElement.classList.add('dark');
+                    }
+                } catch (e) {}
+            }, []);
+        return (
+                <div className="flex w-full h-full transition-colors duration-500">
+                    <Sidebar activePage="analytics" />
+                    <AnalyticsPage />
+                </div>
+            );
+        };
+
+        try { const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />); } catch (e) { console.error(e); }
+    </script>
+</body>
+</html>

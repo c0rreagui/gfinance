@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>G-Finance | Cartões</title>
+    <!-- React & Babel -->
+    <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        :root {
+            --bg: oklch(98% 0.004 240);
+            --surface: oklch(100% 0 0);
+            --fg: oklch(20% 0.02 240);
+            --muted: oklch(50% 0.018 240);
+            --border: oklch(90% 0.006 240);
+            --accent: oklch(56% 0.12 170); /* Emerald */
+            --font-display: 'SF Pro Display', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            --font-body: 'SF Pro Text', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        }
+
+        body { background-color: var(--bg); color: var(--fg); font-family: var(--font-body); -webkit-font-smoothing: antialiased; overflow: hidden; transition: background-color 0.5s, color 0.5s; }
+        .dark body { background-color: #020617; color: #f8fafc; }
+        .glass { background: rgba(255, 255, 255, 0.4); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%); border: 1px solid rgba(255, 255, 255, 0.3); }
+        .dark .glass { background: rgba(15, 23, 42, 0.6); border-color: rgba(255, 255, 255, 0.05); }
+        .mesh-gradient { transition: all 0.5s; position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: -1; background-color: #f8fafc; background-image: radial-gradient(at 0% 0%, hsla(160, 100%, 95%, 1) 0, transparent 50%), radial-gradient(at 50% 0%, hsla(220, 100%, 95%, 1) 0, transparent 50%), radial-gradient(at 100% 0%, hsla(260, 100%, 95%, 1) 0, transparent 50%), radial-gradient(at 50% 50%, hsla(180, 100%, 98%, 1) 0, transparent 50%), radial-gradient(at 0% 100%, hsla(200, 100%, 95%, 1) 0, transparent 50%), radial-gradient(at 100% 100%, hsla(150, 100%, 95%, 1) 0, transparent 50%); filter: blur(100px); animation: meshMove 20s ease infinite alternate; }
+        .dark .mesh-gradient { background-color: #020617; background-image: radial-gradient(at 0% 0%, hsla(160, 100%, 15%, 1) 0, transparent 50%), radial-gradient(at 50% 0%, hsla(220, 100%, 15%, 1) 0, transparent 50%), radial-gradient(at 100% 0%, hsla(260, 100%, 15%, 1) 0, transparent 50%), radial-gradient(at 50% 50%, hsla(180, 100%, 10%, 1) 0, transparent 50%), radial-gradient(at 0% 100%, hsla(200, 100%, 15%, 1) 0, transparent 50%), radial-gradient(at 100% 100%, hsla(150, 100%, 15%, 1) 0, transparent 50%); }
+        @keyframes meshMove { 0% { transform: scale(1) translate(0, 0); } 100% { transform: scale(1.1) translate(-2%, -2%); } }
+        .animate-in { animation: slideUp 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .tilt-card { transform-style: preserve-3d; perspective: 1000px; transition: transform 0.1s ease-out; cursor: pointer; }
+        .tilt-card-inner { transform: translateZ(20px); }
+    </style>
+
+    <script>
+        tailwind.config = { darkMode: 'class' }
+    </script>
+</head>
+<body class="h-screen flex">
+    <div class="mesh-gradient"></div>
+    <div id="root" class="flex-1 flex overflow-hidden"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        const useTilt = () => {
+            const ref = useRef(null);
+            const [style, setStyle] = useState({});
+            const onMouseMove = (e) => {
+                if (!ref.current) return;
+                const { left, top, width, height } = ref.current.getBoundingClientRect();
+                const x = (e.clientX - left) / width;
+                const y = (e.clientY - top) / height;
+                const rotateX = (y - 0.5) * -15;
+                const rotateY = (x - 0.5) * 15;
+                setStyle({ transform: `perspective(1000px) rotateX(${rotateX}deg) rotateY(${rotateY}deg)` });
+            };
+            const onMouseLeave = () => setStyle({ transform: 'perspective(1000px) rotateX(0deg) rotateY(0deg)' });
+            return { ref, style, onMouseMove, onMouseLeave };
+        };
+
+        const Icon = ({ name, className, size = 20 }) => {
+            useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, [name]);
+            return <i data-lucide={name.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()} className={className} style={{ width: size, height: size }}></i>;
+        };
+
+        const Sidebar = ({ activePage }) => (
+            <aside className="w-64 glass border-r border-slate-200 dark:border-slate-700/50/50 flex flex-col h-full z-10 overflow-y-auto no-scrollbar">
+                <div class="p-8">
+                    <div className="flex items-center gap-3 mb-12">
+                        <div className="w-10 h-10 bg-[#10B981] rounded-2xl flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-emerald-500/20">G</div>
+                        <span className="font-black text-xl tracking-tight">G-Finance</span>
+                    </div>
+                    
+                    <nav className="space-y-1">
+                        {[
+                            { name: 'Visão Geral', icon: 'LayoutGrid', path: '../index.html' },
+                            { name: 'Transações', icon: 'Receipt', path: 'transactions.html' },
+                            { name: 'Cartões', icon: 'CreditCard', active: activePage === 'cards', path: 'cards.html' },
+                            { name: 'Dívidas', icon: 'Landmark', path: 'debts.html' },
+                            { name: 'Metas & Invest.', icon: 'Target', path: 'wealth.html' },
+                            { name: 'Assinaturas', icon: 'Repeat', path: 'subscriptions.html' },
+                            { name: 'Relatórios', icon: 'BarChart3', path: 'analytics.html' },
+                            { name: 'Cripto', icon: 'Coins', path: 'crypto.html' },
+                            { name: 'Integrações', icon: 'Link', path: 'integrations.html' },
+                            { name: 'Configurações', icon: 'Settings', path: 'settings.html' },
+                        ].map((item) => (
+                            <a 
+                                key={item.name}
+                                href={item.path}
+                                className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 group ${
+                                    item.active ? 'bg-emerald-500 text-white font-bold shadow-lg shadow-emerald-500/20' : 'text-slate-500 hover:bg-white/50 hover:text-slate-900'
+                                }`}
+                            >
+                                <Icon name={item.icon} className={item.active ? 'text-white' : 'group-hover:text-emerald-600'} size={18} />
+                                <span className="text-sm">{item.name}</span>
+                            </a>
+                        ))}
+                    </nav>
+                </div>
+            </aside>
+        );
+
+        const Header = ({ title }) => {
+            const [isDark, setIsDark] = useState(false);
+            useEffect(() => {
+                if (document.documentElement.classList.contains('dark')) setIsDark(true);
+            }, []);
+            const toggleTheme = () => {
+                const html = document.documentElement;
+                if (html.classList.contains('dark')) {
+                    html.classList.remove('dark'); setIsDark(false); localStorage.setItem('theme', 'light');
+                } else {
+                    html.classList.add('dark'); setIsDark(true); localStorage.setItem('theme', 'dark');
+                }
+            };
+            return (
+                <header className="h-20 border-b border-slate-200 dark:border-white/5 px-8 flex items-center justify-between glass sticky top-0 z-10 transition-colors">
+                    <div className="flex items-center gap-4">
+                        <h2 className="text-xl font-black tracking-tight dark:text-white" style={{ fontFamily: 'var(--font-display)' }}>{title}</h2>
+                    </div>
+                    <div className="flex items-center gap-6">
+                        <button onClick={toggleTheme} className="p-2 text-slate-400 hover:text-emerald-500 transition-colors">
+                            <Icon name={isDark ? 'Sun' : 'Moon'} size={20} />
+                        </button>
+                        <div className="flex items-center gap-3 pl-6 border-l border-slate-200 dark:border-white/5">
+                            <div className="text-right hidden sm:block">
+                                <p className="text-sm font-bold dark:text-white">Guilherme R.</p>
+                                <p className="text-[10px] text-emerald-500 font-bold uppercase tracking-wider">Conta Platinum</p>
+                            </div>
+                            <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 border-2 border-emerald-100 dark:border-white/10 flex items-center justify-center text-slate-400">
+                                <Icon name="User" size={20} />
+                            </div>
+                        </div>
+                    </div>
+                </header>
+            );
+        };
+
+        const MOCK_CARDS = [
+            { id: 1, type: 'Virtual', name: 'PLATINUM', number: '•••• •••• •••• 4290', limit: 15000, used: 4200, colorFrom: 'emerald-400/20', colorTo: 'blue-500/20' },
+            { id: 2, type: 'Físico', name: 'BLACK', number: '•••• •••• •••• 8831', limit: 50000, used: 12500, colorFrom: 'slate-800/80', colorTo: 'slate-900/90' }
+        ];
+
+        const MOCK_INVOICES = {
+            1: [
+                { id: 101, date: '2024-05-24', desc: 'Apple Store', inst: '1/12', value: 899.00 },
+                { id: 102, date: '2024-05-20', desc: 'Amazon AWS', inst: '-', value: 145.50 },
+                { id: 103, date: '2024-05-18', desc: 'Uber Viagem', inst: '-', value: 42.90 },
+            ],
+            2: [
+                { id: 201, date: '2024-05-21', desc: 'Restaurante D.O.M.', inst: '-', value: 1250.00 },
+                { id: 202, date: '2024-05-15', desc: 'Passagens Aéreas', inst: '3/6', value: 3200.00 },
+            ]
+        };
+
+        const GlassCreditCard = ({ card, isActive, onClick, delay }) => {
+            const { ref, style, onMouseMove, onMouseLeave } = useTilt();
+            return (
+                <div 
+                    ref={ref}
+                    onClick={onClick}
+                    style={{ 
+                        ...style, 
+                        animationDelay: `${delay}s`,
+                        background: 'linear-gradient(135deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0.05) 100%)',
+                        backdropFilter: 'blur(30px) saturate(150%)',
+                        border: isActive ? '2px solid rgba(16, 185, 129, 0.5)' : '1px solid rgba(255,255,255,0.3)',
+                        boxShadow: isActive ? '0 25px 50px -12px rgba(16, 185, 129, 0.25)' : '0 25px 50px -12px rgba(0, 0, 0, 0.15)',
+                        transform: isActive ? 'scale(1.02)' : 'scale(1)'
+                    }}
+                    onMouseMove={onMouseMove}
+                    onMouseLeave={onMouseLeave}
+                    className="tilt-card relative w-full max-w-sm aspect-[1.6/1] rounded-[32px] overflow-hidden p-8 text-white animate-in"
+                >
+                    <div className={`absolute inset-0 bg-gradient-to-br from-${card.colorFrom} to-${card.colorTo} mix-blend-overlay`}></div>
+                    {card.name === 'BLACK' && <div className="absolute inset-0 bg-slate-900/80"></div>}
+                    <div className="relative z-10 flex flex-col h-full tilt-card-inner">
+                        <div className="flex justify-between items-start mb-auto">
+                            <div className="flex flex-col">
+                                <span className={`text-[10px] font-black uppercase tracking-[0.3em] ${card.name === 'BLACK' ? 'text-slate-400' : 'opacity-60'}`}>G-Finance {card.type}</span>
+                                <span className="text-xl font-black italic tracking-tighter">{card.name}</span>
+                            </div>
+                            <div className="w-12 h-12 bg-white/20 dark:bg-slate-800/20 rounded-2xl backdrop-blur-md flex items-center justify-center border border-white/30">
+                                <div className="w-8 h-8 rounded-full border-2 border-white/50 dark:border-white/10 relative">
+                                    <div className="absolute inset-0 rounded-full border-2 border-white/30 dark:border-white/5 translate-x-2"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="mb-6"><h3 className="text-2xl font-black tracking-[0.25em] drop-shadow-lg">{card.number}</h3></div>
+                        <div className="flex justify-between items-end">
+                            <div>
+                                <p className={`text-[10px] uppercase font-bold mb-1 ${card.name === 'BLACK' ? 'text-slate-400' : 'opacity-50'}`}>Limite Disponível</p>
+                                <p className="text-sm font-black tracking-wide">{(card.limit - card.used).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
+                            </div>
+                            <div className="text-right">
+                                <p className={`text-[10px] uppercase font-bold mb-1 ${card.name === 'BLACK' ? 'text-slate-400' : 'opacity-50'}`}>Expira</p>
+                                <p className="text-sm font-black">05/29</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const CardsPage = () => {
+            const [activeCard, setActiveCard] = useState(MOCK_CARDS[0].id);
+            const activeCardData = MOCK_CARDS.find(c => c.id === activeCard);
+            const activeInvoices = MOCK_INVOICES[activeCard] || [];
+            const usedPercentage = (activeCardData.used / activeCardData.limit) * 100;
+            return (
+                <div className="flex-1 flex flex-col overflow-hidden relative">
+                    <Header title="Meus Cartões" />
+                    <main className="flex-1 overflow-y-auto p-8 no-scrollbar relative z-0">
+                        <div className="max-w-6xl mx-auto flex flex-col lg:flex-row gap-12">
+                            <div className="lg:w-1/3 flex flex-col gap-8">
+                                <div className="animate-in">
+                                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4 px-2">Seus Cartões</h3>
+                                    <div className="flex flex-col gap-6">
+                                        {MOCK_CARDS.map((card, i) => (
+                                            <GlassCreditCard key={card.id} card={card} isActive={activeCard === card.id} onClick={() => setActiveCard(card.id)} delay={i * 0.2} />
+                                        ))}
+                                    </div>
+                                </div>
+                                <button className="w-full max-w-sm py-4 border-2 border-dashed border-emerald-500/30 text-emerald-600 font-black rounded-[28px] hover:bg-emerald-50 hover:border-emerald-500 transition-all uppercase tracking-widest text-sm animate-in" style={{ animationDelay: '0.4s' }}>+ Solicitar Novo Cartão</button>
+                            </div>
+                            <div className="lg:w-2/3 flex flex-col gap-8">
+                                <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md p-8 rounded-[40px] border border-white/50 dark:border-white/5 shadow-sm animate-in" style={{ animationDelay: '0.3s' }}>
+                                    <div className="flex justify-between items-end mb-4">
+                                        <div>
+                                            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Fatura Atual</h4>
+                                            <div className="text-3xl font-black tracking-tighter text-slate-900 dark:text-white">{activeCardData.used.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</div>
+                                        </div>
+                                        <div className="text-right">
+                                            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Limite Total</h4>
+                                            <div className="text-sm font-bold text-slate-600 dark:text-slate-300">{activeCardData.limit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</div>
+                                        </div>
+                                    </div>
+                                    <div className="h-3 bg-slate-100 dark:bg-slate-800/50 rounded-full overflow-hidden border border-white/50 dark:border-white/5">
+                                        <div className="h-full bg-emerald-500 rounded-full shadow-lg shadow-emerald-500/20 transition-all duration-1000" style={{ width: `${usedPercentage}%` }}></div>
+                                    </div>
+                                    <div className="mt-4 flex gap-4">
+                                        <button className="flex-1 py-4 bg-emerald-500 text-white text-xs font-black rounded-2xl shadow-xl shadow-emerald-500/20 hover:bg-emerald-600 transition-colors uppercase tracking-widest">Pagar Fatura</button>
+                                        <button className="flex-1 py-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 text-slate-600 dark:text-white text-xs font-black rounded-2xl hover:bg-slate-50 transition-colors uppercase tracking-widest">Parcelar</button>
+                                    </div>
+                                </div>
+                                <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md rounded-[48px] border border-white/50 dark:border-white/5 shadow-sm overflow-hidden animate-in" style={{ animationDelay: '0.5s' }}>
+                                    <div className="p-8 border-b border-white/30 dark:border-white/5"><h4 className="font-black text-xl tracking-tight dark:text-white">Lançamentos da Fatura</h4></div>
+                                    <div className="overflow-x-auto no-scrollbar">
+                                        <table className="w-full text-left">
+                                            <thead>
+                                                <tr className="bg-white/20 dark:bg-slate-800/20">
+                                                    <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Data</th>
+                                                    <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Descrição</th>
+                                                    <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Parcela</th>
+                                                    <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] text-right">Valor</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-white/20 dark:divide-white/5">
+                                                {activeInvoices.map((inv) => (
+                                                    <tr key={inv.id} className="hover:bg-white/40 dark:bg-white/5 transition-colors group">
+                                                        <td className="px-8 py-5"><p className="text-xs font-bold text-slate-400">{new Date(inv.date).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}</p></td>
+                                                        <td className="px-8 py-5"><p className="text-sm font-black text-slate-900 dark:text-white group-hover:text-emerald-500 transition-colors">{inv.desc}</p></td>
+                                                        <td className="px-8 py-5"><span className="text-xs font-bold text-slate-500 dark:text-slate-400">{inv.inst}</span></td>
+                                                        <td className="px-8 py-5 text-right"><p className="text-sm font-black text-slate-900 dark:text-white">{inv.value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p></td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </main>
+                </div>
+            );
+        };
+
+        const App = () => {
+            useEffect(() => {
+                try {
+                    const theme = localStorage.getItem('theme');
+                    if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                        document.documentElement.classList.add('dark');
+                    }
+                } catch (e) {}
+            }, []);
+        return (
+                <div className="flex w-full h-full transition-colors duration-500">
+                    <Sidebar activePage="cards" />
+                    <CardsPage />
+                </div>
+            );
+        };
+
+        try { const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />); } catch (e) { console.error(e); }
+    </script>
+</body>
+</html>

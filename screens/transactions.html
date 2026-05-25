@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>G-Finance | Transações</title>
+    <!-- React & Babel -->
+    <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = { darkMode: 'class' }
+    </script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        :root {
+            --bg: oklch(98% 0.004 240);
+            --surface: oklch(100% 0 0);
+            --fg: oklch(20% 0.02 240);
+            --font-display: 'SF Pro Display', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            --font-body: 'SF Pro Text', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        }
+
+        body { background-color: var(--bg); color: var(--fg); font-family: var(--font-body); -webkit-font-smoothing: antialiased; overflow: hidden; transition: background-color 0.5s, color 0.5s; }
+        .dark body { background-color: #020617; color: #f8fafc; }
+
+        .glass { background: rgba(255, 255, 255, 0.4); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%); border: 1px solid rgba(255, 255, 255, 0.3); }
+        .dark .glass { background: rgba(15, 23, 42, 0.6); border-color: rgba(255, 255, 255, 0.05); }
+
+        .mesh-gradient { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: -1; background-color: #f8fafc; background-image: radial-gradient(at 0% 0%, hsla(160, 100%, 95%, 1) 0, transparent 50%), radial-gradient(at 50% 0%, hsla(220, 100%, 95%, 1) 0, transparent 50%), radial-gradient(at 100% 0%, hsla(260, 100%, 95%, 1) 0, transparent 50%), radial-gradient(at 50% 50%, hsla(180, 100%, 98%, 1) 0, transparent 50%), radial-gradient(at 0% 100%, hsla(200, 100%, 95%, 1) 0, transparent 50%), radial-gradient(at 100% 100%, hsla(150, 100%, 95%, 1) 0, transparent 50%); filter: blur(100px); animation: meshMove 20s ease infinite alternate; transition: all 1s; }
+        .dark .mesh-gradient { background-color: #020617; background-image: radial-gradient(at 0% 0%, hsla(160, 100%, 15%, 1) 0, transparent 50%), radial-gradient(at 50% 0%, hsla(220, 100%, 15%, 1) 0, transparent 50%), radial-gradient(at 100% 0%, hsla(260, 100%, 15%, 1) 0, transparent 50%), radial-gradient(at 50% 50%, hsla(180, 100%, 10%, 1) 0, transparent 50%), radial-gradient(at 0% 100%, hsla(200, 100%, 15%, 1) 0, transparent 50%), radial-gradient(at 100% 100%, hsla(150, 100%, 15%, 1) 0, transparent 50%); }
+
+        @keyframes meshMove { 0% { transform: scale(1) translate(0, 0); } 100% { transform: scale(1.1) translate(-2%, -2%); } }
+        .animate-in { animation: slideUp 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="h-screen flex">
+    <div class="mesh-gradient"></div>
+    <div id="root" class="flex-1 flex overflow-hidden"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        const Icon = ({ name, className, size = 20 }) => {
+            useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, [name]);
+            const lucideName = name.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
+            return <i data-lucide={lucideName} className={className} style={{ width: size, height: size }}></i>;
+        };
+
+        const Sidebar = ({ activePage }) => {
+            const items = [
+                { name: 'Visão Geral', icon: 'LayoutGrid', path: '../index.html' },
+                { name: 'Transações', icon: 'Receipt', path: 'transactions.html' },
+                { name: 'Cartões', icon: 'CreditCard', path: 'cards.html' },
+                { name: 'Dívidas', icon: 'Landmark', path: 'debts.html' },
+                { name: 'Investimentos', icon: 'Target', path: 'wealth.html' },
+                { name: 'Assinaturas', icon: 'Repeat', path: 'subscriptions.html' },
+                { name: 'Relatórios', icon: 'BarChart3', path: 'analytics.html' },
+                { name: 'Cripto', icon: 'Coins', path: 'crypto.html' },
+                { name: 'Itaú Connect', icon: 'Link', path: 'integrations.html' },
+                { name: 'Ajustes', icon: 'Settings', path: 'settings.html' },
+            ];
+            return (
+                <aside className="w-64 glass border-r border-slate-200 dark:border-white/5 flex flex-col h-full z-10 overflow-y-auto no-scrollbar">
+                    <div className="p-8">
+                        <div className="flex items-center gap-3 mb-10">
+                            <div className="w-10 h-10 bg-emerald-500 rounded-2xl flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-emerald-500/20">G</div>
+                            <span className="font-black text-xl tracking-tight dark:text-white">G-Finance</span>
+                        </div>
+                        <nav className="space-y-1">
+                            {items.map((item) => (
+                                <a key={item.name} href={item.path} className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 group ${item.active ? 'bg-emerald-500 text-white font-bold shadow-lg shadow-emerald-500/20' : 'text-slate-500 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-white'}`}>
+                                    <Icon name={item.icon} className={item.active ? 'text-white' : 'group-hover:text-emerald-500'} size={18} />
+                                    <span className="text-sm">{item.name}</span>
+                                </a>
+                            ))}
+                        </nav>
+                    </div>
+                </aside>
+            );
+        };
+
+        const Header = ({ title }) => {
+            const [isDark, setIsDark] = useState(false);
+            useEffect(() => {
+                if (document.documentElement.classList.contains('dark')) setIsDark(true);
+            }, []);
+            const toggleTheme = () => {
+                const html = document.documentElement;
+                if (html.classList.contains('dark')) {
+                    html.classList.remove('dark'); setIsDark(false); localStorage.setItem('theme', 'light');
+                } else {
+                    html.classList.add('dark'); setIsDark(true); localStorage.setItem('theme', 'dark');
+                }
+            };
+            return (
+                <header className="h-20 border-b border-slate-200 dark:border-white/5 px-8 flex items-center justify-between glass sticky top-0 z-10 transition-colors">
+                    <h2 className="text-xl font-black tracking-tight dark:text-white" style={{ fontFamily: 'var(--font-display)' }}>{title}</h2>
+                    <div className="flex items-center gap-6">
+                        <button onClick={toggleTheme} className="p-2 text-slate-400 hover:text-emerald-500 transition-colors">
+                            <Icon name={isDark ? 'Sun' : 'Moon'} size={20} />
+                        </button>
+                        <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 border-2 border-emerald-100 dark:border-white/10 flex items-center justify-center text-slate-400">
+                            <Icon name="User" size={20} />
+                        </div>
+                    </div>
+                </header>
+            );
+        };
+
+        const TransactionsPage = () => {
+            const [search, setSearch] = useState('');
+            const txs = [
+                { id: 1, date: '2024-05-24', desc: 'Assinatura Netflix', cat: 'Lazer', value: -55.90, icon: 'Tv' },
+                { id: 2, date: '2024-05-23', desc: 'Supermercado Silva', cat: 'Alimentação', value: -342.10, icon: 'ShoppingCart' },
+                { id: 3, date: '2024-05-22', desc: 'Transferência Recebida', cat: 'Salário', value: 6500.00, icon: 'ArrowDownLeft' },
+                { id: 4, date: '2024-05-21', desc: 'Posto Shell', cat: 'Transporte', value: -180.00, icon: 'Zap' },
+                { id: 5, date: '2024-05-20', desc: 'Academia Fit', cat: 'Saúde', value: -120.00, icon: 'Activity' },
+                { id: 6, date: '2024-05-19', desc: 'Uber Viagem', cat: 'Transporte', value: -42.90, icon: 'Car' },
+                { id: 7, date: '2024-05-18', desc: 'Apple Store', cat: 'Tecnologia', value: -899.00, icon: 'Smartphone' },
+            ];
+            const filtered = txs.filter(t => t.desc.toLowerCase().includes(search.toLowerCase()) || t.cat.toLowerCase().includes(search.toLowerCase()));
+
+            return (
+                <div className="flex-1 flex flex-col overflow-hidden relative">
+                    <Header title="Transações" />
+                    <main className="flex-1 overflow-y-auto p-8 no-scrollbar relative z-0">
+                        <div className="max-w-6xl mx-auto space-y-8">
+                            <div className="flex flex-col md:flex-row gap-4 justify-between items-center animate-in">
+                                <div className="relative w-full md:w-96">
+                                    <Icon name="Search" className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                                    <input 
+                                        type="text" 
+                                        placeholder="Buscar transação..." 
+                                        value={search}
+                                        onChange={(e) => setSearch(e.target.value)}
+                                        className="w-full pl-12 pr-4 py-4 bg-white/60 dark:bg-slate-800/60 border border-white/50 dark:border-white/5 rounded-2xl glass text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:text-white"
+                                    />
+                                </div>
+                                <button className="px-6 py-4 bg-emerald-500 text-white text-xs font-black rounded-xl uppercase tracking-widest shadow-xl shadow-emerald-500/20 hover:bg-emerald-600 transition-all">Nova Transação</button>
+                            </div>
+
+                            <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md rounded-[40px] border border-white/50 dark:border-white/5 shadow-sm overflow-hidden animate-in">
+                                <table className="w-full text-left">
+                                    <thead>
+                                        <tr className="border-b border-slate-100 dark:border-white/5">
+                                            <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Descrição</th>
+                                            <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Categoria</th>
+                                            <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Valor</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 dark:divide-white/5">
+                                        {filtered.map((tx) => (
+                                            <tr key={tx.id} className="hover:bg-white/40 dark:hover:bg-white/5 transition-colors group">
+                                                <td className="px-8 py-5">
+                                                    <div className="flex items-center gap-4">
+                                                        <div className="w-10 h-10 bg-slate-100 dark:bg-slate-700 rounded-full flex items-center justify-center text-slate-500 dark:text-slate-400 group-hover:bg-emerald-500 group-hover:text-white transition-all"><Icon name={tx.icon} size={18} /></div>
+                                                        <div>
+                                                            <p className="text-sm font-black dark:text-white">{tx.desc}</p>
+                                                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{new Date(tx.date).toLocaleDateString('pt-BR')}</p>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td className="px-8 py-5">
+                                                    <span className="px-3 py-1.5 bg-slate-100/50 dark:bg-white/5 text-slate-600 dark:text-slate-300 text-[10px] font-black rounded-lg uppercase tracking-widest">{tx.cat}</span>
+                                                </td>
+                                                <td className="px-8 py-5 text-right font-black text-sm dark:text-white">
+                                                    <span className={tx.value > 0 ? 'text-emerald-500' : ''}>
+                                                        {tx.value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </main>
+                </div>
+            );
+        };
+
+        const App = () => {
+            useEffect(() => {
+                try {
+                    const theme = localStorage.getItem('theme');
+                    if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                        document.documentElement.classList.add('dark');
+                    }
+                } catch (e) {}
+            }, []);
+        return (<div className="flex w-full h-full transition-colors duration-500"><Sidebar activePage="transactions" /><TransactionsPage /></div>);
+        };
+
+        try { const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />); } catch (e) { console.error(e); }
+    </script>
+</body>
+</html>

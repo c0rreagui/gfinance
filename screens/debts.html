@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>G-Finance | Dívidas</title>
+    <!-- React & Babel -->
+    <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        :root {
+            --bg: oklch(98% 0.004 240);
+            --surface: oklch(100% 0 0);
+            --fg: oklch(20% 0.02 240);
+            --muted: oklch(50% 0.018 240);
+            --border: oklch(90% 0.006 240);
+            --accent: oklch(56% 0.12 170); /* Emerald */
+            --font-display: 'SF Pro Display', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            --font-body: 'SF Pro Text', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        }
+
+        body { background-color: var(--bg); transition: background-color 0.3s, color 0.3s; }
+        .dark body { background-color: #020617; color: #f8fafc; } color: var(--fg); font-family: var(--font-body); -webkit-font-smoothing: antialiased; overflow: hidden; }
+        .glass { background: rgba(255, 255, 255, 0.4); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%); border: 1px solid rgba(255, 255, 255, 0.3); }
+        .mesh-gradient { transition: all 0.5s; position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: -1; background-color: #f8fafc; background-image: radial-gradient(at 0% 0%, hsla(160, 100%, 95%, 1) 0, transparent 50%), radial-gradient(at 50% 0%, hsla(220, 100%, 95%, 1) 0, transparent 50%), radial-gradient(at 100% 0%, hsla(260, 100%, 95%, 1) 0, transparent 50%), radial-gradient(at 50% 50%, hsla(180, 100%, 98%, 1) 0, transparent 50%), radial-gradient(at 0% 100%, hsla(200, 100%, 95%, 1) 0, transparent 50%), radial-gradient(at 100% 100%, hsla(150, 100%, 95%, 1) 0, transparent 50%); filter: blur(100px); animation: meshMove 20s ease infinite alternate; }
+        .dark .mesh-gradient { background-color: #020617; background-image: radial-gradient(at 0% 0%, hsla(160, 100%, 15%, 1) 0, transparent 50%), radial-gradient(at 50% 0%, hsla(220, 100%, 15%, 1) 0, transparent 50%), radial-gradient(at 100% 0%, hsla(260, 100%, 15%, 1) 0, transparent 50%), radial-gradient(at 50% 50%, hsla(180, 100%, 10%, 1) 0, transparent 50%), radial-gradient(at 0% 100%, hsla(200, 100%, 15%, 1) 0, transparent 50%), radial-gradient(at 100% 100%, hsla(150, 100%, 15%, 1) 0, transparent 50%); }
+        @keyframes meshMove { 0% { transform: scale(1) translate(0, 0); } 100% { transform: scale(1.1) translate(-2%, -2%); } }
+        .animate-in { animation: slideUp 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+
+    <script>
+        tailwind.config = { darkMode: 'class' }
+    </script>
+</head>
+<body class="h-screen flex">
+    <div class="mesh-gradient"></div>
+    <div id="root" class="flex-1 flex overflow-hidden"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        const Icon = ({ name, className, size = 20 }) => {
+            useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, [name]);
+            return <i data-lucide={name.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()} className={className} style={{ width: size, height: size }}></i>;
+        };
+
+        const Sidebar = ({ activePage }) => (
+            <aside className="w-64 glass border-r border-slate-200 dark:border-slate-700/50/50 flex flex-col h-full z-10 overflow-y-auto no-scrollbar">
+                <div class="p-8">
+                    <div className="flex items-center gap-3 mb-12">
+                        <div className="w-10 h-10 bg-[#10B981] rounded-2xl flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-emerald-500/20">G</div>
+                        <span className="font-black text-xl tracking-tight">G-Finance</span>
+                    </div>
+                    
+                    <nav className="space-y-1">
+                        {[
+                            { name: 'Visão Geral', icon: 'LayoutGrid', path: '../index.html' },
+                            { name: 'Transações', icon: 'Receipt', path: 'transactions.html' },
+                            { name: 'Cartões', icon: 'CreditCard', path: 'cards.html' },
+                            { name: 'Dívidas', icon: 'Landmark', active: activePage === 'debts', path: 'debts.html' },
+                            { name: 'Metas & Invest.', icon: 'Target', path: 'wealth.html' },
+                            { name: 'Assinaturas', icon: 'Repeat', path: 'subscriptions.html' },
+                            { name: 'Relatórios', icon: 'BarChart3', path: 'analytics.html' },
+                            { name: 'Cripto', icon: 'Coins', path: 'crypto.html' },
+                            { name: 'Integrações', icon: 'Link', path: 'integrations.html' },
+                            { name: 'Configurações', icon: 'Settings', path: 'settings.html' },
+                        ].map((item) => (
+                            <a 
+                                key={item.name}
+                                href={item.path}
+                                className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 group ${
+                                    item.active ? 'bg-emerald-500 text-white font-bold shadow-lg shadow-emerald-500/20' : 'text-slate-500 hover:bg-white/50 hover:text-slate-900'
+                                }`}
+                            >
+                                <Icon name={item.icon} className={item.active ? 'text-white' : 'group-hover:text-emerald-600'} size={18} />
+                                <span className="text-sm">{item.name}</span>
+                            </a>
+                        ))}
+                    </nav>
+                </div>
+            </aside>
+        );
+
+        const Header = ({ title }) => (
+            <header className="h-20 border-b border-slate-200 dark:border-slate-700/50/50 px-8 flex items-center justify-between glass sticky top-0 z-10">
+                <h2 className="text-2xl font-black tracking-tighter" style={{ fontFamily: 'var(--font-display)' }}>{title}</h2>
+                <div className="flex items-center gap-3">
+                    <div className="text-right hidden sm:block">
+                        <p className="text-sm font-bold leading-tight">Guilherme</p>
+                        <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider">Conta Platinum</p>
+                    </div>
+                    <div className="w-10 h-10 rounded-full bg-white dark:bg-slate-800 border-2 border-emerald-100 shadow-sm flex items-center justify-center text-slate-400">
+                        <Icon name="User" size={20} />
+                    </div>
+                </div>
+            </header>
+        );
+
+        const DebtsPage = () => {
+            const debts = [
+                { id: 1, name: 'Financiamento Imobiliário', bank: 'Itaú', total: 450000, remaining: 320000, next: '2024-06-10', value: 3450.00, progress: 28 },
+                { id: 2, name: 'Empréstimo Veicular', bank: 'Santander', total: 80000, remaining: 15000, next: '2024-06-05', value: 1200.00, progress: 81 },
+                { id: 3, name: 'Consignado', bank: 'BB', total: 20000, remaining: 18500, next: '2024-06-15', value: 450.00, progress: 7 },
+            ];
+
+            return (
+                <div className="flex-1 flex flex-col overflow-hidden relative">
+                    <Header title="Gestão de Dívidas" />
+                    <main className="flex-1 overflow-y-auto p-8 no-scrollbar relative z-0">
+                        <div className="max-w-6xl mx-auto space-y-8">
+                            {/* Summary Card */}
+                            <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md p-10 rounded-[48px] border border-white/50 shadow-sm flex flex-col md:flex-row justify-between items-center animate-in">
+                                <div>
+                                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Saldo Devedor Total</h3>
+                                    <div className="text-4xl font-black text-slate-900 dark:text-white">R$ 353.500,00</div>
+                                    <p className="text-xs text-red-500 mt-2 font-bold uppercase tracking-widest flex items-center gap-1">
+                                        <Icon name="AlertCircle" size={12} /> Próximo vencimento em 5 dias
+                                    </p>
+                                </div>
+                                <button className="mt-6 md:mt-0 px-8 py-4 bg-slate-900 text-white text-xs font-black rounded-2xl uppercase tracking-widest hover:scale-105 transition-transform shadow-2xl">
+                                    Simular Quitação
+                                </button>
+                            </div>
+
+                            {/* Debts List */}
+                            <div className="space-y-6">
+                                {debts.map((debt, i) => (
+                                    <div key={debt.id} className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md p-8 rounded-[40px] border border-white/50 shadow-sm animate-in" style={{ animationDelay: `${0.2 + i*0.1}s` }}>
+                                        <div className="flex flex-col md:flex-row justify-between gap-8">
+                                            <div className="flex-1">
+                                                <div className="flex items-center gap-3 mb-4">
+                                                    <div className="w-10 h-10 bg-slate-100 dark:bg-slate-800/50 rounded-xl flex items-center justify-center text-slate-600">
+                                                        <Icon name="Landmark" />
+                                                    </div>
+                                                    <div>
+                                                        <h4 className="font-black text-lg text-slate-900 dark:text-white">{debt.name}</h4>
+                                                        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{debt.bank}</p>
+                                                    </div>
+                                                </div>
+                                                <div className="h-3 bg-slate-100 dark:bg-slate-800/50 rounded-full overflow-hidden border border-white mb-2">
+                                                    <div className="h-full bg-emerald-500 rounded-full shadow-lg shadow-emerald-500/20 transition-all duration-1000" style={{ width: `${debt.progress}%` }}></div>
+                                                </div>
+                                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{debt.progress}% QUITADO</p>
+                                            </div>
+                                            <div className="flex gap-12 text-right">
+                                                <div>
+                                                    <p className="text-[10px] font-black text-slate-400 uppercase mb-1 tracking-widest">Parcela</p>
+                                                    <p className="text-xl font-black text-slate-900 dark:text-white">R$ {debt.value.toLocaleString('pt-BR')}</p>
+                                                    <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-1">Vence {new Date(debt.next).toLocaleDateString('pt-BR')}</p>
+                                                </div>
+                                                <div>
+                                                    <p className="text-[10px] font-black text-slate-400 uppercase mb-1 tracking-widest">Saldo Restante</p>
+                                                    <p className="text-xl font-black text-slate-900 dark:text-white">R$ {debt.remaining.toLocaleString('pt-BR')}</p>
+                                                    <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-1">De R$ {debt.total.toLocaleString('pt-BR')}</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="mt-8 pt-8 border-t border-slate-100 dark:border-slate-700 flex justify-end gap-4">
+                                            <button className="px-6 py-3 bg-white dark:bg-slate-800 border border-slate-200 text-slate-600 text-[10px] font-black rounded-xl uppercase tracking-widest hover:bg-slate-50 transition-colors">Ver Detalhes</button>
+                                            <button className="px-6 py-3 bg-emerald-50 text-emerald-700 text-[10px] font-black rounded-xl uppercase tracking-widest hover:bg-emerald-100 transition-colors">Antecipar Parcela</button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </main>
+                </div>
+            );
+        };
+
+        const App = () => {
+            useEffect(() => {
+                try {
+                    const theme = localStorage.getItem('theme');
+                    if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                        document.documentElement.classList.add('dark');
+                    }
+                } catch (e) {}
+            }, []);
+        return (
+            <div className="flex w-full h-full">
+                <Sidebar activePage="debts" />
+                <DebtsPage />
+            </div>
+        );
+
+        try { const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />); } catch (e) { console.error(e); }
+    </script>
+</body>
+</html>

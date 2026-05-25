@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>G-Finance | Integrações</title>
+    <!-- React & Babel -->
+    <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        :root {
+            --bg: oklch(98% 0.004 240);
+            --surface: oklch(100% 0 0);
+            --fg: oklch(20% 0.02 240);
+            --muted: oklch(50% 0.018 240);
+            --border: oklch(90% 0.006 240);
+            --accent: oklch(56% 0.12 170); /* Emerald */
+            --font-display: 'SF Pro Display', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            --font-body: 'SF Pro Text', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        }
+
+        body { background-color: var(--bg); transition: background-color 0.3s, color 0.3s; }
+        .dark body { background-color: #020617; color: #f8fafc; } color: var(--fg); font-family: var(--font-body); -webkit-font-smoothing: antialiased; overflow: hidden; }
+        .glass { background: rgba(255, 255, 255, 0.4); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%); border: 1px solid rgba(255, 255, 255, 0.3); }
+        .mesh-gradient { transition: all 0.5s; position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: -1; background-color: #f8fafc; background-image: radial-gradient(at 0% 0%, hsla(160, 100%, 95%, 1) 0, transparent 50%), radial-gradient(at 50% 0%, hsla(220, 100%, 95%, 1) 0, transparent 50%), radial-gradient(at 100% 0%, hsla(260, 100%, 95%, 1) 0, transparent 50%), radial-gradient(at 50% 50%, hsla(180, 100%, 98%, 1) 0, transparent 50%), radial-gradient(at 0% 100%, hsla(200, 100%, 95%, 1) 0, transparent 50%), radial-gradient(at 100% 100%, hsla(150, 100%, 95%, 1) 0, transparent 50%); filter: blur(100px); animation: meshMove 20s ease infinite alternate; }
+        .dark .mesh-gradient { background-color: #020617; background-image: radial-gradient(at 0% 0%, hsla(160, 100%, 15%, 1) 0, transparent 50%), radial-gradient(at 50% 0%, hsla(220, 100%, 15%, 1) 0, transparent 50%), radial-gradient(at 100% 0%, hsla(260, 100%, 15%, 1) 0, transparent 50%), radial-gradient(at 50% 50%, hsla(180, 100%, 10%, 1) 0, transparent 50%), radial-gradient(at 0% 100%, hsla(200, 100%, 15%, 1) 0, transparent 50%), radial-gradient(at 100% 100%, hsla(150, 100%, 15%, 1) 0, transparent 50%); }
+        @keyframes meshMove { 0% { transform: scale(1) translate(0, 0); } 100% { transform: scale(1.1) translate(-2%, -2%); } }
+        .animate-in { animation: slideUp 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+
+    <script>
+        tailwind.config = { darkMode: 'class' }
+    </script>
+</head>
+<body class="h-screen flex">
+    <div class="mesh-gradient"></div>
+    <div id="root" class="flex-1 flex overflow-hidden"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        const Icon = ({ name, className, size = 20 }) => {
+            useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, [name]);
+            return <i data-lucide={name.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()} className={className} style={{ width: size, height: size }}></i>;
+        };
+
+        const Sidebar = ({ activePage }) => (
+            <aside className="w-64 glass border-r border-slate-200 dark:border-slate-700/50/50 flex flex-col h-full z-10 overflow-y-auto no-scrollbar">
+                <div class="p-8">
+                    <div className="flex items-center gap-3 mb-12">
+                        <div className="w-10 h-10 bg-[#10B981] rounded-2xl flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-emerald-500/20">G</div>
+                        <span className="font-black text-xl tracking-tight">G-Finance</span>
+                    </div>
+                    
+                    <nav className="space-y-1">
+                        {[
+                            { name: 'Visão Geral', icon: 'LayoutGrid', path: '../index.html' },
+                            { name: 'Transações', icon: 'Receipt', path: 'transactions.html' },
+                            { name: 'Cartões', icon: 'CreditCard', path: 'cards.html' },
+                            { name: 'Dívidas', icon: 'Landmark', path: 'debts.html' },
+                            { name: 'Metas & Invest.', icon: 'Target', path: 'wealth.html' },
+                            { name: 'Assinaturas', icon: 'Repeat', path: 'subscriptions.html' },
+                            { name: 'Relatórios', icon: 'BarChart3', path: 'analytics.html' },
+                            { name: 'Cripto', icon: 'Coins', path: 'crypto.html' },
+                            { name: 'Integrações', icon: 'Link', active: activePage === 'integrations', path: 'integrations.html' },
+                            { name: 'Configurações', icon: 'Settings', path: 'settings.html' },
+                        ].map((item) => (
+                            <a 
+                                key={item.name}
+                                href={item.path}
+                                className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 group ${
+                                    item.active ? 'bg-emerald-500 text-white font-bold shadow-lg shadow-emerald-500/20' : 'text-slate-500 hover:bg-white/50 hover:text-slate-900'
+                                }`}
+                            >
+                                <Icon name={item.icon} className={item.active ? 'text-white' : 'group-hover:text-emerald-600'} size={18} />
+                                <span className="text-sm">{item.name}</span>
+                            </a>
+                        ))}
+                    </nav>
+                </div>
+            </aside>
+        );
+
+        const Header = ({ title }) => (
+            <header className="h-20 border-b border-slate-200 dark:border-slate-700/50/50 px-8 flex items-center justify-between glass sticky top-0 z-10">
+                <h2 className="text-2xl font-black tracking-tighter" style={{ fontFamily: 'var(--font-display)' }}>{title}</h2>
+                <div className="flex items-center gap-3">
+                    <div className="text-right hidden sm:block">
+                        <p className="text-sm font-bold leading-tight">Guilherme</p>
+                        <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider">Conta Platinum</p>
+                    </div>
+                    <div className="w-10 h-10 rounded-full bg-white dark:bg-slate-800 border-2 border-emerald-100 shadow-sm flex items-center justify-center text-slate-400">
+                        <Icon name="User" size={20} />
+                    </div>
+                </div>
+            </header>
+        );
+
+        const IntegrationsPage = () => {
+            const banks = [
+                { id: 1, name: 'Itaú Personnalité', type: 'Conta Corrente', status: 'Conectado', lastSync: '10 min atrás', icon: 'Landmark', color: 'amber' },
+                { id: 2, name: 'Nubank', type: 'Cartão de Crédito', status: 'Pendente', lastSync: '1 dia atrás', icon: 'CreditCard', color: 'purple' },
+                { id: 3, name: 'Banco do Brasil', type: 'Investimentos', status: 'Erro', lastSync: '3 dias atrás', icon: 'TrendingUp', color: 'blue' },
+            ];
+
+            return (
+                <div className="flex-1 flex flex-col overflow-hidden relative">
+                    <Header title="Integrações Bancárias" />
+                    <main className="flex-1 overflow-y-auto p-8 no-scrollbar relative z-0">
+                        <div className="max-w-6xl mx-auto space-y-8">
+                            <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md p-10 rounded-[48px] border border-white/50 shadow-sm flex flex-col md:flex-row justify-between items-center animate-in">
+                                <div className="max-w-md">
+                                    <h3 className="font-black text-2xl mb-2 tracking-tight">Open Finance</h3>
+                                    <p className="text-sm text-slate-500 dark:text-slate-400">Conecte suas contas bancárias com segurança e tenha uma visão unificada de todo o seu patrimônio.</p>
+                                </div>
+                                <button className="mt-6 md:mt-0 px-8 py-4 bg-emerald-500 text-white text-xs font-black rounded-2xl uppercase tracking-widest shadow-xl shadow-emerald-500/20 hover:scale-105 transition-transform">
+                                    Conectar Novo Banco
+                                </button>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                                {banks.map((bank, i) => (
+                                    <div key={bank.id} className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md p-8 rounded-[40px] border border-white/50 shadow-sm animate-in" style={{ animationDelay: `${0.2 + i*0.1}s` }}>
+                                        <div className="flex justify-between items-start mb-6">
+                                            <div className={`w-14 h-14 bg-${bank.color}-50 text-${bank.color}-600 rounded-2xl flex items-center justify-center border border-${bank.color}-100`}>
+                                                <Icon name={bank.icon} size={28} />
+                                            </div>
+                                            <span className={`text-[10px] font-black px-3 py-1.5 rounded-xl uppercase tracking-widest ${bank.status === 'Conectado' ? 'bg-emerald-100 text-emerald-700' : bank.status === 'Erro' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-500'}`}>
+                                                {bank.status}
+                                            </span>
+                                        </div>
+                                        <h4 className="text-xl font-black text-slate-900 dark:text-white mb-1">{bank.name}</h4>
+                                        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-8">{bank.type}</p>
+                                        <div className="pt-6 border-t border-slate-100 dark:border-slate-700 flex justify-between items-center">
+                                            <div className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                                                <Icon name="RefreshCw" size={12} /> {bank.lastSync}
+                                            </div>
+                                            <button className="text-slate-400 hover:text-slate-600 dark:text-slate-300 transition-colors">
+                                                <Icon name="Settings" size={18} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </main>
+                </div>
+            );
+        };
+
+        const App = () => {
+            useEffect(() => {
+                try {
+                    const theme = localStorage.getItem('theme');
+                    if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                        document.documentElement.classList.add('dark');
+                    }
+                } catch (e) {}
+            }, []);
+        return (
+            <div className="flex w-full h-full">
+                <Sidebar activePage="integrations" />
+                <IntegrationsPage />
+            </div>
+        );
+
+        try { const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />); } catch (e) { console.error(e); }
+    </script>
+</body>
+</html>

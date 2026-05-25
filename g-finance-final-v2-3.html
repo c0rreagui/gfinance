@@ -1,0 +1,325 @@
+
+<!DOCTYPE html>
+<html lang="pt-BR" class="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>G-Finance | Command Center</title>
+    <!-- Dependencies -->
+    <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script type="module" src="https://unpkg.com/@splinetool/viewer@1.0.27/build/spline-viewer.js"></script>
+    
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        emerald: { 50: '#ecfdf5', 100: '#d1fae5', 500: '#10b981', 600: '#059669', 700: '#047857' }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <style>
+        :root {
+            --bg: oklch(98% 0.004 240);
+            --fg: oklch(20% 0.02 240);
+            --font-display: 'SF Pro Display', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            --font-body: 'SF Pro Text', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        }
+
+        body { 
+            background-color: var(--bg); 
+            color: var(--fg); 
+            font-family: var(--font-body); 
+            -webkit-font-smoothing: antialiased; 
+            overflow: hidden;
+            transition: background-color 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .dark body { background-color: #020617; color: #f8fafc; }
+
+        .glass { 
+            background: rgba(255, 255, 255, 0.4); 
+            backdrop-filter: blur(20px) saturate(180%); 
+            -webkit-backdrop-filter: blur(20px) saturate(180%); 
+            border: 1px solid rgba(255, 255, 255, 0.2); 
+        }
+        .dark .glass { 
+            background: rgba(15, 23, 42, 0.6); 
+            border-color: rgba(255, 255, 255, 0.05); 
+        }
+
+        .mesh-gradient { 
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: -1; 
+            background-color: #f8fafc; 
+            background-image: 
+                radial-gradient(at 0% 0%, hsla(160, 100%, 95%, 1) 0, transparent 50%),
+                radial-gradient(at 50% 0%, hsla(220, 100%, 95%, 1) 0, transparent 50%),
+                radial-gradient(at 100% 0%, hsla(260, 100%, 95%, 1) 0, transparent 50%);
+            filter: blur(100px); 
+            animation: meshMove 20s ease infinite alternate;
+        }
+        .dark .mesh-gradient { 
+            background-color: #020617; 
+            background-image: 
+                radial-gradient(at 0% 0%, hsla(160, 100%, 15%, 1) 0, transparent 50%),
+                radial-gradient(at 50% 0%, hsla(220, 100%, 15%, 1) 0, transparent 50%);
+        }
+
+        @keyframes meshMove { 0% { transform: scale(1); } 100% { transform: scale(1.1); } }
+        .chart-path { stroke-dasharray: 1000; stroke-dashoffset: 1000; animation: draw 2s ease-out forwards; }
+        @keyframes draw { to { stroke-dashoffset: 0; } }
+        .animate-in { animation: slideUp 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .tilt-card { transform-style: preserve-3d; perspective: 1000px; transition: transform 0.1s ease-out; }
+        .tilt-card-inner { transform: translateZ(20px); }
+        .spline-container { width: 100%; height: 100%; position: absolute; top: 0; left: 0; pointer-events: none; }
+        .spline-interactive { pointer-events: auto; }
+        #error-boundary { display: none; position: fixed; inset: 0; background: #fee2e2; color: #b91c1c; z-index: 9999; padding: 2rem; font-family: monospace; }
+    </style>
+</head>
+<body class="h-screen flex">
+    <div id="error-boundary">
+        <h1 style="font-size: 2rem; margin-bottom: 1rem;">Critical Error Detected</h1>
+        <pre id="error-content"></pre>
+        <button onclick="location.reload()" style="margin-top: 1rem; padding: 0.5rem 1rem; background: #b91c1c; color: white; border-radius: 4px;">Reload Platform</button>
+    </div>
+
+    <div class="mesh-gradient"></div>
+    <div id="root" class="flex-1 flex overflow-hidden"></div>
+
+    <script type="text/babel">
+        window.onerror = (msg, url, line, col, error) => {
+            const boundary = document.getElementById('error-boundary');
+            const content = document.getElementById('error-content');
+            if (boundary && content) {
+                boundary.style.display = 'block';
+                content.textContent = `${msg}\nAt: ${url}:${line}:${col}\n\nStack:\n${error?.stack}`;
+            }
+            return false;
+        };
+
+        const { useState, useEffect, useRef, useMemo } = React;
+
+        const MOCK_DATA = {
+            stats: [
+                { id: 1, label: 'Saldo Total', value: 'R$ 14.580,20', trend: '+3.2%', icon: 'Wallet', color: 'emerald' },
+                { id: 2, label: 'Receitas (Maio)', value: 'R$ 9.400,00', trend: '+15%', icon: 'ArrowUpCircle', color: 'emerald' },
+                { id: 3, label: 'Despesas (Maio)', value: 'R$ 4.120,50', trend: '-8%', icon: 'ArrowDownCircle', color: 'orange' },
+            ],
+            transactions: [
+                { id: 1, date: '24 Mai', desc: 'Netflix Premium', cat: 'Lazer', value: -55.90, icon: 'Tv' },
+                { id: 2, date: '23 Mai', desc: 'Supermercado Silva', cat: 'Alimentação', value: -342.10, icon: 'ShoppingCart' },
+                { id: 3, date: '22 Mai', desc: 'Salário G-Tech', cat: 'Renda', value: 6500.00, icon: 'ArrowDownLeft' },
+                { id: 4, date: '21 Mai', desc: 'Posto Shell', cat: 'Transporte', value: -180.00, icon: 'Zap' },
+                { id: 5, date: '20 Mai', desc: 'Academia Fit', cat: 'Saúde', value: -120.00, icon: 'Activity' },
+            ],
+            reminders: [
+                { id: 1, title: 'Fatura Nubank', due: 'Hoje', amount: 'R$ 1.250,00', urgency: 'high' },
+                { id: 2, title: 'Aluguel Casa', due: 'Em 3 dias', amount: 'R$ 2.800,00', urgency: 'medium' }
+            ],
+            goals: [
+                { id: 1, name: 'Reserva Emergência', progress: 85, color: 'emerald' },
+                { id: 2, name: 'Viagem Japão', progress: 42, color: 'emerald' }
+            ]
+        };
+
+        const Icon = ({ name, className, size = 20 }) => {
+            useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, [name]);
+            const lucideName = name.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
+            return <i data-lucide={lucideName} className={className} style={{ width: size, height: size }}></i>;
+        };
+
+        const useTilt = () => {
+            const ref = useRef(null);
+            const [style, setStyle] = useState({});
+            const onMouseMove = (e) => {
+                if (!ref.current) return;
+                const { left, top, width, height } = ref.current.getBoundingClientRect();
+                const x = (e.clientX - left) / width;
+                const y = (e.clientY - top) / height;
+                setStyle({ transform: `perspective(1000px) rotateX(${(y - 0.5) * -10}deg) rotateY(${(x - 0.5) * 10}deg)` });
+            };
+            const onMouseLeave = () => setStyle({ transform: 'perspective(1000px) rotateX(0deg) rotateY(0deg)' });
+            return { ref, style, onMouseMove, onMouseLeave };
+        };
+
+        const Sidebar = () => {
+            const items = [
+                { name: 'Visão Geral', icon: 'LayoutGrid', active: true, path: 'index.html' },
+                { name: 'Transações', icon: 'Receipt', path: 'screens/transactions.html' },
+                { name: 'Cartões', icon: 'CreditCard', path: 'screens/cards.html' },
+                { name: 'Dívidas', icon: 'Landmark', path: 'screens/debts.html' },
+                { name: 'Investimentos', icon: 'Target', path: 'screens/wealth.html' },
+                { name: 'Assinaturas', icon: 'Repeat', path: 'screens/subscriptions.html' },
+                { name: 'Relatórios', icon: 'BarChart3', path: 'screens/analytics.html' },
+                { name: 'Cripto', icon: 'Coins', path: 'screens/crypto.html' },
+                { name: 'Itaú Connect', icon: 'Link', path: 'screens/integrations.html' },
+                { name: 'Ajustes', icon: 'Settings', path: 'screens/settings.html' },
+            ];
+            return (
+                <aside className="w-64 glass border-r border-slate-200 dark:border-white/5 flex flex-col h-full z-10 overflow-y-auto no-scrollbar">
+                    <div className="p-8">
+                        <div className="flex items-center gap-3 mb-12">
+                            <div className="w-10 h-10 bg-emerald-500 rounded-2xl flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-emerald-500/20">G</div>
+                            <span className="font-black text-xl tracking-tight dark:text-white">G-Finance</span>
+                        </div>
+                        <nav className="space-y-1">
+                            {items.map(item => (
+                                <a key={item.name} href={item.path} className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 group ${item.active ? 'bg-emerald-500 text-white font-bold shadow-lg shadow-emerald-500/20' : 'text-slate-500 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-white'}`}>
+                                    <Icon name={item.icon} className={item.active ? 'text-white' : 'group-hover:text-emerald-500'} size={18} />
+                                    <span className="text-sm">{item.name}</span>
+                                </a>
+                            ))}
+                        </nav>
+                    </div>
+                </aside>
+            );
+        };
+
+        const Header = () => {
+            const [isDark, setIsDark] = useState(false);
+            useEffect(() => {
+                try {
+                    const theme = localStorage.getItem('theme');
+                    if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                        document.documentElement.classList.add('dark');
+                        setIsDark(true);
+                    }
+                } catch (e) {}
+            }, []);
+            const toggleTheme = () => {
+                const html = document.documentElement;
+                if (html.classList.contains('dark')) {
+                    html.classList.remove('dark'); setIsDark(false); 
+                    try { localStorage.setItem('theme', 'light'); } catch (e) {}
+                } else {
+                    html.classList.add('dark'); setIsDark(true); 
+                    try { localStorage.setItem('theme', 'dark'); } catch (e) {}
+                }
+            };
+            return (
+                <header className="h-20 px-8 flex items-center justify-between glass border-b border-slate-200 dark:border-white/5 sticky top-0 z-20">
+                    <div className="flex items-center gap-4">
+                        <h2 className="text-xl font-black dark:text-white">Dashboard</h2>
+                        <div className="h-4 w-px bg-slate-200 dark:bg-white/10"></div>
+                        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Maio 2024</p>
+                    </div>
+                    <div className="flex items-center gap-4">
+                        <button onClick={toggleTheme} className="p-2 text-slate-400 hover:text-emerald-500 transition-colors">
+                            <Icon name={isDark ? 'Sun' : 'Moon'} size={20} />
+                        </button>
+                        <div className="w-10 h-10 rounded-full bg-white dark:bg-slate-800 border-2 border-emerald-100 dark:border-white/10 flex items-center justify-center text-slate-400">
+                            <Icon name="User" size={20} />
+                        </div>
+                    </div>
+                </header>
+            );
+        };
+
+        const StatCard = ({ stat, delay }) => {
+            const { ref, style, onMouseMove, onMouseLeave } = useTilt();
+            return (
+                <div ref={ref} style={{...style, animationDelay: `${delay}s`}} onMouseMove={onMouseMove} onMouseLeave={onMouseLeave} className="tilt-card bg-white/60 dark:bg-slate-800/60 backdrop-blur-md p-6 rounded-[32px] border border-white/50 dark:border-white/5 shadow-sm hover:shadow-xl transition-all duration-300 animate-in">
+                    <div className="tilt-card-inner">
+                        <div className="flex justify-between mb-4">
+                            <div className={`p-3 bg-emerald-500/10 text-emerald-600 rounded-xl`}><Icon name={stat.icon} /></div>
+                            <span className={`text-xs font-black px-2 py-1 rounded-lg ${stat.trend.startsWith('+') ? 'bg-emerald-100 text-emerald-700' : 'bg-orange-100 text-orange-700'}`}>{stat.trend}</span>
+                        </div>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{stat.label}</p>
+                        <h3 className="text-2xl font-black dark:text-white tracking-tight">{stat.value}</h3>
+                    </div>
+                </div>
+            );
+        };
+
+        const MainContent = () => (
+            <main className="flex-1 overflow-y-auto p-8 no-scrollbar relative">
+                <div className="max-w-6xl mx-auto space-y-8">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                        {MOCK_DATA.stats.map((stat, i) => <StatCard key={stat.id} stat={stat} delay={i*0.1} />)}
+                    </div>
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                        <div className="lg:col-span-2 space-y-8">
+                            <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md p-8 rounded-[40px] border border-white/50 dark:border-white/5 shadow-sm animate-in">
+                                <h4 className="font-black text-xl mb-8 dark:text-white">Fluxo de Caixa</h4>
+                                <div className="h-[200px] w-full relative">
+                                    <svg className="w-full h-full" viewBox="0 0 600 200" preserveAspectRatio="none">
+                                        <path d="M 0 160 Q 150 140, 300 80 T 600 20" fill="none" stroke="#10b981" strokeWidth="6" strokeLinecap="round" className="chart-path" />
+                                    </svg>
+                                </div>
+                            </div>
+                            <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md rounded-[40px] border border-white/50 dark:border-white/5 shadow-sm overflow-hidden animate-in">
+                                <div className="p-8 border-b border-white/20 flex justify-between items-center">
+                                    <h4 className="font-black text-xl dark:text-white">Transações Recentes</h4>
+                                    <a href="screens/transactions.html" className="text-emerald-500 font-bold text-sm">Ver todas</a>
+                                </div>
+                                <table className="w-full text-left">
+                                    <tbody className="divide-y divide-slate-100 dark:divide-white/5">
+                                        {MOCK_DATA.transactions.map(tx => (
+                                            <tr key={tx.id} className="hover:bg-white/40 dark:hover:bg-white/5 transition-colors">
+                                                <td className="px-8 py-5 flex items-center gap-4">
+                                                    <div className="w-10 h-10 bg-slate-100 dark:bg-slate-700 rounded-full flex items-center justify-center text-slate-500"><Icon name={tx.icon} size={18} /></div>
+                                                    <div><p className="text-sm font-black dark:text-white">{tx.desc}</p><p className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">{tx.cat}</p></div>
+                                                </td>
+                                                <td className={`px-8 py-5 text-right font-black ${tx.value > 0 ? 'text-emerald-600' : 'dark:text-white'}`}>{tx.value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div className="space-y-8">
+                            <div className="bg-slate-900 rounded-[40px] aspect-[1.5/1] overflow-hidden relative group animate-in shadow-2xl">
+                                <div className="spline-container spline-interactive">
+                                    <spline-viewer url="https://prod.spline.design/1e9d1552-3443-485d-a066-e46604b8db02/scene.splinecode"></spline-viewer>
+                                </div>
+                                <div className="absolute inset-0 p-8 flex flex-col justify-between pointer-events-none">
+                                    <h4 className="text-white font-black text-lg">G-Black Card</h4>
+                                    <div className="text-white/60 font-mono tracking-[0.2em] text-sm">•••• •••• •••• 4290</div>
+                                </div>
+                            </div>
+                            <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md p-8 rounded-[40px] border border-white/50 dark:border-white/5 animate-in">
+                                <h4 className="font-black text-lg mb-6 dark:text-white tracking-tight">Próximos Pagamentos</h4>
+                                <div className="space-y-4">
+                                    {MOCK_DATA.reminders.map(rem => (
+                                        <div key={rem.id} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-white/5 flex justify-between items-center">
+                                            <div><p className="text-sm font-black dark:text-white">{rem.title}</p><p className={`text-[10px] font-bold uppercase ${rem.urgency === 'high' ? 'text-red-500' : 'text-blue-500'}`}>{rem.due} • {rem.amount}</p></div>
+                                            <Icon name="ChevronRight" size={16} className="text-slate-300" />
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        );
+
+        const App = () => (
+            <div className="flex w-full h-full transition-colors duration-500">
+                <Sidebar />
+                <div className="flex-1 flex flex-col overflow-hidden">
+                    <Header />
+                    <MainContent />
+                </div>
+            </div>
+        );
+
+        try {
+            const root = ReactDOM.createRoot(document.getElementById('root'));
+            root.render(<App />);
+        } catch (err) {
+            window.onerror(err.message, 'react-mount', 0, 0, err);
+        }
+    </script>
+</body>
+</html>

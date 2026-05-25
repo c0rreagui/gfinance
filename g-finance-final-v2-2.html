@@ -1,0 +1,362 @@
+
+<!DOCTYPE html>
+<html lang="pt-BR" class="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>G-Finance | Dashboard</title>
+    <!-- React & Babel -->
+    <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = { darkMode: 'class' }
+    </script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        :root {
+            --bg: oklch(98% 0.004 240);
+            --surface: oklch(100% 0 0);
+            --fg: oklch(20% 0.02 240);
+            --font-display: 'SF Pro Display', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            --font-body: 'SF Pro Text', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        }
+
+        body { background-color: var(--bg); color: var(--fg); font-family: var(--font-body); -webkit-font-smoothing: antialiased; overflow: hidden; transition: background-color 0.5s, color 0.5s; }
+        .dark body { background-color: #020617; color: #f8fafc; }
+
+        .glass { background: rgba(255, 255, 255, 0.4); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%); border: 1px solid rgba(255, 255, 255, 0.3); }
+        .dark .glass { background: rgba(15, 23, 42, 0.6); border-color: rgba(255, 255, 255, 0.05); }
+
+        .mesh-gradient { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: -1; background-color: #f8fafc; background-image: radial-gradient(at 0% 0%, hsla(160, 100%, 95%, 1) 0, transparent 50%), radial-gradient(at 50% 0%, hsla(220, 100%, 95%, 1) 0, transparent 50%), radial-gradient(at 100% 0%, hsla(260, 100%, 95%, 1) 0, transparent 50%), radial-gradient(at 50% 50%, hsla(180, 100%, 98%, 1) 0, transparent 50%), radial-gradient(at 0% 100%, hsla(200, 100%, 95%, 1) 0, transparent 50%), radial-gradient(at 100% 100%, hsla(150, 100%, 95%, 1) 0, transparent 50%); filter: blur(100px); animation: meshMove 20s ease infinite alternate; transition: all 1s; }
+        .dark .mesh-gradient { background-color: #020617; background-image: radial-gradient(at 0% 0%, hsla(160, 100%, 15%, 1) 0, transparent 50%), radial-gradient(at 50% 0%, hsla(220, 100%, 15%, 1) 0, transparent 50%), radial-gradient(at 100% 0%, hsla(260, 100%, 15%, 1) 0, transparent 50%), radial-gradient(at 50% 50%, hsla(180, 100%, 10%, 1) 0, transparent 50%), radial-gradient(at 0% 100%, hsla(200, 100%, 15%, 1) 0, transparent 50%), radial-gradient(at 100% 100%, hsla(150, 100%, 15%, 1) 0, transparent 50%); }
+
+        @keyframes meshMove { 0% { transform: scale(1) translate(0, 0); } 100% { transform: scale(1.1) translate(-2%, -2%); } }
+        .chart-path { stroke-dasharray: 1000; stroke-dashoffset: 1000; animation: draw 2s ease-out forwards; }
+        @keyframes draw { to { stroke-dashoffset: 0; } }
+        .animate-in { animation: slideUp 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .tilt-card { transform-style: preserve-3d; perspective: 1000px; transition: transform 0.1s ease-out; }
+        .tilt-card-inner { transform: translateZ(20px); }
+    </style>
+</head>
+<body class="h-screen flex">
+    <div class="mesh-gradient"></div>
+    <div id="root" class="flex-1 flex overflow-hidden"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        const MOCK_DATA = {
+            stats: [
+                { id: 1, label: 'Saldo Total', value: 'R$ 14.580,20', trend: '+3.2%', icon: 'Wallet', color: 'emerald' },
+                { id: 2, label: 'Receitas (Maio)', value: 'R$ 9.400,00', trend: '+15%', icon: 'ArrowUpCircle', color: 'blue' },
+                { id: 3, label: 'Despesas (Maio)', value: 'R$ 4.120,50', trend: '-8%', icon: 'ArrowDownCircle', color: 'orange' },
+            ],
+            transactions: [
+                { id: 1, date: '2024-05-24', desc: 'Assinatura Netflix', cat: 'Lazer', value: -55.90, icon: 'Tv' },
+                { id: 2, date: '2024-05-23', desc: 'Supermercado Silva', cat: 'Alimentação', value: -342.10, icon: 'ShoppingCart' },
+                { id: 3, date: '2024-05-22', desc: 'Transferência Recebida', cat: 'Salário', value: 6500.00, icon: 'ArrowDownLeft' },
+                { id: 4, date: '2024-05-21', desc: 'Posto Shell', cat: 'Transporte', value: -180.00, icon: 'Zap' },
+                { id: 5, date: '2024-05-20', desc: 'Academia Fit', cat: 'Saúde', value: -120.00, icon: 'Activity' },
+            ],
+            reminders: [
+                { id: 1, title: 'Fatura Nubank', due: 'Hoje', amount: 'R$ 1.250,00', urgency: 'high' },
+                { id: 2, title: 'Aluguel', due: 'Em 3 dias', amount: 'R$ 2.800,00', urgency: 'medium' }
+            ],
+            goals: [
+                { id: 1, name: 'Reserva de Emergência', progress: 85, color: 'emerald' },
+                { id: 2, name: 'Viagem Japão', progress: 42, color: 'blue' }
+            ],
+            chartData: [4200, 5100, 4900, 6800, 6200, 9400]
+        };
+
+        const Icon = ({ name, className, size = 20 }) => {
+            useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, [name]);
+            const lucideName = name.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
+            return <i data-lucide={lucideName} className={className} style={{ width: size, height: size }}></i>;
+        };
+
+        const useTilt = () => {
+            const ref = useRef(null);
+            const [style, setStyle] = useState({});
+            const onMouseMove = (e) => {
+                if (!ref.current) return;
+                const { left, top, width, height } = ref.current.getBoundingClientRect();
+                const x = (e.clientX - left) / width;
+                const y = (e.clientY - top) / height;
+                const rotateX = (y - 0.5) * -10;
+                const rotateY = (x - 0.5) * 10;
+                setStyle({ transform: `perspective(1000px) rotateX(${rotateX}deg) rotateY(${rotateY}deg)` });
+            };
+            const onMouseLeave = () => setStyle({ transform: 'perspective(1000px) rotateX(0deg) rotateY(0deg)' });
+            return { ref, style, onMouseMove, onMouseLeave };
+        };
+
+        const Sidebar = () => {
+            const items = [
+                { name: 'Visão Geral', icon: 'LayoutGrid', active: true, path: 'index.html' },
+                { name: 'Transações', icon: 'Receipt', path: 'screens/transactions.html' },
+                { name: 'Cartões', icon: 'CreditCard', path: 'screens/cards.html' },
+                { name: 'Dívidas', icon: 'Landmark', path: 'screens/debts.html' },
+                { name: 'Metas & Invest.', icon: 'Target', path: 'screens/wealth.html' },
+                { name: 'Assinaturas', icon: 'Repeat', path: 'screens/subscriptions.html' },
+                { name: 'Relatórios', icon: 'BarChart3', path: 'screens/analytics.html' },
+                { name: 'Cripto', icon: 'Coins', path: 'screens/crypto.html' },
+                { name: 'Integrações', icon: 'Link', path: 'screens/integrations.html' },
+                { name: 'Configurações', icon: 'Settings', path: 'screens/settings.html' },
+            ];
+            return (
+                <aside className="w-64 glass border-r border-slate-200 dark:border-white/5 flex flex-col h-full z-10 overflow-y-auto no-scrollbar">
+                    <div className="p-8">
+                        <div className="flex items-center gap-3 mb-10">
+                            <div className="w-10 h-10 bg-emerald-500 rounded-2xl flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-emerald-500/20">G</div>
+                            <span className="font-black text-xl tracking-tight dark:text-white">G-Finance</span>
+                        </div>
+                        <nav className="space-y-1">
+                            {items.map((item) => (
+                                <a key={item.name} href={item.path} className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 group ${item.active ? 'bg-emerald-500 text-white font-bold shadow-lg shadow-emerald-500/20' : 'text-slate-500 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-white'}`}>
+                                    <Icon name={item.icon} className={item.active ? 'text-white' : 'group-hover:text-emerald-500'} size={18} />
+                                    <span className="text-sm">{item.name}</span>
+                                </a>
+                            ))}
+                        </nav>
+                    </div>
+                </aside>
+            );
+        };
+
+        const Header = () => {
+            const [isDark, setIsDark] = useState(false);
+            useEffect(() => {
+                const theme = localStorage.getItem('theme');
+                if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                    document.documentElement.classList.add('dark');
+                    document.documentElement.classList.remove('light');
+                    setIsDark(true);
+                }
+            }, []);
+            const toggleTheme = () => {
+                const html = document.documentElement;
+                if (html.classList.contains('dark')) {
+                    html.classList.remove('dark'); setIsDark(false); localStorage.setItem('theme', 'light');
+                } else {
+                    html.classList.add('dark'); setIsDark(true); localStorage.setItem('theme', 'dark');
+                }
+            };
+            return (
+                <header className="h-20 border-b border-slate-200 dark:border-white/5 px-8 flex items-center justify-between glass sticky top-0 z-10 transition-colors">
+                    <div className="flex items-center gap-4">
+                        <h2 className="text-xl font-black tracking-tight dark:text-white" style={{ fontFamily: 'var(--font-display)' }}>Dashboard</h2>
+                        <div className="h-4 w-px bg-slate-200 dark:bg-white/10 hidden md:block"></div>
+                        <p className="text-xs font-bold text-slate-400 hidden md:block uppercase tracking-widest">Maio 2024</p>
+                    </div>
+                    <div className="flex items-center gap-6">
+                        <button onClick={toggleTheme} className="p-2 text-slate-400 hover:text-emerald-500 transition-colors">
+                            <Icon name={isDark ? 'Sun' : 'Moon'} size={20} />
+                        </button>
+                        <div className="relative p-2 text-slate-400 hover:text-emerald-500 transition-colors">
+                            <Icon name="Bell" size={20} />
+                            <span className="absolute top-2 right-2 w-2 h-2 bg-emerald-500 rounded-full border-2 border-white dark:border-slate-900"></span>
+                        </div>
+                        <div className="flex items-center gap-3 pl-6 border-l border-slate-200 dark:border-white/5">
+                            <div className="text-right hidden sm:block">
+                                <p className="text-sm font-bold dark:text-white">Guilherme R.</p>
+                                <p className="text-[10px] text-emerald-500 font-bold uppercase tracking-wider">Membro Premium</p>
+                            </div>
+                            <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 border-2 border-emerald-100 dark:border-white/10 flex items-center justify-center text-slate-400">
+                                <Icon name="User" size={20} />
+                            </div>
+                        </div>
+                    </div>
+                </header>
+            );
+        };
+
+        const QuickActions = () => (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8 animate-in" style={{ animationDelay: '0.1s' }}>
+                {[
+                    { label: 'Pix', icon: 'QrCode', color: 'emerald' },
+                    { label: 'Pagar', icon: 'Barcode', color: 'blue' },
+                    { label: 'Enviar', icon: 'Send', color: 'purple' },
+                    { label: 'Cartão', icon: 'CreditCard', color: 'orange' }
+                ].map((action, i) => (
+                    <button key={action.label} className="flex items-center gap-4 p-4 bg-white/60 dark:bg-slate-800/60 backdrop-blur-md rounded-2xl border border-white/50 dark:border-white/5 shadow-sm hover:shadow-md hover:translate-y-[-2px] transition-all group">
+                        <div className={`w-12 h-12 rounded-xl bg-${action.color}-500/10 text-${action.color}-600 dark:text-${action.color}-400 flex items-center justify-center group-hover:scale-110 transition-transform`}>
+                            <Icon name={action.icon} size={24} />
+                        </div>
+                        <span className="text-sm font-bold text-slate-700 dark:text-slate-300">{action.label}</span>
+                    </button>
+                ))}
+            </div>
+        );
+
+        const StatCard = ({ stat, delay }) => {
+            const { ref, style, onMouseMove, onMouseLeave } = useTilt();
+            return (
+                <div ref={ref} style={{...style, animationDelay: `${delay}s`}} onMouseMove={onMouseMove} onMouseLeave={onMouseLeave} className="tilt-card bg-white/60 dark:bg-slate-800/60 backdrop-blur-md p-6 rounded-[32px] border border-white/50 dark:border-white/5 shadow-sm hover:shadow-xl transition-all duration-300 animate-in">
+                    <div className="tilt-card-inner">
+                        <div className="flex items-center justify-between mb-6">
+                            <div className={`p-4 bg-${stat.color}-500/10 text-${stat.color}-600 dark:text-${stat.color}-400 rounded-2xl shadow-inner`}><Icon name={stat.icon} size={24} /></div>
+                            <span className={`text-xs font-black px-3 py-1 rounded-xl ${stat.trend.startsWith('+') ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400' : 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400'}`}>{stat.trend}</span>
+                        </div>
+                        <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-1">{stat.label}</p>
+                        <h3 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">{stat.value}</h3>
+                    </div>
+                </div>
+            );
+        };
+
+        const CashFlow = () => {
+            const points = MOCK_DATA.chartData.map((v, i) => ({ x: (i/5)*500, y: 150 - (v/10000)*120 }));
+            const path = `M ${points[0].x} ${points[0].y} ` + points.slice(1).map((p, i) => {
+                const prev = points[i];
+                const xc = (prev.x + p.x) / 2;
+                const yc = (prev.y + p.y) / 2;
+                return `Q ${prev.x} ${prev.y}, ${xc} ${yc} T ${p.x} ${p.y}`;
+            }).join(' ');
+            return (
+                <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md p-8 rounded-[40px] border border-white/50 dark:border-white/5 shadow-sm animate-in" style={{ animationDelay: '0.4s' }}>
+                    <div className="flex justify-between items-center mb-10">
+                        <div>
+                            <h4 className="font-black text-xl tracking-tight dark:text-white">Fluxo de Caixa</h4>
+                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Evolução Mensal</p>
+                        </div>
+                        <div className="flex p-1 bg-slate-100/50 dark:bg-slate-900/50 rounded-xl">
+                            <button className="px-4 py-1.5 bg-white dark:bg-slate-700 text-xs font-bold rounded-lg shadow-sm dark:text-white">MAI</button>
+                            <button className="px-4 py-1.5 text-xs font-bold text-slate-400">ABR</button>
+                        </div>
+                    </div>
+                    <div className="h-[150px] w-full relative">
+                        <svg className="w-full h-full overflow-visible" viewBox="0 0 500 150" preserveAspectRatio="none">
+                            <path d={path} fill="none" stroke="#10B981" strokeWidth="6" strokeLinecap="round" className="chart-path" />
+                            {points.map((p, i) => <circle key={i} cx={p.x} cy={p.y} r="6" fill="#10B981" className="animate-in" style={{ animationDelay: `${0.8 + i*0.1}s` }} />)}
+                        </svg>
+                    </div>
+                </div>
+            );
+        };
+
+        const Transactions = () => (
+            <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md rounded-[40px] border border-white/50 dark:border-white/5 shadow-sm overflow-hidden animate-in" style={{ animationDelay: '0.6s' }}>
+                <div className="p-8 border-b border-white/30 dark:border-white/5 flex justify-between items-center">
+                    <h4 className="font-black text-xl dark:text-white">Transações Recentes</h4>
+                    <a href="screens/transactions.html" className="text-emerald-500 text-xs font-black uppercase tracking-widest hover:text-emerald-600">Ver Todas</a>
+                </div>
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                        <tbody className="divide-y divide-slate-100 dark:divide-white/5">
+                            {MOCK_DATA.transactions.map((tx) => (
+                                <tr key={tx.id} className="hover:bg-white/40 dark:hover:bg-white/5 transition-colors group">
+                                    <td className="px-8 py-5">
+                                        <div className="flex items-center gap-4">
+                                            <div className="w-10 h-10 bg-slate-100 dark:bg-slate-700 rounded-full flex items-center justify-center text-slate-500 dark:text-slate-400 group-hover:bg-emerald-500 group-hover:text-white transition-all"><Icon name={tx.icon} size={18} /></div>
+                                            <div>
+                                                <p className="text-sm font-black dark:text-white">{tx.desc}</p>
+                                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{tx.cat}</p>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td className="px-8 py-5 text-right font-black text-sm dark:text-white">
+                                        <span className={tx.value > 0 ? 'text-emerald-500' : ''}>
+                                            {tx.value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                        </span>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        );
+
+        const Reminders = () => (
+            <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md p-8 rounded-[40px] border border-white/50 dark:border-white/5 shadow-sm animate-in" style={{ animationDelay: '0.8s' }}>
+                <h4 className="font-black text-lg mb-6 dark:text-white">Lembretes Próximos</h4>
+                <div className="space-y-4">
+                    {MOCK_DATA.reminders.map(rem => (
+                        <div key={rem.id} className={`p-4 rounded-2xl border flex items-center justify-between ${rem.urgency === 'high' ? 'bg-orange-500/5 border-orange-200 dark:border-orange-500/20' : 'bg-blue-500/5 border-blue-200 dark:border-blue-500/20'}`}>
+                            <div>
+                                <p className="text-sm font-black dark:text-white">{rem.title}</p>
+                                <p className={`text-[10px] font-black uppercase tracking-widest ${rem.urgency === 'high' ? 'text-orange-500' : 'text-blue-500'}`}>{rem.due} • {rem.amount}</p>
+                            </div>
+                            <button className={`w-8 h-8 rounded-full flex items-center justify-center ${rem.urgency === 'high' ? 'bg-orange-500 text-white' : 'bg-blue-500 text-white'}`}><Icon name="ChevronRight" size={16} /></button>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+
+        const Goals = () => (
+            <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md p-8 rounded-[40px] border border-white/50 dark:border-white/5 shadow-sm animate-in" style={{ animationDelay: '0.9s' }}>
+                <h4 className="font-black text-lg mb-6 dark:text-white">Metas de Reserva</h4>
+                <div className="space-y-6">
+                    {MOCK_DATA.goals.map(goal => (
+                        <div key={goal.id}>
+                            <div className="flex justify-between items-end mb-2">
+                                <span className="text-sm font-black dark:text-slate-300">{goal.name}</span>
+                                <span className="text-xs font-black text-emerald-500">{goal.progress}%</span>
+                            </div>
+                            <div className="h-3 bg-slate-100 dark:bg-white/5 rounded-full overflow-hidden p-[2px] border border-white/50 dark:border-white/5">
+                                <div className={`h-full bg-${goal.color}-500 rounded-full shadow-lg transition-all duration-1000`} style={{ width: `${goal.progress}%` }}></div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+
+        const Dashboard = () => (
+            <div className="flex-1 flex flex-col overflow-hidden relative">
+                <Header />
+                <main className="flex-1 overflow-y-auto p-4 sm:p-8 no-scrollbar relative z-0">
+                    <div className="max-w-6xl mx-auto space-y-8">
+                        <QuickActions />
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                            {MOCK_DATA.stats.map((stat, i) => <StatCard key={stat.id} stat={stat} delay={0.2 + i*0.1} />)}
+                        </div>
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 pb-12">
+                            <div className="lg:col-span-2 space-y-8">
+                                <CashFlow />
+                                <Transactions />
+                            </div>
+                            <div className="space-y-8">
+                                <Reminders />
+                                <Goals />
+                                <div className="bg-slate-900 rounded-[40px] p-8 text-white shadow-2xl relative overflow-hidden group animate-in" style={{ animationDelay: '1s' }}>
+                                    <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/20 blur-3xl rounded-full translate-x-10 translate-y--10 group-hover:scale-150 transition-transform duration-1000"></div>
+                                    <h4 className="font-black text-lg mb-6 tracking-tight relative z-10">Cartão Black Platinum</h4>
+                                    <div className="aspect-[1.6/1] bg-gradient-to-br from-emerald-400/20 to-blue-500/20 rounded-3xl border border-white/20 p-6 flex flex-col justify-between relative z-10">
+                                        <div className="flex justify-between items-start"><Icon name="Cpu" size={32} className="opacity-60" /><Icon name="Wifi" size={20} className="rotate-90 opacity-40" /></div>
+                                        <div className="text-xl font-black tracking-[0.2em] shadow-sm">•••• •••• •••• 4290</div>
+                                        <div className="flex justify-between items-end"><div className="text-[10px] font-black uppercase tracking-widest opacity-80">Guilherme R.</div><img src="https://upload.wikimedia.org/wikipedia/commons/2/2a/Mastercard-logo.svg" className="h-6 opacity-80" alt="Mastercard" /></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </main>
+            </div>
+        );
+
+        const App = () => {
+            useEffect(() => {
+                const theme = localStorage.getItem('theme');
+                if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                    document.documentElement.classList.add('dark');
+                    document.documentElement.classList.remove('light');
+                }
+            }, []);
+            return (<div className="flex w-full h-full transition-colors duration-500"><Sidebar /><Dashboard /></div>);
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
