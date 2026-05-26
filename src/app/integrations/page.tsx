@@ -132,11 +132,11 @@ export default function DataSources() {
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       const file = e.dataTransfer.files[0];
       const extension = file.name.split('.').pop()?.toLowerCase();
-      if (extension === 'ofx' || extension === 'csv') {
+      if (extension === 'ofx' || extension === 'csv' || extension === 'pdf') {
         setSelectedFile(file);
         setErrorMsg('');
       } else {
-        setErrorMsg('Formato de arquivo inválido. Por favor, envie apenas arquivos .OFX ou .CSV.');
+        setErrorMsg('Formato de arquivo inválido. Por favor, envie apenas arquivos .PDF, .OFX ou .CSV.');
         setSelectedFile(null);
       }
     }
@@ -146,11 +146,11 @@ export default function DataSources() {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
       const extension = file.name.split('.').pop()?.toLowerCase();
-      if (extension === 'ofx' || extension === 'csv') {
+      if (extension === 'ofx' || extension === 'csv' || extension === 'pdf') {
         setSelectedFile(file);
         setErrorMsg('');
       } else {
-        setErrorMsg('Formato de arquivo inválido. Por favor, envie apenas arquivos .OFX ou .CSV.');
+        setErrorMsg('Formato de arquivo inválido. Por favor, envie apenas arquivos .PDF, .OFX ou .CSV.');
         setSelectedFile(null);
       }
     }
@@ -169,17 +169,19 @@ export default function DataSources() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // Simulate OFX/CSV upload and parsing
+  // Simulate PDF/OFX/CSV upload and parsing
   const handleProcessFile = async () => {
     if (!selectedFile) return;
     setErrorMsg('');
     setSuccessMsg('');
     setProcessingFile(true);
-    setFileProgressMsg('Analisando cabeçalho...');
+    
+    const isPdf = selectedFile.name.toLowerCase().endsWith('.pdf');
+    setFileProgressMsg(isPdf ? 'Lendo PDF e executando OCR/extração de texto...' : 'Analisando cabeçalho...');
 
     // Phase 1 parsing simulation
     setTimeout(() => {
-      setFileProgressMsg('Processando registros e hashes antiduplicidade...');
+      setFileProgressMsg(isPdf ? 'Analisando tabela de extrato e aplicando regex...' : 'Processando registros e hashes antiduplicidade...');
       
       // Phase 2 insertion simulation
       setTimeout(() => {
@@ -195,11 +197,11 @@ export default function DataSources() {
             source: 'Arquivo',
             sourceDetail: selectedFile.name,
             status: 'success',
-            message: `${generatedTxs} transações importadas e reconciliadas.`,
+            message: isPdf ? `${generatedTxs} lançamentos extraídos do PDF do Itaú.` : `${generatedTxs} transações importadas e reconciliadas.`,
             amountOrRecords: `${generatedTxs} txs`
           };
           setLogs(prev => [newLog, ...prev]);
-          setSuccessMsg(`Extrato "${selectedFile.name}" processado com sucesso! ${generatedTxs} novas transações foram reconciliadas.`);
+          setSuccessMsg(`Extrato "${selectedFile.name}" processado com sucesso! ${generatedTxs} transações foram identificadas e adicionadas.`);
           setSelectedFile(null);
         } else {
           const newLog: OperationLog = {
@@ -208,11 +210,11 @@ export default function DataSources() {
             source: 'Arquivo',
             sourceDetail: selectedFile.name,
             status: 'error',
-            message: 'Falha estrutural: tags do arquivo OFX malformadas.',
+            message: isPdf ? 'Falha de legibilidade: PDF encriptado ou sem texto extraível.' : 'Falha estrutural: tags do arquivo OFX malformadas.',
             amountOrRecords: '0 txs'
           };
           setLogs(prev => [newLog, ...prev]);
-          setErrorMsg(`Erro ao processar o extrato "${selectedFile.name}". Verifique o layout do arquivo.`);
+          setErrorMsg(`Erro ao processar o extrato "${selectedFile.name}". Verifique a integridade do arquivo.`);
         }
         setProcessingFile(false);
         setFileProgressMsg('');
@@ -372,7 +374,7 @@ export default function DataSources() {
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".ofx,.csv"
+                  accept=".pdf,.ofx,.csv"
                   onChange={handleFileChange}
                   className="hidden"
                   disabled={processingFile}
@@ -385,10 +387,10 @@ export default function DataSources() {
                     </div>
                     <div className="text-center space-y-1">
                       <p className="text-sm font-black text-slate-200">
-                        {dragActive ? 'Solte o arquivo para carregar' : 'Arraste seu extrato OFX/CSV do Itaú aqui ou clique para buscar'}
+                        {dragActive ? 'Solte o arquivo para carregar' : 'Arraste seu extrato PDF do Itaú aqui ou clique para buscar'}
                       </p>
                       <p className="text-xs text-slate-500">
-                        Suporta formatos padronizados de extrato Itaú (.OFX ou .CSV)
+                        Suporta formatos padronizados de extrato Itaú (.PDF, .OFX ou .CSV)
                       </p>
                     </div>
                   </>
@@ -396,7 +398,9 @@ export default function DataSources() {
                   <div className="w-full flex flex-col items-center gap-6">
                     <div className="flex items-center gap-4 bg-slate-950 p-4 rounded-2xl border border-white/5 w-full max-w-md">
                       <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl">
-                        {selectedFile.name.endsWith('.ofx') ? (
+                        {selectedFile.name.toLowerCase().endsWith('.pdf') ? (
+                          <FileText className="w-6 h-6" />
+                        ) : selectedFile.name.toLowerCase().endsWith('.ofx') ? (
                           <FileCode className="w-6 h-6" />
                         ) : (
                           <FileSpreadsheet className="w-6 h-6" />
@@ -453,7 +457,7 @@ export default function DataSources() {
               <div className="mt-6 flex items-start gap-2.5 p-4 bg-orange-500/5 rounded-2xl border border-orange-500/10">
                 <HelpCircle className="w-4 h-4 text-orange-400 shrink-0 mt-0.5" />
                 <p className="text-[11px] text-slate-400 leading-normal">
-                  Os extratos OFX/CSV são processados localmente e criptografados antes de serem persistidos no Supabase. O algoritmo realiza a deduplicação automática baseada na data, valor e descrição da transação.
+                  Os extratos em PDF, OFX ou CSV são processados localmente e criptografados antes de serem persistidos no Supabase. O algoritmo realiza a deduplicação automática baseada na data, valor e descrição da transação.
                 </p>
               </div>
             </div>
