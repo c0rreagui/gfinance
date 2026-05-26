@@ -34,7 +34,7 @@ export const Sidebar: React.FC = () => {
     { name: 'Assinaturas', icon: Repeat, path: '/subscriptions' },
     { name: 'Relatórios', icon: BarChart3, path: '/analytics' },
     { name: 'Cripto', icon: Coins, path: '/crypto' },
-    { name: 'Itaú Connect', icon: Link2, path: '/integrations' },
+    { name: 'Fontes de Dados', icon: Link2, path: '/integrations' },
     { name: 'Ajustes', icon: Settings, path: '/settings' },
   ];
 

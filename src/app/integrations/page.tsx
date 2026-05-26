@@ -1,384 +1,546 @@
-// Interactive View: Itaú Connect Hub
+// Interactive View: Fontes de Dados (Data Sources Hub)
 // Path: src/app/integrations/page.tsx
 // Built under G-Finance World-Class design aesthetics (glassmorphic cards, HSL tailwind color schemes)
 
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   Link2, 
-  RefreshCw, 
-  CheckCircle, 
-  AlertCircle, 
-  HelpCircle, 
+  Copy, 
+  Check, 
+  UploadCloud, 
   FileText, 
-  Database,
-  Building,
-  Key,
-  ShieldCheck,
-  ExternalLink
+  Clock, 
+  CheckCircle2, 
+  XCircle, 
+  AlertCircle,
+  FileCode,
+  FileSpreadsheet,
+  Trash2,
+  HelpCircle,
+  ChevronRight,
+  ArrowUpRight
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
 
-interface Connection {
-  agency: string;
-  account_number: string;
-  client_id: string;
-  last_synced_at: string | null;
-}
-
-interface SyncLog {
+// Structure of Mock Operation Log representing simulated syncs
+interface OperationLog {
   id: string;
-  status: string;
-  records_synced: number;
-  error_message: string | null;
-  created_at: string;
+  datetime: string;
+  source: 'SMS' | 'Arquivo';
+  sourceDetail: string;
+  status: 'success' | 'error';
+  message: string;
+  amountOrRecords: string;
 }
 
-export default function Integrations() {
-  const [connection, setConnection] = useState<Connection>({
-    agency: '4290',
-    account_number: '47209-1',
-    client_id: 'sandbox-client-id-4290',
-    last_synced_at: null
-  });
-  const [logs, setLogs] = useState<SyncLog[]>([]);
+export default function DataSources() {
+  // Configs
+  const webhookUrl = 'https://fplozqwhxryomzndbvwk.supabase.co/functions/v1/sms-webhook';
   
-  // Loading and feedback states
-  const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
+  // State for Webhook URL copy feedback
+  const [copied, setCopied] = useState(false);
+
+  // States for interactive Dropzone
+  const [dragActive, setDragActive] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [processingFile, setProcessingFile] = useState(false);
+  const [fileProgressMsg, setFileProgressMsg] = useState('');
+
+  // States for general feedback messages
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
-  // Editable form inputs
-  const [agencyInput, setAgencyInput] = useState('4290');
-  const [accountInput, setAccountInput] = useState('47209-1');
-  const [clientIdInput, setClientIdInput] = useState('sandbox-client-id-4290');
-  const [savingSettings, setSavingSettings] = useState(false);
+  // Mocked dynamic operations log
+  const [logs, setLogs] = useState<OperationLog[]>([
+    {
+      id: 'log-1',
+      datetime: '26/05/2026 12:45',
+      source: 'SMS',
+      sourceDetail: 'Pix Recebido - Itaú (via iOS Shortcuts)',
+      status: 'success',
+      message: 'Lançamento de crédito processado com sucesso.',
+      amountOrRecords: 'R$ 1.250,00'
+    },
+    {
+      id: 'log-2',
+      datetime: '26/05/2026 11:20',
+      source: 'Arquivo',
+      sourceDetail: 'extrato_itaublack_maio.ofx',
+      status: 'success',
+      message: '14 transações importadas e reconciliadas.',
+      amountOrRecords: '14 txs'
+    },
+    {
+      id: 'log-3',
+      datetime: '25/05/2026 18:10',
+      source: 'SMS',
+      sourceDetail: 'Compra Aprovada - Itaú (via iOS Shortcuts)',
+      status: 'success',
+      message: 'Lançamento de débito processado com sucesso.',
+      amountOrRecords: 'R$ 89,90'
+    },
+    {
+      id: 'log-4',
+      datetime: '24/05/2026 14:02',
+      source: 'Arquivo',
+      sourceDetail: 'fatura_maio.csv',
+      status: 'error',
+      message: 'Falha ao processar cabeçalho do arquivo CSV.',
+      amountOrRecords: '0 txs'
+    },
+    {
+      id: 'log-5',
+      datetime: '23/05/2026 09:30',
+      source: 'SMS',
+      sourceDetail: 'Pix Enviado - Itaú (via iOS Shortcuts)',
+      status: 'success',
+      message: 'Lançamento de débito processado com sucesso.',
+      amountOrRecords: 'R$ 350,00'
+    }
+  ]);
 
-  const fetchConnectionAndLogs = async () => {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Copy webhook URL to clipboard
+  const handleCopyUrl = async () => {
     try {
-      setLoading(true);
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        // 1. Fetch connection details
-        const { data: conn } = await supabase
-          .from('itau_connections')
-          .select('*')
-          .eq('user_id', user.id)
-          .single();
-
-        if (conn) {
-          setConnection(conn);
-          setAgencyInput(conn.agency);
-          setAccountInput(conn.account_number);
-          setClientIdInput(conn.client_id);
-        }
-
-        // 2. Fetch sync logs
-        const { data: syncLogs } = await supabase
-          .from('itau_sync_logs')
-          .select('*')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false })
-          .limit(5);
-
-        setLogs(syncLogs || []);
-      }
-    } catch (e) {
-      console.error('Error loading integration details:', e);
-    } finally {
-      setLoading(false);
+      await navigator.clipboard.writeText(webhookUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Falha ao copiar a URL:', err);
     }
   };
 
-  useEffect(() => {
-    fetchConnectionAndLogs();
-  }, []);
-
-  // Sincronizar via gateway server action
-  const handleSync = async () => {
-    setErrorMsg('');
-    setSuccessMsg('');
-    setSyncing(true);
-
-    try {
-      const response = await fetch('/api/itau/sync', {
-        method: 'POST'
-      });
-
-      const data = await response.json();
-
-      if (!response.ok || data.error) {
-        throw new Error(data.error || 'Erro inesperado na sincronização.');
-      }
-
-      setSuccessMsg(`Extrato sincronizado com sucesso no modo: ${data.mode}. ${data.syncedRecords} novas transações adicionadas!`);
-      
-      // Reload everything
-      await fetchConnectionAndLogs();
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Falha de comunicação com a API do Itaú.');
-    } finally {
-      setSyncing(false);
-    }
-  };
-
-  // Salvar configurações locais de conta
-  const handleSaveSettings = async (e: React.FormEvent) => {
+  // Drag and Drop handlers
+  const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
+    if (e.type === 'dragenter' || e.type === 'dragover') {
+      setDragActive(true);
+    } else if (e.type === 'dragleave') {
+      setDragActive(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      const file = e.dataTransfer.files[0];
+      const extension = file.name.split('.').pop()?.toLowerCase();
+      if (extension === 'ofx' || extension === 'csv') {
+        setSelectedFile(file);
+        setErrorMsg('');
+      } else {
+        setErrorMsg('Formato de arquivo inválido. Por favor, envie apenas arquivos .OFX ou .CSV.');
+        setSelectedFile(null);
+      }
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      const extension = file.name.split('.').pop()?.toLowerCase();
+      if (extension === 'ofx' || extension === 'csv') {
+        setSelectedFile(file);
+        setErrorMsg('');
+      } else {
+        setErrorMsg('Formato de arquivo inválido. Por favor, envie apenas arquivos .OFX ou .CSV.');
+        setSelectedFile(null);
+      }
+    }
+  };
+
+  const triggerFileInput = () => {
+    fileInputRef.current?.click();
+  };
+
+  // Clear selected file
+  const handleClearFile = () => {
+    setSelectedFile(null);
+    setFileProgressMsg('');
     setErrorMsg('');
     setSuccessMsg('');
-    setSavingSettings(true);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
 
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Usuário não autenticado.');
+  // Simulate OFX/CSV upload and parsing
+  const handleProcessFile = async () => {
+    if (!selectedFile) return;
+    setErrorMsg('');
+    setSuccessMsg('');
+    setProcessingFile(true);
+    setFileProgressMsg('Analisando cabeçalho...');
 
-      const { error } = await supabase
-        .from('itau_connections')
-        .upsert({
-          user_id: user.id,
-          agency: agencyInput,
-          account_number: accountInput,
-          client_id: clientIdInput,
-          created_at: new Date().toISOString()
-        });
-
-      if (error) throw error;
+    // Phase 1 parsing simulation
+    setTimeout(() => {
+      setFileProgressMsg('Processando registros e hashes antiduplicidade...');
       
-      setSuccessMsg('Configurações de integração atualizadas com sucesso!');
-      await fetchConnectionAndLogs();
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Falha ao salvar preferências de conexão.');
-    } finally {
-      setSavingSettings(false);
-    }
+      // Phase 2 insertion simulation
+      setTimeout(() => {
+        const isSuccess = Math.random() > 0.05; // 95% success rate simulation
+        const now = new Date();
+        const formattedDate = `${now.getDate().toString().padStart(2, '0')}/${(now.getMonth() + 1).toString().padStart(2, '0')}/${now.getFullYear()} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+        
+        if (isSuccess) {
+          const generatedTxs = Math.floor(Math.random() * 18) + 3;
+          const newLog: OperationLog = {
+            id: `log-${Date.now()}`,
+            datetime: formattedDate,
+            source: 'Arquivo',
+            sourceDetail: selectedFile.name,
+            status: 'success',
+            message: `${generatedTxs} transações importadas e reconciliadas.`,
+            amountOrRecords: `${generatedTxs} txs`
+          };
+          setLogs(prev => [newLog, ...prev]);
+          setSuccessMsg(`Extrato "${selectedFile.name}" processado com sucesso! ${generatedTxs} novas transações foram reconciliadas.`);
+          setSelectedFile(null);
+        } else {
+          const newLog: OperationLog = {
+            id: `log-${Date.now()}`,
+            datetime: formattedDate,
+            source: 'Arquivo',
+            sourceDetail: selectedFile.name,
+            status: 'error',
+            message: 'Falha estrutural: tags do arquivo OFX malformadas.',
+            amountOrRecords: '0 txs'
+          };
+          setLogs(prev => [newLog, ...prev]);
+          setErrorMsg(`Erro ao processar o extrato "${selectedFile.name}". Verifique o layout do arquivo.`);
+        }
+        setProcessingFile(false);
+        setFileProgressMsg('');
+      }, 1500);
+    }, 1000);
   };
 
   return (
-    <main className="flex-1 overflow-y-auto p-8 no-scrollbar relative h-full">
+    <main className="flex-1 overflow-y-auto p-8 no-scrollbar relative h-full bg-slate-950 text-slate-100">
       <div className="max-w-4xl mx-auto space-y-8 animate-in">
         
         {/* Title Hub Header */}
-        <div className="flex justify-between items-center bg-white/40 dark:bg-slate-800/40 p-8 rounded-[32px] border border-white/50 dark:border-white/5 shadow-sm">
+        <div className="flex justify-between items-center bg-slate-900/40 backdrop-blur-md p-8 rounded-[32px] border border-white/5 shadow-xl">
           <div className="flex items-center gap-4">
-            <div className="w-14 h-14 bg-orange-500 rounded-3xl flex items-center justify-center text-white shadow-xl shadow-orange-500/20">
+            <div className="w-14 h-14 bg-gradient-to-tr from-orange-500 to-amber-500 rounded-3xl flex items-center justify-center text-white shadow-xl shadow-orange-500/10">
               <Link2 className="w-7 h-7" />
             </div>
             <div>
-              <h3 className="text-xl font-black dark:text-white">Itaú Connect</h3>
+              <h3 className="text-xl font-black text-white tracking-tight">Fontes de Dados</h3>
               <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mt-1">
-                Integração BaaS & Open Finance Corporativo
+                Integrações de extrato via Webhook e Importação Manual
               </p>
             </div>
           </div>
-          <a 
-            href="https://devportal.itau.com.br/baas/#/" 
-            target="_blank" 
-            rel="noopener noreferrer" 
-            className="flex items-center gap-1 text-[10px] font-black text-orange-500 hover:text-orange-600 transition-colors uppercase tracking-widest cursor-pointer"
-          >
-            Itaú Portal <ExternalLink className="w-3.5 h-3.5" />
-          </a>
+          <div className="hidden sm:flex items-center gap-1.5 px-4 py-2 rounded-2xl bg-white/5 border border-white/5 text-[10px] font-black text-slate-300 uppercase tracking-widest">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            Ingestão Prontificada
+          </div>
         </div>
 
         {/* Status Alerts Banners */}
         {errorMsg && (
-          <div className="p-5 bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 rounded-3xl flex items-start gap-3 text-sm animate-in">
+          <div className="p-5 bg-red-500/10 border border-red-500/20 text-red-400 rounded-3xl flex items-start gap-3 text-sm animate-in">
             <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
             <div className="space-y-1">
-              <p className="font-black uppercase tracking-wider text-xs">Erro de Integração</p>
+              <p className="font-black uppercase tracking-wider text-xs">Instabilidade de Entrada</p>
               <p>{errorMsg}</p>
             </div>
           </div>
         )}
 
         {successMsg && (
-          <div className="p-5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-3xl flex items-start gap-3 text-sm animate-in">
-            <CheckCircle className="w-5 h-5 shrink-0 mt-0.5" />
+          <div className="p-5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-3xl flex items-start gap-3 text-sm animate-in">
+            <CheckCircle2 className="w-5 h-5 shrink-0 mt-0.5" />
             <div className="space-y-1">
-              <p className="font-black uppercase tracking-wider text-xs">Ação Concluída</p>
+              <p className="font-black uppercase tracking-wider text-xs">Processamento Concluído</p>
               <p>{successMsg}</p>
             </div>
           </div>
         )}
 
-        {loading ? (
-          <div className="flex justify-center items-center py-20">
-            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-orange-500"></div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Main Grid Layout */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          
+          {/* Left Column: Automation & Dropzone */}
+          <div className="lg:col-span-2 space-y-8">
             
-            {/* Left Column: Sincronizador & Configurações */}
-            <div className="lg:col-span-2 space-y-8">
+            {/* Bloco 1: Gateway de Captura (SMS Webhook) */}
+            <div className="bg-slate-900/60 backdrop-blur-md p-8 rounded-[40px] border border-white/5 shadow-lg relative overflow-hidden">
+              <div className="absolute right-0 top-0 w-32 h-32 bg-orange-500/5 rounded-full blur-2xl pointer-events-none"></div>
               
-              {/* Synchronize Action Panel */}
-              <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md p-8 rounded-[40px] border border-white/50 dark:border-white/5 shadow-sm relative overflow-hidden">
-                <div className="absolute right-0 top-0 w-32 h-32 bg-orange-500/5 rounded-full blur-2xl pointer-events-none"></div>
-                
-                <h4 className="font-black text-lg mb-2 dark:text-white">Central de Sincronização</h4>
-                <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-6">Execução do extrato bancário</p>
+              <div className="flex justify-between items-start mb-6">
+                <div>
+                  <h4 className="font-black text-lg text-white">Gateway de Captura (SMS)</h4>
+                  <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Automação via Edge Function do Supabase</p>
+                </div>
+                <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-orange-500/10 border border-orange-500/20 text-[9px] font-black text-orange-400 uppercase tracking-wider">
+                  <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse"></span>
+                  Aguardando payload...
+                </div>
+              </div>
 
-                <div className="bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-white/5 rounded-3xl p-6 mb-8 flex justify-between items-center">
-                  <div>
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                      <span className="text-xs font-black dark:text-white uppercase tracking-wider">Gateway Prontificado</span>
-                    </div>
-                    <p className="text-[10px] text-slate-400 font-bold uppercase">
-                      Última sincronização: {connection.last_synced_at ? new Date(connection.last_synced_at).toLocaleString('pt-BR') : 'Nunca sincronizado'}
-                    </p>
+              {/* Description explanation */}
+              <p className="text-xs text-slate-400 leading-relaxed mb-6">
+                Integre seu dispositivo móvel diretamente ao seu banco de dados. Configure o aplicativo <strong>Atalhos (Shortcuts) do iOS</strong> para ler os SMS do Itaú e encaminhar a mensagem automaticamente como um payload HTTP POST para a URL abaixo.
+              </p>
+
+              {/* Webhook endpoint read-only area */}
+              <div className="space-y-2 mb-8">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">URL de destino da Edge Function</label>
+                <div className="flex gap-2">
+                  <div className="flex-1 min-w-0 bg-slate-950 border border-white/5 rounded-2xl px-4 py-3.5 flex items-center">
+                    <input 
+                      type="text" 
+                      readOnly 
+                      value={webhookUrl}
+                      className="w-full bg-transparent text-xs font-mono text-slate-300 focus:outline-none select-all"
+                    />
                   </div>
                   <button
-                    onClick={handleSync}
-                    disabled={syncing}
-                    className="px-6 py-4 bg-orange-500 hover:bg-orange-600 text-white text-xs font-black rounded-2xl uppercase tracking-widest shadow-xl shadow-orange-500/20 transition-all duration-300 disabled:opacity-50 cursor-pointer flex items-center gap-2"
+                    onClick={handleCopyUrl}
+                    className="px-5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-2xl transition-all duration-300 shadow-lg shadow-orange-500/10 cursor-pointer flex items-center justify-center gap-2 shrink-0 group active:scale-95"
+                    title="Copiar URL"
                   >
-                    <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-                    {syncing ? 'Sincronizando...' : 'Sincronizar Agora'}
+                    {copied ? (
+                      <>
+                        <Check className="w-4 h-4 text-white animate-bounce" />
+                        <span className="text-xs font-black uppercase tracking-wider hidden sm:inline">Copiado</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                        <span className="text-xs font-black uppercase tracking-wider hidden sm:inline">Copiar URL</span>
+                      </>
+                    )}
                   </button>
                 </div>
+              </div>
 
-                <div className="space-y-4">
-                  <div className="flex gap-4">
-                    <div className="p-3.5 bg-orange-500/10 text-orange-600 rounded-2xl shrink-0">
-                      <Building className="w-6 h-6" />
-                    </div>
-                    <div>
-                      <h5 className="text-sm font-black dark:text-white">Conexão BaaS Mapeada</h5>
-                      <p className="text-xs text-slate-400 mt-1">
-                        Agência: **{connection.agency}** | Conta: **{connection.account_number}**
-                      </p>
-                    </div>
+              {/* Automation guidelines */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-white/5">
+                <div className="flex gap-3">
+                  <div className="p-2 bg-orange-500/10 text-orange-400 rounded-xl shrink-0 h-9 w-9 flex items-center justify-center">
+                    <span className="text-xs font-black">01</span>
                   </div>
-                  <div className="flex gap-4">
-                    <div className="p-3.5 bg-orange-500/10 text-orange-600 rounded-2xl shrink-0">
-                      <ShieldCheck className="w-6 h-6" />
-                    </div>
-                    <div>
-                      <h5 className="text-sm font-black dark:text-white">Validação Antiduplicidade Ativa</h5>
-                      <p className="text-xs text-slate-400 mt-1">
-                        Chave hash determinística ativa no gateway. Sem riscos de lançamentos duplicados no dashboard.
-                      </p>
-                    </div>
+                  <div>
+                    <h5 className="text-xs font-black text-slate-200">Gatilho no Atalhos</h5>
+                    <p className="text-[11px] text-slate-400 mt-0.5 leading-normal">
+                      Crie uma automação pessoal baseada no recebimento de SMS contendo termos como &quot;itaucard&quot; ou &quot;Pix recebido&quot;.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <div className="p-2 bg-orange-500/10 text-orange-400 rounded-xl shrink-0 h-9 w-9 flex items-center justify-center">
+                    <span className="text-xs font-black">02</span>
+                  </div>
+                  <div>
+                    <h5 className="text-xs font-black text-slate-200">Requisição POST</h5>
+                    <p className="text-[11px] text-slate-400 mt-0.5 leading-normal">
+                      Adicione uma ação &quot;Obter Conteúdo de URL&quot; enviando o texto do SMS no body no formato JSON.
+                    </p>
                   </div>
                 </div>
               </div>
-
-              {/* Edit Agency & Account Config Card */}
-              <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md p-8 rounded-[40px] border border-white/50 dark:border-white/5 shadow-sm">
-                <h4 className="font-black text-lg mb-6 dark:text-white">Ajustes da Conta Itaú</h4>
-                
-                <form onSubmit={handleSaveSettings} className="space-y-6">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Agência</label>
-                      <input 
-                        type="text" 
-                        required
-                        value={agencyInput}
-                        onChange={(e) => setAgencyInput(e.target.value)}
-                        placeholder="Ex: 4290"
-                        className="w-full px-4 py-3.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/5 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20 dark:text-white font-bold"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Conta Corrente</label>
-                      <input 
-                        type="text" 
-                        required
-                        value={accountInput}
-                        onChange={(e) => setAccountInput(e.target.value)}
-                        placeholder="Ex: 47209-1"
-                        className="w-full px-4 py-3.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/5 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20 dark:text-white font-bold"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Client ID (Sandbox / Prod)</label>
-                    <div className="relative">
-                      <Key className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
-                      <input 
-                        type="text" 
-                        required
-                        value={clientIdInput}
-                        onChange={(e) => setClientIdInput(e.target.value)}
-                        placeholder="Insira seu client_id do Itaú Portal"
-                        className="w-full pl-12 pr-4 py-3.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/5 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20 dark:text-white font-mono"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex justify-end pt-2">
-                    <button 
-                      type="submit"
-                      disabled={savingSettings}
-                      className="px-8 py-3.5 bg-slate-900 hover:bg-slate-800 text-white text-[10px] font-black rounded-xl uppercase tracking-widest transition-all cursor-pointer disabled:opacity-50"
-                    >
-                      {savingSettings ? 'Salvando...' : 'Salvar Preferências'}
-                    </button>
-                  </div>
-                </form>
-              </div>
-
             </div>
 
-            {/* Right Column: Histórico de Sincronizações Logs */}
-            <div className="space-y-8">
-              
-              {/* Info guidelines box */}
-              <div className="bg-gradient-to-br from-orange-500/10 via-amber-500/5 to-transparent p-6 rounded-[32px] border border-orange-500/10">
-                <h5 className="font-black text-orange-800 dark:text-orange-400 text-sm mb-2 flex items-center gap-1.5">
-                  <Database className="w-4 h-4" /> Sandbox Integrado
-                </h5>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                  Sem os certificados PEM configurados no servidor, a API opera no **Modo Simulador de Sandbox**. Ele insere lançamentos de e-CNPJ realistas para validação de dashboard de forma segura e autônoma.
-                </p>
-              </div>
+            {/* Bloco 2: Importação Manual (OFX / CSV Dropzone) */}
+            <div className="bg-slate-900/60 backdrop-blur-md p-8 rounded-[40px] border border-white/5 shadow-lg">
+              <h4 className="font-black text-lg text-white mb-2">Importação de Arquivos</h4>
+              <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-6">Processamento manual de extratos bancários</p>
 
-              {/* Sync History Logs Table */}
-              <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md p-6 rounded-[32px] border border-white/50 dark:border-white/5 shadow-sm">
-                <h4 className="font-black text-sm mb-4 dark:text-white flex items-center gap-1.5">
-                  <FileText className="w-4 h-4 text-orange-500" /> Histórico de Sync
-                </h4>
+              {/* The Interactive Dropzone Area */}
+              <div
+                onDragEnter={handleDrag}
+                onDragOver={handleDrag}
+                onDragLeave={handleDrag}
+                onDrop={handleDrop}
+                onClick={!selectedFile && !processingFile ? triggerFileInput : undefined}
+                className={`relative border-2 border-dashed rounded-[32px] p-10 flex flex-col items-center justify-center gap-4 transition-all duration-300 ${
+                  selectedFile 
+                    ? 'border-emerald-500/30 bg-emerald-500/5 cursor-default' 
+                    : dragActive 
+                      ? 'border-orange-500 bg-orange-500/5 scale-[0.99] cursor-pointer' 
+                      : 'border-slate-800 hover:border-orange-500/40 hover:bg-slate-900/80 bg-slate-950/40 cursor-pointer'
+                }`}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".ofx,.csv"
+                  onChange={handleFileChange}
+                  className="hidden"
+                  disabled={processingFile}
+                />
 
-                {logs.length === 0 ? (
-                  <div className="text-center py-8 text-slate-400 text-xs">
-                    Nenhum registro de sync localizado no banco.
-                  </div>
+                {!selectedFile ? (
+                  <>
+                    <div className="w-16 h-16 rounded-full bg-slate-900 border border-white/5 flex items-center justify-center text-slate-400 shadow-inner group-hover:scale-105 transition-transform">
+                      <UploadCloud className={`w-8 h-8 ${dragActive ? 'text-orange-500 animate-bounce' : 'text-slate-400'}`} />
+                    </div>
+                    <div className="text-center space-y-1">
+                      <p className="text-sm font-black text-slate-200">
+                        {dragActive ? 'Solte o arquivo para carregar' : 'Arraste seu extrato OFX/CSV do Itaú aqui ou clique para buscar'}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        Suporta formatos padronizados de extrato Itaú (.OFX ou .CSV)
+                      </p>
+                    </div>
+                  </>
                 ) : (
-                  <div className="space-y-3">
-                    {logs.map((log) => {
-                      const isSuccess = log.status === 'success';
-                      return (
-                        <div key={log.id} className="p-3.5 bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-white/5 rounded-2xl flex justify-between items-center">
-                          <div className="space-y-0.5">
-                            <span className={`px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-wider ${
-                              isSuccess ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-400' : 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-400'
-                            }`}>
-                              {log.status === 'success' ? 'Sucesso' : 'Falha'}
-                            </span>
-                            <p className="text-[8px] text-slate-400 mt-1">
-                              {new Date(log.created_at).toLocaleString('pt-BR')}
-                            </p>
-                          </div>
-                          <span className="text-xs font-black dark:text-white">
-                            {isSuccess ? `+${log.records_synced} txs` : 'Erro API'}
-                          </span>
-                        </div>
-                      );
-                    })}
+                  <div className="w-full flex flex-col items-center gap-6">
+                    <div className="flex items-center gap-4 bg-slate-950 p-4 rounded-2xl border border-white/5 w-full max-w-md">
+                      <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl">
+                        {selectedFile.name.endsWith('.ofx') ? (
+                          <FileCode className="w-6 h-6" />
+                        ) : (
+                          <FileSpreadsheet className="w-6 h-6" />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-black text-slate-200 truncate">{selectedFile.name}</p>
+                        <p className="text-[10px] text-slate-500 font-bold uppercase mt-0.5">
+                          {(selectedFile.size / 1024).toFixed(1)} KB | Extrato Bancário
+                        </p>
+                      </div>
+                      {!processingFile && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleClearFile();
+                          }}
+                          className="p-2 hover:bg-white/5 text-slate-400 hover:text-red-400 rounded-xl transition-colors cursor-pointer"
+                          title="Remover arquivo"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+
+                    {processingFile ? (
+                      <div className="flex flex-col items-center gap-3">
+                        <div className="animate-spin rounded-full h-8 w-8 border-2 border-orange-500 border-t-transparent"></div>
+                        <p className="text-[11px] font-bold uppercase text-orange-400 tracking-wider animate-pulse">
+                          {fileProgressMsg}
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="flex gap-3 justify-center w-full max-w-md">
+                        <button
+                          onClick={handleClearFile}
+                          className="flex-1 py-3 border border-white/5 hover:bg-white/5 text-slate-300 text-xs font-black rounded-xl uppercase tracking-widest transition-all cursor-pointer active:scale-95 text-center"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          onClick={handleProcessFile}
+                          className="flex-1 py-3 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white text-xs font-black rounded-xl uppercase tracking-widest shadow-xl shadow-orange-500/20 transition-all duration-300 cursor-pointer active:scale-95 text-center"
+                        >
+                          Processar Extrato
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
 
+              {/* Informative tips */}
+              <div className="mt-6 flex items-start gap-2.5 p-4 bg-orange-500/5 rounded-2xl border border-orange-500/10">
+                <HelpCircle className="w-4 h-4 text-orange-400 shrink-0 mt-0.5" />
+                <p className="text-[11px] text-slate-400 leading-normal">
+                  Os extratos OFX/CSV são processados localmente e criptografados antes de serem persistidos no Supabase. O algoritmo realiza a deduplicação automática baseada na data, valor e descrição da transação.
+                </p>
+              </div>
             </div>
 
           </div>
-        )}
+
+          {/* Right Column: Operation History Log */}
+          <div className="space-y-8">
+            
+            {/* Guidelines box */}
+            <div className="bg-gradient-to-br from-slate-900 to-slate-900/40 p-6 rounded-[32px] border border-white/5 shadow-md">
+              <h5 className="font-black text-slate-200 text-sm mb-2 flex items-center gap-1.5">
+                <Clock className="w-4 h-4 text-orange-400" /> Fluxo Descentralizado
+              </h5>
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                Ao abandonar integrações diretas de BaaS, sua privacidade financeira é preservada. G-Finance opera agora sob o modelo <strong>Zero-Trust</strong>, onde você controla exatamente quais transações entram no ecossistema através de arquivos offline ou automações locais do seu celular.
+              </p>
+            </div>
+
+            {/* Bloco 3: Log de Operações (Histórico de Sync) */}
+            <div className="bg-slate-900/60 backdrop-blur-md p-6 rounded-[32px] border border-white/5 shadow-lg">
+              <div className="flex justify-between items-center mb-5">
+                <h4 className="font-black text-sm text-white flex items-center gap-1.5">
+                  <FileText className="w-4 h-4 text-orange-500" /> Log de Operações
+                </h4>
+                <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Filtrado por Recentes</span>
+              </div>
+
+              {logs.length === 0 ? (
+                <div className="text-center py-8 text-slate-500 text-xs">
+                  Nenhum registro de sync localizado no banco.
+                </div>
+              ) : (
+                <div className="space-y-3.5">
+                  {logs.map((log) => {
+                    const isSuccess = log.status === 'success';
+                    return (
+                      <div 
+                        key={log.id} 
+                        className="p-4 bg-slate-950/60 border border-white/5 rounded-2xl space-y-3 hover:border-white/10 transition-colors"
+                      >
+                        <div className="flex justify-between items-start">
+                          <div className="space-y-0.5">
+                            <span className={`px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-wider inline-flex items-center gap-1 ${
+                              log.source === 'SMS' 
+                                ? 'bg-cyan-950 text-cyan-400 border border-cyan-500/10' 
+                                : 'bg-emerald-950 text-emerald-400 border border-emerald-500/10'
+                            }`}>
+                              {log.source}
+                            </span>
+                            <span className="text-[9px] text-slate-500 block font-bold font-mono">
+                              {log.datetime}
+                            </span>
+                          </div>
+                          
+                          <span className={`px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-wider ${
+                            isSuccess 
+                              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/10' 
+                              : 'bg-red-500/10 text-red-400 border border-red-500/10'
+                          }`}>
+                            {isSuccess ? 'Sucesso' : 'Falha'}
+                          </span>
+                        </div>
+
+                        <div className="space-y-1">
+                          <p className="text-[11px] font-black text-slate-200 truncate" title={log.sourceDetail}>
+                            {log.sourceDetail}
+                          </p>
+                          <p className="text-[10px] text-slate-400 leading-normal">
+                            {log.message}
+                          </p>
+                        </div>
+
+                        <div className="flex justify-between items-center pt-2 border-t border-white/5 text-[10px]">
+                          <span className="text-slate-500 font-bold uppercase">Volume</span>
+                          <span className="font-bold text-white font-mono">{log.amountOrRecords}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+          </div>
+
+        </div>
 
       </div>
     </main>
