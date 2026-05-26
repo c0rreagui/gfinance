@@ -3,7 +3,8 @@ CREATE TABLE public.profiles (
     id uuid REFERENCES auth.users ON DELETE CASCADE NOT NULL PRIMARY KEY,
     updated_at timestamp with time zone,
     full_name text,
-    avatar_url text
+    avatar_url text,
+    pin text
 );
 
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
