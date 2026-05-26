@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { User, Shield, Bell, Eye, KeyRound, CheckCircle, HelpCircle } from 'lucide-react';
+import { User, Shield, Bell, Eye, KeyRound, CheckCircle, HelpCircle, AlertCircle } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { encryptPassword } from '@/lib/crypto';
 
