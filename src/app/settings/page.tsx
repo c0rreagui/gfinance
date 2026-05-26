@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { User, Shield, Bell, Eye, KeyRound, CheckCircle, HelpCircle, AlertCircle } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { encryptPassword } from '@/lib/crypto';
@@ -17,6 +17,8 @@ export default function Settings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [email, setEmail] = useState('');
+  
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   // Custom toggles
   const [pushNotif, setPushNotif] = useState(true);
@@ -102,6 +104,27 @@ export default function Settings() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setProfileError('');
+    setProfileSuccess('');
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 2 * 1024 * 1024) {
+      setProfileError('A imagem deve ter no máximo 2MB.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      if (event.target?.result) {
+        setProfile({ ...profile, avatar_url: event.target.result as string });
+        setProfileSuccess('Foto carregada localmente. Clique em "Salvar Alterações" para salvar definitivamente.');
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
   // Configure fast PIN login on this device
@@ -217,16 +240,32 @@ export default function Settings() {
                 )}
 
                 <div className="flex items-center gap-8 mb-10">
-                  <div className="w-24 h-24 rounded-3xl bg-slate-100 dark:bg-slate-800/50 border-4 border-white dark:border-slate-700 shadow-xl flex items-center justify-center text-slate-300">
-                    <User className="w-12 h-12 text-slate-400" />
+                  <div className="w-24 h-24 rounded-3xl bg-slate-100 dark:bg-slate-800/50 border-4 border-white dark:border-slate-700 shadow-xl flex items-center justify-center text-slate-300 overflow-hidden relative group">
+                    {profile.avatar_url ? (
+                      <img 
+                        src={profile.avatar_url} 
+                        alt="Avatar" 
+                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" 
+                      />
+                    ) : (
+                      <User className="w-12 h-12 text-slate-400" />
+                    )}
                   </div>
                   <div className="space-y-2">
                     <button 
                       type="button"
+                      onClick={() => fileInputRef.current?.click()}
                       className="px-6 py-2.5 bg-slate-900 text-white text-[10px] font-black rounded-xl uppercase tracking-widest hover:bg-slate-800 transition-all cursor-pointer"
                     >
                       Alterar Foto
                     </button>
+                    <input 
+                      type="file"
+                      ref={fileInputRef}
+                      onChange={handleFileChange}
+                      accept="image/*"
+                      className="hidden"
+                    />
                     <p className="text-xs text-slate-400">JPG, PNG ou GIF. Tamanho máximo 2MB.</p>
                   </div>
                 </div>

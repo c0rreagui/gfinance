@@ -2,9 +2,11 @@
 
 import React, { useEffect, useState } from 'react';
 import { Sun, Moon, User } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
 
 export const Header: React.FC = () => {
   const [isDark, setIsDark] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -22,6 +24,44 @@ export const Header: React.FC = () => {
     } catch (e) {
       console.warn('LocalStorage blocked or not available', e);
     }
+  }, []);
+
+  useEffect(() => {
+    const fetchAvatar = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { data } = await supabase
+            .from('profiles')
+            .select('avatar_url')
+            .eq('id', user.id)
+            .single();
+          if (data?.avatar_url) {
+            setAvatarUrl(data.avatar_url);
+          }
+        }
+      } catch (e) {}
+    };
+
+    fetchAvatar();
+
+    // Set up real-time listener for profile avatar updates
+    const channel = supabase
+      .channel('header-avatar')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'profiles' },
+        (payload: any) => {
+          if (payload.new && payload.new.avatar_url) {
+            setAvatarUrl(payload.new.avatar_url);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const toggleTheme = () => {
@@ -67,8 +107,12 @@ export const Header: React.FC = () => {
         >
           {isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
         </button>
-        <div className="w-10 h-10 rounded-full bg-white dark:bg-slate-800 border-2 border-emerald-100 dark:border-white/10 flex items-center justify-center text-slate-400 shadow-sm">
-          <User className="w-5 h-5" />
+        <div className="w-10 h-10 rounded-full bg-white dark:bg-slate-800 border-2 border-emerald-100 dark:border-white/10 flex items-center justify-center text-slate-400 shadow-sm overflow-hidden">
+          {avatarUrl ? (
+            <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+          ) : (
+            <User className="w-5 h-5" />
+          )}
         </div>
       </div>
     </header>
