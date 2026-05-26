@@ -11,13 +11,14 @@ import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
 
 const apiKey = process.env.GEMINI_API_KEY;
 
-export function getGeminiClient(): GoogleGenerativeAI {
-  if (!apiKey || apiKey === 'your-gemini-api-key-here') {
+export function getGeminiClient(tokenMode: boolean = false): GoogleGenerativeAI {
+  const finalKey = tokenMode ? 'oauth-authenticated' : (apiKey || 'your-gemini-api-key-here');
+  if (!tokenMode && (!apiKey || apiKey === 'your-gemini-api-key-here')) {
     throw new Error(
       'GEMINI_API_KEY não configurada. Por favor, adicione sua chave de API no arquivo .env.local.'
     );
   }
-  return new GoogleGenerativeAI(apiKey);
+  return new GoogleGenerativeAI(finalKey);
 }
 
 export interface AITransaction {
@@ -29,16 +30,18 @@ export interface AITransaction {
 }
 
 /**
- * Utiliza o Gemini 1.5 Flash com Structured Outputs para extrair lançamentos de extratos de qualquer banco.
+ * Utiliza o Gemini 2.0 Flash com Structured Outputs para extrair lançamentos de extratos de qualquer banco.
  */
 export async function parseStatementWithAI(
   fileBuffer: Buffer,
-  mimeType: string
+  mimeType: string,
+  oauthToken?: string
 ): Promise<AITransaction[]> {
-  const genAI = getGeminiClient();
-  const model = genAI.getGenerativeModel({
-    model: 'gemini-2.0-flash',
-    generationConfig: {
+  const genAI = getGeminiClient(!!oauthToken);
+  const model = genAI.getGenerativeModel(
+    {
+      model: 'gemini-2.0-flash',
+      generationConfig: {
       responseMimeType: 'application/json',
       responseSchema: {
         type: SchemaType.OBJECT,
@@ -77,7 +80,9 @@ export async function parseStatementWithAI(
         required: ['transactions'],
       },
     },
-  });
+    },
+    oauthToken ? { customHeaders: { 'Authorization': `Bearer ${oauthToken}` } } : undefined
+  );
 
   // Converter buffer para Part Part de dados embutidos
   const filePart = {
@@ -144,12 +149,14 @@ export async function generateFinancialResponse(
     goals: any[];
     reminders: any[];
   },
-  chatHistory: { role: 'user' | 'model'; parts: { text: string }[] }[] = []
+  chatHistory: { role: 'user' | 'model'; parts: { text: string }[] }[] = [],
+  oauthToken?: string
 ): Promise<string> {
-  const genAI = getGeminiClient();
-  const model = genAI.getGenerativeModel({
-    model: 'gemini-2.0-flash',
-  });
+  const genAI = getGeminiClient(!!oauthToken);
+  const model = genAI.getGenerativeModel(
+    { model: 'gemini-2.0-flash' },
+    oauthToken ? { customHeaders: { 'Authorization': `Bearer ${oauthToken}` } } : undefined
+  );
 
   const systemPrompt = `
     Você é o "Gemini Brain", a mente analítica por trás do G-Finance (plataforma de controle financeiro premium do Guilherme, CTO & Fundador).

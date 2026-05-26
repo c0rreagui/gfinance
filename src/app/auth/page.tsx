@@ -169,6 +169,7 @@ export default function AuthPage() {
         provider: 'google',
         options: {
           redirectTo: `${window.location.origin}/auth/callback`,
+          scopes: 'https://www.googleapis.com/auth/cloud-platform openid email profile'
         }
       });
       if (error) throw error;

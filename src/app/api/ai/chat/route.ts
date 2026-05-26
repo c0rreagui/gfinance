@@ -15,14 +15,17 @@ export const runtime = 'nodejs';
 export async function POST(req: Request): Promise<NextResponse> {
   // 1. Autenticação via cookies com o Supabase Server Client
   const supabase = await createSupabaseServerClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+  const user = session?.user;
 
-  if (authError || !user) {
+  if (sessionError || !user) {
     return NextResponse.json(
       { error: 'Sessão inválida ou expirada. Faça login novamente.' },
       { status: 401 }
     );
   }
+
+  const providerToken = session?.provider_token;
 
   // 2. Extrair dados da requisição
   let body: any;
@@ -96,7 +99,8 @@ export async function POST(req: Request): Promise<NextResponse> {
     const aiResponse = await generateFinancialResponse(
       message,
       financialContext,
-      chatHistory
+      chatHistory,
+      providerToken || undefined
     );
 
     return NextResponse.json({

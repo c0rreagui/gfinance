@@ -118,7 +118,8 @@ export default function Settings() {
       const { error } = await supabase.auth.linkIdentity({
         provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}/auth/callback?next=/settings`
+          redirectTo: `${window.location.origin}/auth/callback?next=/settings`,
+          scopes: 'https://www.googleapis.com/auth/cloud-platform openid email profile'
         }
       });
       if (error) throw error;
