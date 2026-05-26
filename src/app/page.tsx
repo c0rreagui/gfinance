@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { TiltCard } from '@/components/TiltCard';
 import { supabase } from '@/lib/supabase';
+import { AiChatHub } from './components/AiChatHub';
 
 // Lucide Icon mapping dictionary helper
 const iconMap: { [key: string]: React.ComponentType<any> } = {
@@ -369,6 +370,9 @@ export default function Home() {
                 <div className="text-white/60 font-mono tracking-[0.2em] text-sm">•••• •••• •••• 4290</div>
               </div>
             </div>
+
+            {/* Gemini AI Brain Command Center */}
+            <AiChatHub />
  
             {/* Upcoming Payments */}
             <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md p-8 rounded-[40px] border border-white/50 dark:border-white/5">

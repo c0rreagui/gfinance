@@ -9,6 +9,7 @@
 import { NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
 import crypto from 'crypto';
+import { parseStatementWithAI } from '@/lib/gemini';
 
 // ---------------------------------------------------------------------------
 // Tipos internos
@@ -284,11 +285,35 @@ export async function POST(req: Request): Promise<NextResponse> {
 
   // 4. Parse conforme tipo
   let parsed: ParsedTransaction[] = [];
+  let parsedByAi = false;
   const buffer = Buffer.from(await file.arrayBuffer());
 
   try {
     if (extension === 'pdf') {
-      parsed = await parsePdf(buffer);
+      try {
+        parsed = await parsePdf(buffer);
+      } catch (pdfError) {
+        console.warn('[Parser] Falha no parser regex de PDF. Redirecionando para o Gemini AI...', pdfError);
+      }
+
+      // Se o parser estático retornou 0 registros, ativa o fallback com Gemini
+      if (parsed.length === 0) {
+        console.log('[Parser] Processando extrato via inteligência artificial (Gemini)...');
+        try {
+          const aiTx = await parseStatementWithAI(buffer, 'application/pdf');
+          parsed = aiTx.map((t) => ({
+            date: t.date.includes('T') ? t.date : `${t.date}T12:00:00.000Z`,
+            description: `${t.description} (IA)`,
+            amount: t.amount,
+            category: t.category,
+            icon: t.icon,
+          }));
+          parsedByAi = true;
+        } catch (aiError) {
+          console.error('[Parser] Falha crítica no parser de IA do Gemini:', aiError);
+          throw new Error('Falha na extração tradicional e no cérebro de inteligência artificial.');
+        }
+      }
     } else if (extension === 'ofx') {
       parsed = parseOfx(buffer.toString('utf-8'));
     } else if (extension === 'csv') {
@@ -410,14 +435,14 @@ export async function POST(req: Request): Promise<NextResponse> {
     user_id: user.id,
     status: logStatus,
     file_name: file.name,
-    source_type: extension,
+    source_type: parsedByAi ? 'pdf_ai' : extension,
     records_synced: result.inserted,
     records_total: result.total,
     records_duplicate: result.duplicates,
     records_error: result.errors,
     error_message: result.errors > 0
       ? `${result.errors} lançamento(s) não puderam ser inseridos.`
-      : null,
+      : parsedByAi ? 'Processado via inteligência artificial (Gemini).' : null,
   });
 
   return NextResponse.json({
