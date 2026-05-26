@@ -43,6 +43,27 @@ export default function AuthPage() {
     setSuccessMsg('');
   }, [isSignUp, showPinScreen]);
 
+  // Physical keyboard listeners for PIN lockscreen (Expert Mode)
+  useEffect(() => {
+    if (!showPinScreen || loading) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') {
+        return;
+      }
+      if (/^[0-9]$/.test(e.key)) {
+        e.preventDefault();
+        handlePinKey(e.key);
+      } else if (e.key === 'Backspace') {
+        e.preventDefault();
+        handlePinBackspace();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showPinScreen, pinDigits, loading]);
+
   // Handle standard email/password auth
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -173,17 +194,24 @@ export default function AuthPage() {
             </div>
 
             {/* PIN Dot Indicators */}
-            <div className={`flex justify-center gap-6 ${pinError ? 'animate-bounce' : ''}`}>
-              {[0, 1, 2, 3].map((index) => (
-                <div
-                  key={index}
-                  className={`w-4 h-4 rounded-full border-2 transition-all duration-200 ${
-                    pinDigits[index] !== undefined
-                      ? 'bg-emerald-500 border-emerald-500 scale-110 shadow-lg shadow-emerald-500/20'
-                      : 'border-slate-300 dark:border-slate-600'
-                  }`}
-                />
-              ))}
+            <div className="flex flex-col items-center space-y-3">
+              <div className={`flex justify-center gap-6 ${pinError ? 'animate-shake' : ''}`}>
+                {[0, 1, 2, 3].map((index) => (
+                  <div
+                    key={index}
+                    className={`w-4 h-4 rounded-full border-2 transition-all duration-200 ${
+                      pinDigits[index] !== undefined
+                        ? 'bg-emerald-500 border-emerald-500 scale-110 shadow-lg shadow-emerald-500/20'
+                        : 'border-slate-300 dark:border-slate-600'
+                    }`}
+                  />
+                ))}
+              </div>
+              {loading && (
+                <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest animate-pulse">
+                  Descriptografando Sessão Segura...
+                </p>
+              )}
             </div>
 
             {/* Numerical Keyboard */}

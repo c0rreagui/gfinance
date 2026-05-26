@@ -14,7 +14,8 @@ import {
   X,
   TrendingDown,
   TrendingUp,
-  Wallet
+  Wallet,
+  AlertCircle
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
@@ -51,6 +52,7 @@ export default function Transactions() {
   const [amount, setAmount] = useState('');
   const [type, setType] = useState<'expense' | 'income'>('expense');
   const [icon, setIcon] = useState('Tv');
+  const [modalError, setModalError] = useState('');
 
   const fetchTransactions = async () => {
     try {
@@ -92,6 +94,7 @@ export default function Transactions() {
   const handleCreateTransaction = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!description || !amount) return;
+    setModalError('');
 
     const numericAmount = parseFloat(amount) * (type === 'expense' ? -1 : 1);
 
@@ -101,7 +104,7 @@ export default function Transactions() {
       const userId = user?.id;
 
       if (!userId) {
-        alert('Você precisa estar autenticado para realizar esta ação.');
+        setModalError('Você precisa estar autenticado para realizar esta ação.');
         return;
       }
 
@@ -121,10 +124,11 @@ export default function Transactions() {
       setAmount('');
       setCategory('Lazer');
       setIcon('Tv');
+      setModalError('');
       setIsModalOpen(false);
       fetchTransactions();
     } catch (err: any) {
-      alert(`Erro: ${err.message}`);
+      setModalError(err.message || 'Erro ao cadastrar transação.');
     }
   };
 
@@ -163,8 +167,14 @@ export default function Transactions() {
                 <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-emerald-500"></div>
               </div>
             ) : filtered.length === 0 ? (
-              <div className="text-center py-20 text-slate-400">
-                Nenhuma transação encontrada.
+              <div className="text-center py-20 text-slate-400 flex flex-col items-center justify-center">
+                <p className="mb-4">Nenhuma transação encontrada para a busca atual.</p>
+                <button 
+                  onClick={() => setSearch('')}
+                  className="px-5 py-2.5 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 dark:text-white text-xs font-black rounded-xl uppercase tracking-widest transition-all cursor-pointer shadow-sm"
+                >
+                  Limpar Busca
+                </button>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -219,7 +229,7 @@ export default function Transactions() {
       {/* Insert Transaction Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-800 rounded-3xl max-w-md w-full p-8 border border-white/20 shadow-2xl relative">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl max-w-md w-full p-8 border border-white/20 shadow-2xl relative animate-in">
             <button 
               onClick={() => setIsModalOpen(false)}
               className="absolute right-6 top-6 text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer"
@@ -227,6 +237,13 @@ export default function Transactions() {
               <X className="w-6 h-6" />
             </button>
             <h3 className="text-xl font-black mb-6 dark:text-white">Nova Transação</h3>
+
+            {modalError && (
+              <div className="p-4 bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 rounded-2xl flex items-start gap-2 mb-6 text-sm">
+                <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+                <span>{modalError}</span>
+              </div>
+            )}
             
             <form onSubmit={handleCreateTransaction} className="space-y-6">
               {/* Type Switcher */}

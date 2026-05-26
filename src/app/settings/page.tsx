@@ -29,6 +29,10 @@ export default function Settings() {
   const [pinError, setPinError] = useState('');
   const [pinSuccess, setPinSuccess] = useState('');
 
+  // Profile banner feedback states
+  const [profileError, setProfileError] = useState('');
+  const [profileSuccess, setProfileSuccess] = useState('');
+
   const fetchProfile = async () => {
     try {
       setLoading(true);
@@ -77,6 +81,8 @@ export default function Settings() {
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!profile.id) return;
+    setProfileError('');
+    setProfileSuccess('');
     
     try {
       setSaving(true);
@@ -90,9 +96,9 @@ export default function Settings() {
         });
 
       if (error) throw error;
-      alert('Perfil atualizado com sucesso!');
+      setProfileSuccess('Perfil atualizado com sucesso!');
     } catch (err: any) {
-      alert(`Erro ao salvar perfil: ${err.message}`);
+      setProfileError(`Erro ao salvar perfil: ${err.message}`);
     } finally {
       setSaving(false);
     }
@@ -123,7 +129,7 @@ export default function Settings() {
       });
 
       if (signInError) {
-        throw new Error('Senha atual inválida. Impossível configurar o PIN.');
+        throw new Error(`Erro de validação: ${signInError.message} (Verifique se a senha está correta ou se sua conta utiliza login social como Google/GitHub).`);
       }
 
       // 2. Encrypt password locally using PIN as the key
@@ -196,6 +202,20 @@ export default function Settings() {
               </div>
             ) : (
               <form onSubmit={handleSaveProfile}>
+                {profileError && (
+                  <div className="p-4 bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 rounded-2xl flex items-start gap-2 mb-6 text-sm">
+                    <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+                    <span>{profileError}</span>
+                  </div>
+                )}
+
+                {profileSuccess && (
+                  <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-2xl flex items-start gap-2 mb-6 text-sm">
+                    <CheckCircle className="w-5 h-5 shrink-0 mt-0.5" />
+                    <span>{profileSuccess}</span>
+                  </div>
+                )}
+
                 <div className="flex items-center gap-8 mb-10">
                   <div className="w-24 h-24 rounded-3xl bg-slate-100 dark:bg-slate-800/50 border-4 border-white dark:border-slate-700 shadow-xl flex items-center justify-center text-slate-300">
                     <User className="w-12 h-12 text-slate-400" />

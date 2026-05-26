@@ -167,6 +167,53 @@ export default function Home() {
     router.push('/auth');
   };
 
+  // Generate dynamic, actual running balance bezier paths for Cash Flow SVG
+  const getChartPaths = () => {
+    if (transactions.length === 0) {
+      const stroke = "M 0 160 Q 150 120, 300 90 T 600 30";
+      const fill = "M 0 200 L 0 160 Q 150 120, 300 90 T 600 30 L 600 200 Z";
+      return { stroke, fill };
+    }
+
+    const sorted = [...transactions].reverse();
+    const pointsCount = sorted.length;
+    const stepX = 600 / Math.max(pointsCount - 1, 1);
+    
+    let currentBalance = 0;
+    const balancesList: number[] = [];
+    sorted.forEach((tx) => {
+      currentBalance += tx.amount;
+      balancesList.push(currentBalance);
+    });
+
+    const minBalance = Math.min(...balancesList, 0);
+    const maxBalance = Math.max(...balancesList, 100);
+    const balanceRange = maxBalance - minBalance || 1;
+
+    const coordinates = balancesList.map((val, idx) => {
+      const x = idx * stepX;
+      // Map balance curve to Y: between 170 (bottom area) and 30 (top padding)
+      const y = 170 - ((val - minBalance) / balanceRange) * 140;
+      return { x, y };
+    });
+
+    let stroke = `M ${coordinates[0].x} ${coordinates[0].y}`;
+    for (let i = 1; i < coordinates.length; i++) {
+      const prev = coordinates[i - 1];
+      const curr = coordinates[i];
+      const cpX1 = prev.x + stepX / 2;
+      const cpY1 = prev.y;
+      const cpX2 = curr.x - stepX / 2;
+      const cpY2 = curr.y;
+      stroke += ` C ${cpX1} ${cpY1}, ${cpX2} ${cpY2}, ${curr.x} ${curr.y}`;
+    }
+
+    const fill = `M ${coordinates[0].x} 200 L ${coordinates[0].x} ${coordinates[0].y} ${stroke.substring(1)} L ${coordinates[coordinates.length - 1].x} 200 Z`;
+    return { stroke, fill };
+  };
+
+  const { stroke: chartStroke, fill: chartFill } = getChartPaths();
+
   if (loading) {
     return (
       <div className="flex-1 flex justify-center items-center h-full">
@@ -229,17 +276,29 @@ export default function Home() {
         {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Charts & Transactions column */}
-          <div className="lg:col-span-2 space-y-8">
-            {/* Cash Flow Chart */}
+          <div className="lg:col-span-2 space-y-8">            {/* Cash Flow Chart */}
             <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md p-8 rounded-[40px] border border-white/50 dark:border-white/5 shadow-sm">
               <h4 className="font-black text-xl mb-8 dark:text-white">Fluxo de Caixa</h4>
               <div className="h-[200px] w-full relative">
                 <svg className="w-full h-full" viewBox="0 0 600 200" preserveAspectRatio="none">
+                  <defs>
+                    <linearGradient id="chart-gradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#10b981" stopOpacity="0.25" />
+                      <stop offset="100%" stopColor="#10b981" stopOpacity="0.0" />
+                    </linearGradient>
+                  </defs>
+                  {/* Fill Area Gradient */}
                   <path 
-                    d="M 0 160 Q 150 140, 300 80 T 600 20" 
+                    d={chartFill}
+                    fill="url(#chart-gradient)"
+                    className="chart-path opacity-80"
+                  />
+                  {/* Stroke Path Line */}
+                  <path 
+                    d={chartStroke} 
                     fill="none" 
                     stroke="#10b981" 
-                    strokeWidth="6" 
+                    strokeWidth="5" 
                     strokeLinecap="round" 
                     className="chart-path" 
                   />
@@ -257,8 +316,11 @@ export default function Home() {
               </div>
               <div className="overflow-x-auto">
                 {transactions.length === 0 ? (
-                  <div className="text-center py-10 text-slate-400 text-sm">
-                    Nenhuma transação registrada. Vá para a aba "Transações" para adicionar.
+                  <div className="text-center py-12 px-6 text-slate-400 text-sm flex flex-col items-center">
+                    <p className="mb-2">Nenhuma transação registrada no seu livro.</p>
+                    <Link href="/transactions" className="text-xs font-black text-emerald-500 uppercase tracking-widest hover:underline flex items-center gap-1">
+                      Adicionar primeira transação <ChevronRight className="w-3.5 h-3.5" />
+                    </Link>
                   </div>
                 ) : (
                   <table className="w-full text-left">
@@ -292,11 +354,11 @@ export default function Home() {
               </div>
             </div>
           </div>
-
+ 
           {/* Right sidebar column */}
           <div className="space-y-8">
             {/* 3D Glass Credit Card */}
-            <div className="bg-slate-900 rounded-[40px] aspect-[1.5/1] overflow-hidden relative group shadow-2xl">
+            <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-emerald-950 rounded-[40px] aspect-[1.5/1] overflow-hidden relative group shadow-2xl border border-white/10 hover:border-emerald-500/20 transition-all duration-300">
               {mounted && (
                 <div className="spline-container spline-interactive">
                   <spline-viewer url="https://prod.spline.design/1e9d1552-3443-485d-a066-e46604b8db02/scene.splinecode"></spline-viewer>
@@ -307,14 +369,15 @@ export default function Home() {
                 <div className="text-white/60 font-mono tracking-[0.2em] text-sm">•••• •••• •••• 4290</div>
               </div>
             </div>
-
+ 
             {/* Upcoming Payments */}
             <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md p-8 rounded-[40px] border border-white/50 dark:border-white/5">
               <h4 className="font-black text-lg mb-6 dark:text-white tracking-tight">Próximos Pagamentos</h4>
               <div className="space-y-4">
                 {reminders.length === 0 ? (
-                  <div className="text-center py-6 text-slate-400 text-xs">
-                    Sem faturas pendentes.
+                  <div className="text-center py-8 text-slate-400 text-xs flex flex-col items-center">
+                    <p className="mb-1">Sem faturas pendentes.</p>
+                    <span className="text-[10px] text-slate-500">Tudo em dia para este mês!</span>
                   </div>
                 ) : (
                   reminders.map((rem) => (
@@ -333,14 +396,15 @@ export default function Home() {
                 )}
               </div>
             </div>
-
+ 
             {/* Active Goals */}
             <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md p-8 rounded-[40px] border border-white/50 dark:border-white/5">
               <h4 className="font-black text-lg mb-6 dark:text-white tracking-tight">Metas Ativas</h4>
               <div className="space-y-6">
                 {goals.length === 0 ? (
-                  <div className="text-center py-6 text-slate-400 text-xs">
-                    Nenhuma meta de investimento.
+                  <div className="text-center py-8 text-slate-400 text-xs flex flex-col items-center">
+                    <p className="mb-1">Nenhuma meta de investimento ativa.</p>
+                    <span className="text-[10px] text-slate-500">Defina objetivos de economia nos Ajustes.</span>
                   </div>
                 ) : (
                   goals.map((goal) => {
