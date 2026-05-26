@@ -84,6 +84,7 @@ Se parece um template, reprovou. Se poderia pertencer a qualquer produto, reprov
 - `/hm-designer` — Validar interface contra o mais alto padrão
 - `/hm-qa` — Testar tudo, encontrar os gaps
 - `/hm-align` — Checar se isso é a coisa certa pra construir
+- `/hm-benchmark` — Benchmarking profundo de features e pesquisa de mercado na internet
 
 ## Regras
 

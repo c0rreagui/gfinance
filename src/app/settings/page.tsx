@@ -35,12 +35,18 @@ export default function Settings() {
   const [profileError, setProfileError] = useState('');
   const [profileSuccess, setProfileSuccess] = useState('');
 
+  // Google OAuth identities linking states
+  const [identities, setIdentities] = useState<any[]>([]);
+  const [linkingError, setLinkingError] = useState('');
+  const [linkingSuccess, setLinkingSuccess] = useState('');
+
   const fetchProfile = async () => {
     try {
       setLoading(true);
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         setEmail(user.email || '');
+        setIdentities(user.identities || []);
         
         const { data, error } = await supabase
           .from('profiles')
@@ -48,7 +54,32 @@ export default function Settings() {
           .eq('id', user.id)
           .single();
 
-        if (error) {
+        let currentProfile = data;
+
+        // Auto-sync Google credentials if the user has Google linked but public.profiles has empty/missing details
+        const hasGoogle = user.identities?.some((id: any) => id.provider === 'google') ?? false;
+        if (hasGoogle && user.user_metadata?.avatar_url && (!data || !data.avatar_url)) {
+          const updatedAvatar = data?.avatar_url || user.user_metadata.avatar_url;
+          const updatedName = data?.full_name || user.user_metadata.full_name || 'Guilherme R.';
+          
+          await supabase
+            .from('profiles')
+            .upsert({
+              id: user.id,
+              full_name: updatedName,
+              avatar_url: updatedAvatar,
+              updated_at: new Date().toISOString()
+            });
+            
+          currentProfile = {
+            id: user.id,
+            full_name: updatedName,
+            avatar_url: updatedAvatar,
+            pin: data?.pin || null
+          };
+        }
+
+        if (error && !currentProfile) {
           const defaultProfile = {
             id: user.id,
             full_name: user.user_metadata?.full_name || 'Guilherme R.',
@@ -57,7 +88,7 @@ export default function Settings() {
           };
           setProfile(defaultProfile);
         } else {
-          setProfile(data);
+          setProfile(currentProfile);
         }
 
         // Check if device already has a bound PIN
@@ -79,6 +110,42 @@ export default function Settings() {
   useEffect(() => {
     fetchProfile();
   }, []);
+
+  const handleLinkGoogle = async () => {
+    setLinkingError('');
+    setLinkingSuccess('');
+    try {
+      const { error } = await supabase.auth.linkIdentity({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback?next=/settings`
+        }
+      });
+      if (error) throw error;
+    } catch (err: any) {
+      setLinkingError(err.message || 'Erro ao iniciar vinculação da conta Google.');
+    }
+  };
+
+  const handleUnlinkGoogle = async () => {
+    setLinkingError('');
+    setLinkingSuccess('');
+    try {
+      const googleIdentity = identities.find((id: any) => id.provider === 'google');
+      if (!googleIdentity) {
+        setLinkingError('Conta Google não vinculada ou não encontrada.');
+        return;
+      }
+      
+      const { error } = await supabase.auth.unlinkIdentity(googleIdentity);
+      if (error) throw error;
+
+      setLinkingSuccess('Conta Google desvinculada com sucesso.');
+      await fetchProfile();
+    } catch (err: any) {
+      setLinkingError(err.message || 'Erro ao desvincular conta Google. Certifique-se de que possui uma senha válida.');
+    }
+  };
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -301,6 +368,77 @@ export default function Settings() {
                   </button>
                 </div>
               </form>
+            )}
+          </div>
+
+          {/* Linked Accounts Panel */}
+          <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md p-10 rounded-[48px] border border-white/50 dark:border-white/5 shadow-sm">
+            <h4 className="font-black text-xl mb-4 dark:text-white flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shrink-0"></span> Contas Vinculadas
+            </h4>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-8">
+              Conecte sua conta do Google para importar automaticamente sua foto de perfil, sincronizar seu nome completo e permitir login com um clique.
+            </p>
+
+            {linkingError && (
+              <div className="p-4 bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 rounded-2xl flex items-start gap-2 mb-6 text-sm">
+                <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+                <span>{linkingError}</span>
+              </div>
+            )}
+
+            {linkingSuccess && (
+              <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-2xl flex items-start gap-2 mb-6 text-sm">
+                <CheckCircle className="w-5 h-5 shrink-0 mt-0.5" />
+                <span>{linkingSuccess}</span>
+              </div>
+            )}
+
+            {identities.some((id: any) => id.provider === 'google') ? (
+              <div className="p-6 rounded-3xl bg-slate-100/50 dark:bg-slate-900/40 border border-slate-200 dark:border-white/5 flex items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-white dark:bg-slate-800 flex items-center justify-center border border-slate-200 dark:border-white/10 shadow-sm shrink-0">
+                    <svg className="w-6 h-6 text-slate-800 dark:text-white" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12.24 10.285V14.4h6.887c-.648 2.41-2.519 4.114-5.18 4.114-3.553 0-6.438-2.885-6.438-6.437 0-3.553 2.885-6.438 6.437-6.438 1.54 0 2.947.55 4.054 1.45l3.078-3.078C19.23 2.38 15.973 1 12.24 1 6.033 1 1 6.033 1 12.24s5.033 11.24 11.24 11.24c6.478 0 11.24-4.555 11.24-11.24 0-.79-.08-1.384-.24-1.955H12.24z"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h5 className="font-black text-slate-900 dark:text-white text-sm">Google</h5>
+                      <span className="text-[9px] font-black uppercase tracking-wider bg-emerald-500/10 text-emerald-500 px-2 py-0.5 rounded-md">Vinculado</span>
+                    </div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Conectado como {email}</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleUnlinkGoogle}
+                  className="px-5 py-2.5 bg-slate-900 text-white text-[10px] font-black rounded-xl uppercase tracking-widest hover:bg-slate-800 transition-all cursor-pointer shadow-sm border border-slate-800 dark:border-white/5 shrink-0"
+                >
+                  Desvincular
+                </button>
+              </div>
+            ) : (
+              <div className="p-6 rounded-3xl bg-slate-100/50 dark:bg-slate-900/40 border border-slate-200 dark:border-white/5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-white dark:bg-slate-800/30 flex items-center justify-center border border-slate-200 dark:border-white/5 shrink-0">
+                    <svg className="w-6 h-6 text-slate-400 dark:text-slate-500" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12.24 10.285V14.4h6.887c-.648 2.41-2.519 4.114-5.18 4.114-3.553 0-6.438-2.885-6.438-6.437 0-3.553 2.885-6.438 6.437-6.438 1.54 0 2.947.55 4.054 1.45l3.078-3.078C19.23 2.38 15.973 1 12.24 1 6.033 1 1 6.033 1 12.24s5.033 11.24 11.24 11.24c6.478 0 11.24-4.555 11.24-11.24 0-.79-.08-1.384-.24-1.955H12.24z"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <h5 className="font-black text-slate-900 dark:text-white text-sm">Google</h5>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Conecte sua conta do Google de forma segura.</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleLinkGoogle}
+                  className="px-6 py-3 bg-slate-900 hover:bg-slate-800 dark:bg-slate-950 dark:hover:bg-slate-900 border border-slate-800/80 dark:border-white/10 text-white text-[10px] font-black rounded-xl uppercase tracking-widest transition-all cursor-pointer shadow-md self-stretch sm:self-auto text-center shrink-0"
+                >
+                  Vincular Conta Google
+                </button>
+              </div>
             )}
           </div>
 

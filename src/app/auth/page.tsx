@@ -24,6 +24,14 @@ export default function AuthPage() {
   const [showPinScreen, setShowPinScreen] = useState(false);
 
   useEffect(() => {
+    // Check for OAuth error parameters in the URL
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('error') === 'oauth_failed') {
+        setErrorMsg('Falha na autenticação com o Google. Tente novamente.');
+      }
+    }
+
     // Check if device is bound with an encrypted password for PIN login
     try {
       const storedEmail = localStorage.getItem('gfinance_user_email');
@@ -151,6 +159,23 @@ export default function AuthPage() {
   // Reset PIN state and switch to standard login
   const handleSwitchToPassword = () => {
     setShowPinScreen(false);
+  };
+
+  const handleGoogleLogin = async () => {
+    setLoading(true);
+    setErrorMsg('');
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+        }
+      });
+      if (error) throw error;
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Erro ao iniciar login com o Google.');
+      setLoading(false);
+    }
   };
 
   return (
@@ -323,6 +348,28 @@ export default function AuthPage() {
               ) : (
                 'Entrar na Plataforma'
               )}
+            </button>
+
+            <div className="relative my-6 flex items-center justify-center">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-slate-200 dark:border-white/5"></div>
+              </div>
+              <span className="relative px-4 bg-white dark:bg-slate-800 text-[10px] font-black uppercase tracking-widest text-slate-400">ou</span>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleGoogleLogin}
+              disabled={loading}
+              className="w-full py-4 bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-900/80 text-slate-800 dark:text-white text-xs font-black rounded-2xl uppercase tracking-widest border border-slate-200 dark:border-white/5 transition-all cursor-pointer flex justify-center items-center gap-3 active:scale-98 shadow-sm animate-in"
+            >
+              <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                <path fill="#EA4335" d="M12 5.04c1.62 0 3.08.56 4.22 1.65l3.15-3.15C17.45 1.77 14.93 1 12 1 7.39 1 3.44 3.65 1.49 7.55l3.87 3C6.31 7.53 8.93 5.04 12 5.04z" />
+                <path fill="#4285F4" d="M23.49 12.27c0-.81-.07-1.59-.2-2.35H12v4.45h6.44c-.28 1.47-1.11 2.71-2.36 3.55l3.66 2.84c2.14-1.97 3.39-4.87 3.39-8.49z" />
+                <path fill="#FBBC05" d="M5.36 10.55c-.24-.72-.38-1.49-.38-2.28s.14-1.56.38-2.28L1.49 3C.54 4.9.01 7.03.01 9.27s.53 4.37 1.48 6.27l3.87-3z" />
+                <path fill="#34A853" d="M12 23c3.24 0 5.97-1.07 7.96-2.91l-3.66-2.84c-1.01.68-2.31 1.08-3.9 1.08-3.07 0-5.69-2.49-6.62-5.51l-3.87 3C3.44 20.35 7.39 23 12 23z" />
+              </svg>
+              Entrar com o Google
             </button>
 
             <div className="text-center space-y-3 pt-2">

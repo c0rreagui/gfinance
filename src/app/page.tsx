@@ -227,16 +227,37 @@ export default function Home() {
     <main className="flex-1 overflow-y-auto p-8 no-scrollbar relative h-full">
       <div className="max-w-6xl mx-auto space-y-8 animate-in">
         {/* Welcome Section */}
-        <div className="flex justify-between items-center bg-white/40 dark:bg-slate-800/40 p-6 rounded-[32px] border border-white/50 dark:border-white/5">
-          <div>
-            <h3 className="text-lg font-black dark:text-white flex items-center gap-2">
-              Olá, {user?.user_metadata?.full_name || user?.email} <Sparkles className="w-5 h-5 text-emerald-500" />
-            </h3>
-            <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mt-1">Conta Premium Vinculada ao Supabase</p>
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-white/40 dark:bg-slate-800/40 p-6 rounded-[32px] border border-white/50 dark:border-white/5 gap-4">
+          <div className="flex items-center gap-4">
+            {/* Premium Glowing Avatar */}
+            {user?.user_metadata?.avatar_url ? (
+              <div className="relative group flex-shrink-0">
+                <div className="absolute -inset-0.5 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full blur opacity-75 group-hover:opacity-100 transition duration-300"></div>
+                <img 
+                  src={user.user_metadata.avatar_url} 
+                  alt={user.user_metadata.full_name || 'Avatar'} 
+                  className="relative w-12 h-12 rounded-full border-2 border-white/10 dark:border-slate-950 object-cover shadow-inner"
+                  referrerPolicy="no-referrer"
+                />
+              </div>
+            ) : (
+              <div className="relative group flex-shrink-0">
+                <div className="absolute -inset-0.5 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full blur opacity-75 group-hover:opacity-100 transition duration-300"></div>
+                <div className="relative w-12 h-12 rounded-full bg-slate-100 dark:bg-slate-950 border border-white/10 dark:border-slate-800 flex items-center justify-center text-emerald-600 dark:text-emerald-400 font-black text-sm uppercase">
+                  {(user?.user_metadata?.full_name || user?.email || 'U').substring(0, 2)}
+                </div>
+              </div>
+            )}
+            <div>
+              <h3 className="text-lg font-black dark:text-white flex items-center gap-2">
+                Olá, {user?.user_metadata?.full_name || user?.email} <Sparkles className="w-5 h-5 text-emerald-500" />
+              </h3>
+              <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mt-1">Conta Premium Vinculada ao Supabase</p>
+            </div>
           </div>
           <button 
             onClick={handleLogout}
-            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-[10px] font-black rounded-xl uppercase tracking-widest transition-all cursor-pointer"
+            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-[10px] font-black rounded-xl uppercase tracking-widest transition-all cursor-pointer self-stretch sm:self-auto text-center"
           >
             Sair
           </button>
