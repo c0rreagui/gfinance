@@ -36,7 +36,7 @@ export async function GET(req: Request): Promise<NextResponse> {
 
     // Inicializar cliente e fazer chamada de teste ultra-leve
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
     
     const start = Date.now();
     const result = await model.generateContent('Diga a palavra "OK"');
