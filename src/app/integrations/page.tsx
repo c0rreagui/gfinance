@@ -1,119 +1,101 @@
-// Interactive View: Fontes de Dados (Data Sources Hub)
+// Fontes de Dados — Data Sources Hub
 // Path: src/app/integrations/page.tsx
-// Built under G-Finance World-Class design aesthetics (glassmorphic cards, HSL tailwind color schemes)
 
 'use client';
 
-import React, { useState, useRef } from 'react';
-import { 
-  Link2, 
-  Copy, 
-  Check, 
-  UploadCloud, 
-  FileText, 
-  Clock, 
-  CheckCircle2, 
-  XCircle, 
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import {
+  Link2,
+  Copy,
+  Check,
+  UploadCloud,
+  FileText,
+  Clock,
+  CheckCircle2,
+  XCircle,
   AlertCircle,
   FileCode,
   FileSpreadsheet,
   Trash2,
   HelpCircle,
-  ChevronRight,
-  ArrowUpRight
+  RefreshCw,
 } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
 
-// Structure of Mock Operation Log representing simulated syncs
+// ---------------------------------------------------------------------------
+// Tipos
+// ---------------------------------------------------------------------------
+
 interface OperationLog {
   id: string;
-  datetime: string;
-  source: 'SMS' | 'Arquivo';
-  sourceDetail: string;
-  status: 'success' | 'error';
-  message: string;
-  amountOrRecords: string;
+  created_at: string;
+  source_type: string | null;
+  file_name: string | null;
+  status: string;
+  records_synced: number | null;
+  records_total: number | null;
+  records_duplicate: number | null;
+  error_message: string | null;
 }
 
-export default function DataSources() {
-  // Configs
-  const webhookUrl = 'https://fplozqwhxryomzndbvwk.supabase.co/functions/v1/sms-webhook';
-  
-  // State for Webhook URL copy feedback
-  const [copied, setCopied] = useState(false);
+// ---------------------------------------------------------------------------
+// Componente principal
+// ---------------------------------------------------------------------------
 
-  // States for interactive Dropzone
+export default function DataSources() {
+  const webhookUrl = 'https://jdliepgseoyoxfygmdet.supabase.co/functions/v1/sms-webhook';
+
+  const [copied, setCopied] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [processingFile, setProcessingFile] = useState(false);
   const [fileProgressMsg, setFileProgressMsg] = useState('');
-
-  // States for general feedback messages
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
-
-  // Mocked dynamic operations log
-  const [logs, setLogs] = useState<OperationLog[]>([
-    {
-      id: 'log-1',
-      datetime: '26/05/2026 12:45',
-      source: 'SMS',
-      sourceDetail: 'Pix Recebido - Itaú (via iOS Shortcuts)',
-      status: 'success',
-      message: 'Lançamento de crédito processado com sucesso.',
-      amountOrRecords: 'R$ 1.250,00'
-    },
-    {
-      id: 'log-2',
-      datetime: '26/05/2026 11:20',
-      source: 'Arquivo',
-      sourceDetail: 'extrato_itaublack_maio.ofx',
-      status: 'success',
-      message: '14 transações importadas e reconciliadas.',
-      amountOrRecords: '14 txs'
-    },
-    {
-      id: 'log-3',
-      datetime: '25/05/2026 18:10',
-      source: 'SMS',
-      sourceDetail: 'Compra Aprovada - Itaú (via iOS Shortcuts)',
-      status: 'success',
-      message: 'Lançamento de débito processado com sucesso.',
-      amountOrRecords: 'R$ 89,90'
-    },
-    {
-      id: 'log-4',
-      datetime: '24/05/2026 14:02',
-      source: 'Arquivo',
-      sourceDetail: 'fatura_maio.csv',
-      status: 'error',
-      message: 'Falha ao processar cabeçalho do arquivo CSV.',
-      amountOrRecords: '0 txs'
-    },
-    {
-      id: 'log-5',
-      datetime: '23/05/2026 09:30',
-      source: 'SMS',
-      sourceDetail: 'Pix Enviado - Itaú (via iOS Shortcuts)',
-      status: 'success',
-      message: 'Lançamento de débito processado com sucesso.',
-      amountOrRecords: 'R$ 350,00'
-    }
-  ]);
+  const [logs, setLogs] = useState<OperationLog[]>([]);
+  const [logsLoading, setLogsLoading] = useState(true);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Copy webhook URL to clipboard
+  // -------------------------------------------------------------------------
+  // Carregar logs reais do banco na inicialização
+  // -------------------------------------------------------------------------
+
+  const fetchLogs = useCallback(async () => {
+    setLogsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('itau_sync_logs')
+        .select('id, created_at, source_type, file_name, status, records_synced, records_total, records_duplicate, error_message')
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      if (!error && data) {
+        setLogs(data);
+      }
+    } finally {
+      setLogsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchLogs();
+  }, [fetchLogs]);
+
+  // -------------------------------------------------------------------------
+  // Handlers de UI
+  // -------------------------------------------------------------------------
+
   const handleCopyUrl = async () => {
     try {
       await navigator.clipboard.writeText(webhookUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error('Falha ao copiar a URL:', err);
+    } catch {
+      // clipboard pode falhar em contextos não-HTTPS
     }
   };
 
-  // Drag and Drop handlers
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -124,43 +106,32 @@ export default function DataSources() {
     }
   };
 
+  const validateAndSetFile = (file: File) => {
+    const extension = file.name.split('.').pop()?.toLowerCase();
+    if (extension === 'ofx' || extension === 'csv' || extension === 'pdf') {
+      setSelectedFile(file);
+      setErrorMsg('');
+    } else {
+      setErrorMsg('Formato inválido. Envie apenas arquivos .PDF, .OFX ou .CSV.');
+      setSelectedFile(null);
+    }
+  };
+
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setDragActive(false);
-
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      const file = e.dataTransfer.files[0];
-      const extension = file.name.split('.').pop()?.toLowerCase();
-      if (extension === 'ofx' || extension === 'csv' || extension === 'pdf') {
-        setSelectedFile(file);
-        setErrorMsg('');
-      } else {
-        setErrorMsg('Formato de arquivo inválido. Por favor, envie apenas arquivos .PDF, .OFX ou .CSV.');
-        setSelectedFile(null);
-      }
+    if (e.dataTransfer.files?.[0]) {
+      validateAndSetFile(e.dataTransfer.files[0]);
     }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      const extension = file.name.split('.').pop()?.toLowerCase();
-      if (extension === 'ofx' || extension === 'csv' || extension === 'pdf') {
-        setSelectedFile(file);
-        setErrorMsg('');
-      } else {
-        setErrorMsg('Formato de arquivo inválido. Por favor, envie apenas arquivos .PDF, .OFX ou .CSV.');
-        setSelectedFile(null);
-      }
+    if (e.target.files?.[0]) {
+      validateAndSetFile(e.target.files[0]);
     }
   };
 
-  const triggerFileInput = () => {
-    fileInputRef.current?.click();
-  };
-
-  // Clear selected file
   const handleClearFile = () => {
     setSelectedFile(null);
     setFileProgressMsg('');
@@ -169,64 +140,105 @@ export default function DataSources() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // Simulate PDF/OFX/CSV upload and parsing
+  // -------------------------------------------------------------------------
+  // Upload real via /api/itau/upload
+  // -------------------------------------------------------------------------
+
   const handleProcessFile = async () => {
     if (!selectedFile) return;
+
     setErrorMsg('');
     setSuccessMsg('');
     setProcessingFile(true);
-    
-    const isPdf = selectedFile.name.toLowerCase().endsWith('.pdf');
-    setFileProgressMsg(isPdf ? 'Lendo PDF e executando OCR/extração de texto...' : 'Analisando cabeçalho...');
 
-    // Phase 1 parsing simulation
-    setTimeout(() => {
-      setFileProgressMsg(isPdf ? 'Analisando tabela de extrato e aplicando regex...' : 'Processando registros e hashes antiduplicidade...');
-      
-      // Phase 2 insertion simulation
-      setTimeout(() => {
-        const isSuccess = Math.random() > 0.05; // 95% success rate simulation
-        const now = new Date();
-        const formattedDate = `${now.getDate().toString().padStart(2, '0')}/${(now.getMonth() + 1).toString().padStart(2, '0')}/${now.getFullYear()} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-        
-        if (isSuccess) {
-          const generatedTxs = Math.floor(Math.random() * 18) + 3;
-          const newLog: OperationLog = {
-            id: `log-${Date.now()}`,
-            datetime: formattedDate,
-            source: 'Arquivo',
-            sourceDetail: selectedFile.name,
-            status: 'success',
-            message: isPdf ? `${generatedTxs} lançamentos extraídos do PDF do Itaú.` : `${generatedTxs} transações importadas e reconciliadas.`,
-            amountOrRecords: `${generatedTxs} txs`
-          };
-          setLogs(prev => [newLog, ...prev]);
-          setSuccessMsg(`Extrato "${selectedFile.name}" processado com sucesso! ${generatedTxs} transações foram identificadas e adicionadas.`);
-          setSelectedFile(null);
-        } else {
-          const newLog: OperationLog = {
-            id: `log-${Date.now()}`,
-            datetime: formattedDate,
-            source: 'Arquivo',
-            sourceDetail: selectedFile.name,
-            status: 'error',
-            message: isPdf ? 'Falha de legibilidade: PDF encriptado ou sem texto extraível.' : 'Falha estrutural: tags do arquivo OFX malformadas.',
-            amountOrRecords: '0 txs'
-          };
-          setLogs(prev => [newLog, ...prev]);
-          setErrorMsg(`Erro ao processar o extrato "${selectedFile.name}". Verifique a integridade do arquivo.`);
-        }
+    const isPdf = selectedFile.name.toLowerCase().endsWith('.pdf');
+    setFileProgressMsg(isPdf ? 'Extraindo texto do PDF...' : 'Analisando estrutura do arquivo...');
+
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+
+    try {
+      setFileProgressMsg(isPdf ? 'Aplicando parser Itaú e identificando lançamentos...' : 'Processando registros...');
+
+      const response = await fetch('/api/itau/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        setErrorMsg(result.error || 'Erro desconhecido ao processar o arquivo.');
         setProcessingFile(false);
         setFileProgressMsg('');
-      }, 1500);
-    }, 1000);
+        return;
+      }
+
+      setSuccessMsg(result.message);
+      setSelectedFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+
+      // Recarregar logs do banco para refletir o novo resultado
+      await fetchLogs();
+
+    } catch {
+      setErrorMsg('Falha de conexão com o servidor. Tente novamente.');
+    } finally {
+      setProcessingFile(false);
+      setFileProgressMsg('');
+    }
   };
+
+  // -------------------------------------------------------------------------
+  // Formatação de data para exibição
+  // -------------------------------------------------------------------------
+
+  const formatLogDate = (isoString: string) => {
+    try {
+      const d = new Date(isoString);
+      return d.toLocaleDateString('pt-BR', {
+        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+      });
+    } catch {
+      return isoString;
+    }
+  };
+
+  const getLogSourceLabel = (log: OperationLog) => {
+    if (log.file_name) return log.file_name;
+    if (log.source_type === 'sms') return 'SMS via iOS Shortcuts';
+    return 'Lançamento';
+  };
+
+  const getLogVolume = (log: OperationLog) => {
+    if (log.records_synced != null && log.records_synced > 0) {
+      return `${log.records_synced} tx${log.records_synced !== 1 ? 's' : ''}`;
+    }
+    if (log.records_duplicate != null && log.records_duplicate > 0) {
+      return `${log.records_duplicate} dup.`;
+    }
+    return '0 txs';
+  };
+
+  const getLogMessage = (log: OperationLog) => {
+    if (log.status === 'failed') return log.error_message || 'Falha no processamento.';
+    const parts = [];
+    if (log.records_synced) parts.push(`${log.records_synced} importado(s)`);
+    if (log.records_duplicate) parts.push(`${log.records_duplicate} duplicata(s)`);
+    if (parts.length > 0) return parts.join(', ') + '.';
+    return 'Processado com sucesso.';
+  };
+
+  // -------------------------------------------------------------------------
+  // Render
+  // -------------------------------------------------------------------------
 
   return (
     <main className="flex-1 overflow-y-auto p-8 no-scrollbar relative h-full bg-slate-950 text-slate-100">
       <div className="max-w-4xl mx-auto space-y-8 animate-in">
-        
-        {/* Title Hub Header */}
+
+        {/* Header */}
         <div className="flex justify-between items-center bg-slate-900/40 backdrop-blur-md p-8 rounded-[32px] border border-white/5 shadow-xl">
           <div className="flex items-center gap-4">
             <div className="w-14 h-14 bg-gradient-to-tr from-orange-500 to-amber-500 rounded-3xl flex items-center justify-center text-white shadow-xl shadow-orange-500/10">
@@ -241,16 +253,16 @@ export default function DataSources() {
           </div>
           <div className="hidden sm:flex items-center gap-1.5 px-4 py-2 rounded-2xl bg-white/5 border border-white/5 text-[10px] font-black text-slate-300 uppercase tracking-widest">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            Ingestão Prontificada
+            Ingestão Ativa
           </div>
         </div>
 
-        {/* Status Alerts Banners */}
+        {/* Alertas */}
         {errorMsg && (
           <div className="p-5 bg-red-500/10 border border-red-500/20 text-red-400 rounded-3xl flex items-start gap-3 text-sm animate-in">
             <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
             <div className="space-y-1">
-              <p className="font-black uppercase tracking-wider text-xs">Instabilidade de Entrada</p>
+              <p className="font-black uppercase tracking-wider text-xs">Erro de Processamento</p>
               <p>{errorMsg}</p>
             </div>
           </div>
@@ -260,22 +272,22 @@ export default function DataSources() {
           <div className="p-5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-3xl flex items-start gap-3 text-sm animate-in">
             <CheckCircle2 className="w-5 h-5 shrink-0 mt-0.5" />
             <div className="space-y-1">
-              <p className="font-black uppercase tracking-wider text-xs">Processamento Concluído</p>
+              <p className="font-black uppercase tracking-wider text-xs">Importação Concluída</p>
               <p>{successMsg}</p>
             </div>
           </div>
         )}
 
-        {/* Main Grid Layout */}
+        {/* Grid Principal */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          
-          {/* Left Column: Automation & Dropzone */}
+
+          {/* Coluna Esquerda */}
           <div className="lg:col-span-2 space-y-8">
-            
-            {/* Bloco 1: Gateway de Captura (SMS Webhook) */}
+
+            {/* Bloco 1: SMS Webhook */}
             <div className="bg-slate-900/60 backdrop-blur-md p-8 rounded-[40px] border border-white/5 shadow-lg relative overflow-hidden">
               <div className="absolute right-0 top-0 w-32 h-32 bg-orange-500/5 rounded-full blur-2xl pointer-events-none"></div>
-              
+
               <div className="flex justify-between items-start mb-6">
                 <div>
                   <h4 className="font-black text-lg text-white">Gateway de Captura (SMS)</h4>
@@ -287,19 +299,17 @@ export default function DataSources() {
                 </div>
               </div>
 
-              {/* Description explanation */}
               <p className="text-xs text-slate-400 leading-relaxed mb-6">
-                Integre seu dispositivo móvel diretamente ao seu banco de dados. Configure o aplicativo <strong>Atalhos (Shortcuts) do iOS</strong> para ler os SMS do Itaú e encaminhar a mensagem automaticamente como um payload HTTP POST para a URL abaixo.
+                Configure o <strong>Atalhos (Shortcuts) do iOS</strong> para ler os SMS do Itaú e encaminhar automaticamente como payload HTTP POST para a URL abaixo.
               </p>
 
-              {/* Webhook endpoint read-only area */}
               <div className="space-y-2 mb-8">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">URL de destino da Edge Function</label>
                 <div className="flex gap-2">
                   <div className="flex-1 min-w-0 bg-slate-950 border border-white/5 rounded-2xl px-4 py-3.5 flex items-center">
-                    <input 
-                      type="text" 
-                      readOnly 
+                    <input
+                      type="text"
+                      readOnly
                       value={webhookUrl}
                       className="w-full bg-transparent text-xs font-mono text-slate-300 focus:outline-none select-all"
                     />
@@ -324,7 +334,6 @@ export default function DataSources() {
                 </div>
               </div>
 
-              {/* Automation guidelines */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-white/5">
                 <div className="flex gap-3">
                   <div className="p-2 bg-orange-500/10 text-orange-400 rounded-xl shrink-0 h-9 w-9 flex items-center justify-center">
@@ -333,7 +342,7 @@ export default function DataSources() {
                   <div>
                     <h5 className="text-xs font-black text-slate-200">Gatilho no Atalhos</h5>
                     <p className="text-[11px] text-slate-400 mt-0.5 leading-normal">
-                      Crie uma automação pessoal baseada no recebimento de SMS contendo termos como &quot;itaucard&quot; ou &quot;Pix recebido&quot;.
+                      Crie uma automação no recebimento de SMS com termos como &quot;itaucard&quot; ou &quot;Pix recebido&quot;.
                     </p>
                   </div>
                 </div>
@@ -344,30 +353,29 @@ export default function DataSources() {
                   <div>
                     <h5 className="text-xs font-black text-slate-200">Requisição POST</h5>
                     <p className="text-[11px] text-slate-400 mt-0.5 leading-normal">
-                      Adicione uma ação &quot;Obter Conteúdo de URL&quot; enviando o texto do SMS no body no formato JSON.
+                      Adicione &quot;Obter Conteúdo de URL&quot; enviando o texto do SMS no body em JSON.
                     </p>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Bloco 2: Importação Manual (OFX / CSV Dropzone) */}
+            {/* Bloco 2: Upload de Arquivo */}
             <div className="bg-slate-900/60 backdrop-blur-md p-8 rounded-[40px] border border-white/5 shadow-lg">
               <h4 className="font-black text-lg text-white mb-2">Importação de Arquivos</h4>
-              <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-6">Processamento manual de extratos bancários</p>
+              <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-6">Processamento de extratos bancários</p>
 
-              {/* The Interactive Dropzone Area */}
               <div
                 onDragEnter={handleDrag}
                 onDragOver={handleDrag}
                 onDragLeave={handleDrag}
                 onDrop={handleDrop}
-                onClick={!selectedFile && !processingFile ? triggerFileInput : undefined}
+                onClick={!selectedFile && !processingFile ? () => fileInputRef.current?.click() : undefined}
                 className={`relative border-2 border-dashed rounded-[32px] p-10 flex flex-col items-center justify-center gap-4 transition-all duration-300 ${
-                  selectedFile 
-                    ? 'border-emerald-500/30 bg-emerald-500/5 cursor-default' 
-                    : dragActive 
-                      ? 'border-orange-500 bg-orange-500/5 scale-[0.99] cursor-pointer' 
+                  selectedFile
+                    ? 'border-emerald-500/30 bg-emerald-500/5 cursor-default'
+                    : dragActive
+                      ? 'border-orange-500 bg-orange-500/5 scale-[0.99] cursor-pointer'
                       : 'border-slate-800 hover:border-orange-500/40 hover:bg-slate-900/80 bg-slate-950/40 cursor-pointer'
                 }`}
               >
@@ -382,7 +390,7 @@ export default function DataSources() {
 
                 {!selectedFile ? (
                   <>
-                    <div className="w-16 h-16 rounded-full bg-slate-900 border border-white/5 flex items-center justify-center text-slate-400 shadow-inner group-hover:scale-105 transition-transform">
+                    <div className="w-16 h-16 rounded-full bg-slate-900 border border-white/5 flex items-center justify-center text-slate-400 shadow-inner">
                       <UploadCloud className={`w-8 h-8 ${dragActive ? 'text-orange-500 animate-bounce' : 'text-slate-400'}`} />
                     </div>
                     <div className="text-center space-y-1">
@@ -414,10 +422,7 @@ export default function DataSources() {
                       </div>
                       {!processingFile && (
                         <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleClearFile();
-                          }}
+                          onClick={(e) => { e.stopPropagation(); handleClearFile(); }}
                           className="p-2 hover:bg-white/5 text-slate-400 hover:text-red-400 rounded-xl transition-colors cursor-pointer"
                           title="Remover arquivo"
                         >
@@ -453,69 +458,84 @@ export default function DataSources() {
                 )}
               </div>
 
-              {/* Informative tips */}
               <div className="mt-6 flex items-start gap-2.5 p-4 bg-orange-500/5 rounded-2xl border border-orange-500/10">
                 <HelpCircle className="w-4 h-4 text-orange-400 shrink-0 mt-0.5" />
                 <p className="text-[11px] text-slate-400 leading-normal">
-                  Os extratos em PDF, OFX ou CSV são processados localmente e criptografados antes de serem persistidos no Supabase. O algoritmo realiza a deduplicação automática baseada na data, valor e descrição da transação.
+                  Os extratos são processados diretamente no servidor e persistidos no Supabase. A deduplicação automática por SHA-256 garante que lançamentos já importados não sejam duplicados.
                 </p>
               </div>
             </div>
-
           </div>
 
-          {/* Right Column: Operation History Log */}
+          {/* Coluna Direita */}
           <div className="space-y-8">
-            
-            {/* Guidelines box */}
+
+            {/* Informativo Zero-Trust */}
             <div className="bg-gradient-to-br from-slate-900 to-slate-900/40 p-6 rounded-[32px] border border-white/5 shadow-md">
               <h5 className="font-black text-slate-200 text-sm mb-2 flex items-center gap-1.5">
-                <Clock className="w-4 h-4 text-orange-400" /> Fluxo Descentralizado
+                <Clock className="w-4 h-4 text-orange-400" /> Modelo Zero-Trust
               </h5>
               <p className="text-[11px] text-slate-400 leading-relaxed">
-                Ao abandonar integrações diretas de BaaS, sua privacidade financeira é preservada. G-Finance opera agora sob o modelo <strong>Zero-Trust</strong>, onde você controla exatamente quais transações entram no ecossistema através de arquivos offline ou automações locais do seu celular.
+                G-Finance opera sob controle total do proprietário. Você decide exatamente quais transações entram no ecossistema — via arquivos offline ou automações locais do celular.
               </p>
             </div>
 
-            {/* Bloco 3: Log de Operações (Histórico de Sync) */}
+            {/* Log de Operações — dados reais */}
             <div className="bg-slate-900/60 backdrop-blur-md p-6 rounded-[32px] border border-white/5 shadow-lg">
               <div className="flex justify-between items-center mb-5">
                 <h4 className="font-black text-sm text-white flex items-center gap-1.5">
                   <FileText className="w-4 h-4 text-orange-500" /> Log de Operações
                 </h4>
-                <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Filtrado por Recentes</span>
+                <button
+                  onClick={fetchLogs}
+                  disabled={logsLoading}
+                  className="p-1.5 rounded-lg hover:bg-white/5 text-slate-500 hover:text-slate-300 transition-colors cursor-pointer disabled:opacity-40"
+                  title="Atualizar logs"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${logsLoading ? 'animate-spin' : ''}`} />
+                </button>
               </div>
 
-              {logs.length === 0 ? (
-                <div className="text-center py-8 text-slate-500 text-xs">
-                  Nenhum registro de sync localizado no banco.
+              {logsLoading ? (
+                <div className="space-y-3">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="p-4 bg-slate-950/60 border border-white/5 rounded-2xl animate-pulse">
+                      <div className="h-3 bg-slate-800 rounded w-3/4 mb-2"></div>
+                      <div className="h-2 bg-slate-800/60 rounded w-1/2"></div>
+                    </div>
+                  ))}
+                </div>
+              ) : logs.length === 0 ? (
+                <div className="text-center py-8 space-y-2">
+                  <XCircle className="w-8 h-8 text-slate-700 mx-auto" />
+                  <p className="text-slate-500 text-xs">Nenhum registro ainda.</p>
+                  <p className="text-slate-600 text-[10px]">Importe um extrato para começar.</p>
                 </div>
               ) : (
                 <div className="space-y-3.5">
                   {logs.map((log) => {
                     const isSuccess = log.status === 'success';
                     return (
-                      <div 
-                        key={log.id} 
+                      <div
+                        key={log.id}
                         className="p-4 bg-slate-950/60 border border-white/5 rounded-2xl space-y-3 hover:border-white/10 transition-colors"
                       >
                         <div className="flex justify-between items-start">
                           <div className="space-y-0.5">
                             <span className={`px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-wider inline-flex items-center gap-1 ${
-                              log.source === 'SMS' 
-                                ? 'bg-cyan-950 text-cyan-400 border border-cyan-500/10' 
+                              log.source_type === 'sms'
+                                ? 'bg-cyan-950 text-cyan-400 border border-cyan-500/10'
                                 : 'bg-emerald-950 text-emerald-400 border border-emerald-500/10'
                             }`}>
-                              {log.source}
+                              {log.source_type === 'sms' ? 'SMS' : 'Arquivo'}
                             </span>
                             <span className="text-[9px] text-slate-500 block font-bold font-mono">
-                              {log.datetime}
+                              {formatLogDate(log.created_at)}
                             </span>
                           </div>
-                          
                           <span className={`px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-wider ${
-                            isSuccess 
-                              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/10' 
+                            isSuccess
+                              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/10'
                               : 'bg-red-500/10 text-red-400 border border-red-500/10'
                           }`}>
                             {isSuccess ? 'Sucesso' : 'Falha'}
@@ -523,17 +543,17 @@ export default function DataSources() {
                         </div>
 
                         <div className="space-y-1">
-                          <p className="text-[11px] font-black text-slate-200 truncate" title={log.sourceDetail}>
-                            {log.sourceDetail}
+                          <p className="text-[11px] font-black text-slate-200 truncate" title={getLogSourceLabel(log)}>
+                            {getLogSourceLabel(log)}
                           </p>
                           <p className="text-[10px] text-slate-400 leading-normal">
-                            {log.message}
+                            {getLogMessage(log)}
                           </p>
                         </div>
 
                         <div className="flex justify-between items-center pt-2 border-t border-white/5 text-[10px]">
                           <span className="text-slate-500 font-bold uppercase">Volume</span>
-                          <span className="font-bold text-white font-mono">{log.amountOrRecords}</span>
+                          <span className="font-bold text-white font-mono">{getLogVolume(log)}</span>
                         </div>
                       </div>
                     );
@@ -543,9 +563,7 @@ export default function DataSources() {
             </div>
 
           </div>
-
         </div>
-
       </div>
     </main>
   );
