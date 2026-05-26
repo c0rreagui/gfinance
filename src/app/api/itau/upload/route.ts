@@ -97,17 +97,18 @@ function inferCategory(description: string): { category: string; icon: string } 
 // ---------------------------------------------------------------------------
 
 async function parsePdf(buffer: Buffer): Promise<ParsedTransaction[]> {
-  // pdf-parse ships CJS. Com esModuleInterop + bundler resolution, o export é o próprio módulo.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const pdfParse = require('pdf-parse') as (buffer: Buffer) => Promise<{ text: string }>;
-  const data = await pdfParse(buffer);
-  const text = data.text;
+  const { PDFParse } = require('pdf-parse');
+  const parser = new PDFParse({ data: buffer, verbosity: 0 });
+  const result = await parser.getText();
+  const text = result.text;
 
   const transactions: ParsedTransaction[] = [];
 
   // Regex calibrada para o formato de extrato Itaú conta corrente:
   // DD/MM/YYYY  DESCRIÇÃO (pode ter espaços e caracteres)  VALOR (ex: -1.234,56 ou 987,65)
-  const lineRegex = /^(\d{2}\/\d{2}\/\d{4})\s{2,}(.+?)\s{2,}(-?\d{1,3}(?:\.\d{3})*,\d{2})\s*$/gm;
+  // Usamos \s+ em vez de \s{2,} porque o parser pode retornar apenas um espaço de separação.
+  const lineRegex = /^(\d{2}\/\d{2}\/\d{4})\s+(.+?)\s+(-?\d{1,3}(?:\.\d{3})*,\d{2})\s*$/gm;
 
   let match: RegExpExecArray | null;
   while ((match = lineRegex.exec(text)) !== null) {
