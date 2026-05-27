@@ -21,6 +21,7 @@ import {
   Wallet,
   ArrowRight
 } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
 
 interface ChatMessage {
   role: 'user' | 'model';
@@ -68,6 +69,10 @@ export function AiChatHub() {
     setMessages(prev => [...prev, userMessage]);
 
     try {
+      // Pega a sessão ativa client-side para extrair o provider_token do Google OAuth
+      const { data: { session } } = await supabase.auth.getSession();
+      const providerToken = session?.provider_token;
+
       // Formata histórico para enviar ao backend
       const historyPayload = messages.map(msg => ({
         role: msg.role,
@@ -78,6 +83,7 @@ export function AiChatHub() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...(providerToken ? { 'x-provider-token': providerToken } : {})
         },
         body: JSON.stringify({
           message: queryText,
@@ -100,8 +106,7 @@ export function AiChatHub() {
 
     } catch (err: any) {
       setErrorMsg(err.message || 'Erro de rede ou cota esgotada. Tente novamente.');
-      // Remove a última mensagem enviada se deu erro imediato
-      setMessages(prev => prev.slice(0, -1));
+      // Mantém a última mensagem enviada para que o usuário possa ver o que digitou e ver o erro contextualizado
     } finally {
       setLoading(false);
     }
@@ -223,13 +228,6 @@ export function AiChatHub() {
               </div>
             )}
 
-            {errorMsg && (
-              <div className="p-4 bg-red-500/5 border border-red-500/10 rounded-3xl flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-red-400">
-                <AlertCircle className="w-4 h-4 shrink-0 text-red-500" />
-                <span className="truncate">{errorMsg}</span>
-              </div>
-            )}
-
             <div ref={messagesEndRef} />
           </div>
         )}
@@ -237,6 +235,12 @@ export function AiChatHub() {
 
       {/* Input de Mensagem */}
       <div className="p-6 border-t border-white/5 bg-slate-950/30">
+        {errorMsg && (
+          <div className="p-4 bg-red-500/5 border border-red-500/10 rounded-2xl flex items-center gap-2.5 text-[10px] font-bold uppercase tracking-wider text-red-400 mb-3 shadow-inner">
+            <AlertCircle className="w-4 h-4 shrink-0 text-red-500" />
+            <span className="truncate">{errorMsg}</span>
+          </div>
+        )}
         <form onSubmit={handleSubmit} className="flex gap-2">
           <div className="flex-1 min-w-0 bg-slate-950/80 border border-white/5 rounded-2xl px-4 py-3 flex items-center shadow-inner group/input focus-within:border-emerald-500/30 transition-all duration-300">
             <input

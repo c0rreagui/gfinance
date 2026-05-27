@@ -25,7 +25,8 @@ export async function POST(req: Request): Promise<NextResponse> {
     );
   }
 
-  const providerToken = session?.provider_token;
+  // Permite obter o provider_token do header personalizado enviado pelo client-side
+  const providerToken = req.headers.get('x-provider-token') || session?.provider_token;
 
   // 2. Extrair dados da requisição
   let body: any;
@@ -46,10 +47,14 @@ export async function POST(req: Request): Promise<NextResponse> {
     );
   }
 
-  const chatHistory = Array.isArray(history) ? history : [];
+  // Limitar o histórico de chat para as últimas 20 mensagens (10 turnos) para respeitar o sliding window
+  const CHAT_HISTORY_LIMIT = 20;
+  const chatHistory = Array.isArray(history) 
+    ? history.slice(-CHAT_HISTORY_LIMIT) 
+    : [];
 
   try {
-    // 3. Buscar dados financeiros reais do usuário no Supabase
+    // 3. Buscar dados financeiros reais do usuário no Supabase com limites estritos
     // O cliente foi gerado via Server Client com o cookie do usuário, logo o RLS do Postgres é respeitado nativamente.
     const [
       { data: dbBalances },
@@ -57,11 +62,12 @@ export async function POST(req: Request): Promise<NextResponse> {
       { data: dbGoals },
       { data: dbReminders }
     ] = await Promise.all([
-      // Saldos consolidados
+      // Saldos consolidados (limitado para proteção de recursos)
       supabase
         .from('balances')
         .select('label, amount, trend, icon, type')
-        .eq('user_id', user.id),
+        .eq('user_id', user.id)
+        .limit(20),
         
       // Últimas 80 transações (janela de contexto móvel razoável)
       supabase
@@ -71,11 +77,12 @@ export async function POST(req: Request): Promise<NextResponse> {
         .order('date', { ascending: false })
         .limit(80),
         
-      // Metas de investimento
+      // Metas de investimento (limitado para proteção de recursos)
       supabase
         .from('goals')
         .select('name, target_amount, current_amount')
-        .eq('user_id', user.id),
+        .eq('user_id', user.id)
+        .limit(20),
         
       // Contas a pagar pendentes
       supabase

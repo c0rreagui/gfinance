@@ -244,6 +244,9 @@ export async function POST(req: Request): Promise<NextResponse> {
     );
   }
 
+  // Coleta o token de provedor se fornecido pelo cliente para uso da API pessoal
+  const providerToken = req.headers.get('x-provider-token');
+
   // 2. Receber arquivo via multipart/form-data
   let formData: FormData;
   try {
@@ -300,7 +303,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       if (parsed.length === 0) {
         console.log('[Parser] Processando extrato via inteligência artificial (Gemini)...');
         try {
-          const aiTx = await parseStatementWithAI(buffer, 'application/pdf');
+          const aiTx = await parseStatementWithAI(buffer, 'application/pdf', providerToken || undefined);
           parsed = aiTx.map((t) => ({
             date: t.date.includes('T') ? t.date : `${t.date}T12:00:00.000Z`,
             description: `${t.description} (IA)`,

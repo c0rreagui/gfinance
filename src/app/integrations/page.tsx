@@ -158,10 +158,17 @@ export default function DataSources() {
     formData.append('file', selectedFile);
 
     try {
+      // Pega a sessão ativa client-side para extrair o provider_token do Google OAuth
+      const { data: { session } } = await supabase.auth.getSession();
+      const providerToken = session?.provider_token;
+
       setFileProgressMsg(isPdf ? 'Aplicando parser Itaú e identificando lançamentos...' : 'Processando registros...');
 
       const response = await fetch('/api/itau/upload', {
         method: 'POST',
+        headers: {
+          ...(providerToken ? { 'x-provider-token': providerToken } : {})
+        },
         body: formData,
       });
 

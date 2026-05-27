@@ -37,7 +37,7 @@ export async function GET(req: Request): Promise<NextResponse> {
     // 1. Autenticar usuário e extrair token OAuth da sessão
     const supabase = await createSupabaseServerClient();
     const { data: { session } } = await supabase.auth.getSession();
-    const providerToken = session?.provider_token;
+    const providerToken = req.headers.get('x-provider-token') || session?.provider_token;
 
     if (session?.user) {
       diagnostics.user_logged_in = true;
