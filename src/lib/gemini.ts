@@ -227,17 +227,39 @@ const geminiTools = [
           required: ['transactionId']
         }
       },
-      {
-        name: 'delete_user_transaction',
-        description: 'Remove definitivamente uma transação financeira do usuário no banco de dados pelo seu UUID.',
-        parameters: {
-          type: SchemaType.OBJECT,
-          properties: {
-            transactionId: { type: SchemaType.STRING, description: 'O UUID único identificador da transação a ser deletada.' }
-          },
-          required: ['transactionId']
+        {
+          name: 'delete_user_transaction',
+          description: 'Remove definitivamente uma única transação financeira do usuário no banco de dados pelo seu UUID.',
+          parameters: {
+            type: SchemaType.OBJECT,
+            properties: {
+              transactionId: { type: SchemaType.STRING, description: 'O UUID único identificador da transação a ser deletada.' }
+            },
+            required: ['transactionId']
+          }
+        },
+        {
+          name: 'delete_user_transactions',
+          description: 'Exclui uma ou mais transações financeiras do usuário no banco de dados. Pode excluir uma lista específica de IDs, filtrar por categoria ou apagar TODAS as transações do histórico de uma vez.',
+          parameters: {
+            type: SchemaType.OBJECT,
+            properties: {
+              transactionIds: { 
+                type: SchemaType.ARRAY, 
+                items: { type: SchemaType.STRING },
+                description: 'Lista opcional de UUIDs das transações a serem excluídas.' 
+              },
+              deleteAll: { 
+                type: SchemaType.BOOLEAN, 
+                description: 'Se true, remove TODAS as transações do usuário logado (limpa o histórico).' 
+              },
+              category: { 
+                type: SchemaType.STRING, 
+                description: 'Remove todas as transações de uma categoria específica.' 
+              }
+            }
+          }
         }
-      }
     ]
   }
 ];
@@ -444,6 +466,26 @@ export async function generateFinancialResponse(
 
           databaseModified = true;
           toolResult = { success: true, deleted: data };
+
+        } else if (name === 'delete_user_transactions') {
+          const { transactionIds, deleteAll, category } = args as any;
+          let queryBuilder = supabaseClient.from('transactions').delete().eq('user_id', userId);
+
+          if (deleteAll) {
+            console.info(`[Gemini Tool] Executando exclusão completa de todas as transações do usuário: ${userId}`);
+          } else if (transactionIds && transactionIds.length > 0) {
+            queryBuilder = queryBuilder.in('id', transactionIds);
+          } else if (category) {
+            queryBuilder = queryBuilder.eq('category', category);
+          } else {
+            throw new Error('Nenhum parâmetro de exclusão fornecido (forneça transactionIds, deleteAll ou category).');
+          }
+
+          const { data, error } = await queryBuilder.select('*');
+          if (error) throw error;
+
+          databaseModified = true;
+          toolResult = { success: true, count: data?.length || 0, deleted: data };
 
         } else {
           throw new Error(`Função de ferramenta desconhecida: ${name}`);
