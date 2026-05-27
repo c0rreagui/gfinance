@@ -16,7 +16,7 @@
 import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
 
 const GEMINI_REST_BASE = 'https://generativelanguage.googleapis.com/v1beta';
-const DEFAULT_MODEL = 'gemini-2.0-flash';
+const DEFAULT_MODEL = 'gemini-flash-latest';
 
 const apiKey = process.env.GEMINI_API_KEY;
 

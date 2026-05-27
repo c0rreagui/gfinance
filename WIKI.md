@@ -53,4 +53,4 @@ GEMINI_API_KEY=your-gemini-key-here
 
 ---
 
-*Última atualização: 26 de maio de 2026 por Antigravity.*
+*Última atualização: 27 de maio de 2026 por Antigravity.*
