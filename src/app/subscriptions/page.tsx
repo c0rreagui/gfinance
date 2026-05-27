@@ -25,23 +25,60 @@ interface Reminder {
   id: string;
   title: string;
   due_date: string;
-  is_recurring: boolean;
-  amount?: number;
-  category?: string;
-  status?: string;
+  amount: number;
+  paid: boolean;
+  created_at?: string;
+  urgency?: string;
+  is_recurring?: boolean;
 }
 
-// Visual demo subscriptions for empty/showcase state
-const demoSubscriptions = [
-  { name: 'Netflix', icon: Tv, price: 55.90, frequency: 'Mensal', status: 'ativa', color: 'from-red-500/20 to-red-900/10', borderColor: 'border-red-500/20', day: 15 },
-  { name: 'Spotify', icon: Music, price: 21.90, frequency: 'Mensal', status: 'ativa', color: 'from-green-500/20 to-green-900/10', borderColor: 'border-green-500/20', day: 5 },
-  { name: 'iCloud+', icon: Cloud, price: 3.50, frequency: 'Mensal', status: 'ativa', color: 'from-blue-500/20 to-blue-900/10', borderColor: 'border-blue-500/20', day: 1 },
-  { name: 'NordVPN', icon: Shield, price: 11.90, frequency: 'Mensal', status: 'pausada', color: 'from-indigo-500/20 to-indigo-900/10', borderColor: 'border-indigo-500/20', day: 20 },
-  { name: 'Xbox Game Pass', icon: Gamepad2, price: 44.90, frequency: 'Mensal', status: 'ativa', color: 'from-emerald-500/20 to-emerald-900/10', borderColor: 'border-emerald-500/20', day: 10 },
-  { name: 'Kindle Unlimited', icon: BookOpen, price: 19.90, frequency: 'Mensal', status: 'ativa', color: 'from-amber-500/20 to-amber-900/10', borderColor: 'border-amber-500/20', day: 22 },
-  { name: 'Smartfit', icon: Dumbbell, price: 119.90, frequency: 'Mensal', status: 'ativa', color: 'from-orange-500/20 to-orange-900/10', borderColor: 'border-orange-500/20', day: 8 },
-  { name: 'ChatGPT Plus', icon: Zap, price: 104.90, frequency: 'Mensal', status: 'ativa', color: 'from-violet-500/20 to-violet-900/10', borderColor: 'border-violet-500/20', day: 28 },
+const serviceIcons: Record<string, any> = {
+  netflix: Tv,
+  spotify: Music,
+  icloud: Cloud,
+  vpn: Shield,
+  xbox: Gamepad2,
+  kindle: BookOpen,
+  smartfit: Dumbbell,
+  chatgpt: Zap,
+};
+
+const serviceGradients = [
+  { color: 'from-red-500/10 to-red-900/5', borderColor: 'border-red-500/20' },
+  { color: 'from-green-500/10 to-green-900/5', borderColor: 'border-green-500/20' },
+  { color: 'from-blue-500/10 to-blue-900/5', borderColor: 'border-blue-500/20' },
+  { color: 'from-indigo-500/10 to-indigo-900/5', borderColor: 'border-indigo-500/20' },
+  { color: 'from-emerald-500/10 to-emerald-900/5', borderColor: 'border-emerald-500/20' },
+  { color: 'from-amber-500/10 to-amber-900/5', borderColor: 'border-amber-500/20' },
+  { color: 'from-orange-500/10 to-orange-900/5', borderColor: 'border-orange-500/20' },
+  { color: 'from-violet-500/10 to-violet-900/5', borderColor: 'border-violet-500/20' },
 ];
+
+function resolveSubscription(rem: Reminder, index: number) {
+  const titleLower = rem.title.toLowerCase();
+  let Icon = Repeat;
+  for (const [key, iconVal] of Object.entries(serviceIcons)) {
+    if (titleLower.includes(key)) {
+      Icon = iconVal;
+      break;
+    }
+  }
+
+  const grad = serviceGradients[index % serviceGradients.length];
+  const day = rem.due_date ? new Date(rem.due_date).getUTCDate() : 1;
+
+  return {
+    id: rem.id,
+    name: rem.title,
+    price: Math.abs(rem.amount || 0),
+    frequency: 'Mensal',
+    status: rem.paid ? 'pausada' : 'ativa',
+    day,
+    icon: Icon,
+    color: grad.color,
+    borderColor: grad.borderColor,
+  };
+}
 
 const monthDays = Array.from({ length: 31 }, (_, i) => i + 1);
 const weekDays = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'];
@@ -54,9 +91,13 @@ export default function Subscriptions() {
     const fetchReminders = async () => {
       try {
         setLoading(true);
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
         const { data, error } = await supabase
           .from('reminders')
           .select('*')
+          .eq('user_id', user.id)
           .eq('is_recurring', true)
           .order('due_date', { ascending: true });
 
@@ -71,9 +112,9 @@ export default function Subscriptions() {
     fetchReminders();
   }, []);
 
-  // Use demo data when no real reminders exist
-  const hasData = reminders.length > 0;
-  const displaySubs = demoSubscriptions;
+  const displaySubs = useMemo(() => {
+    return reminders.map((rem, idx) => resolveSubscription(rem, idx));
+  }, [reminders]);
 
   const activeSubs = displaySubs.filter(s => s.status === 'ativa');
   const totalMensal = activeSubs.reduce((acc, s) => acc + s.price, 0);
@@ -83,7 +124,7 @@ export default function Subscriptions() {
       .filter(s => s.status === 'ativa' && s.day >= today)
       .sort((a, b) => a.day - b.day);
     return upcoming[0] || displaySubs.filter(s => s.status === 'ativa').sort((a, b) => a.day - b.day)[0];
-  }, []);
+  }, [displaySubs]);
 
   // Calendar charge days
   const chargeDays = new Set(displaySubs.filter(s => s.status === 'ativa').map(s => s.day));
@@ -106,20 +147,23 @@ export default function Subscriptions() {
           </div>
         </div>
 
-        {/* Demo badge */}
-        {!hasData && !loading && (
-          <div className="flex items-center gap-2 px-4 py-2.5 bg-amber-500/10 border border-amber-500/20 rounded-2xl w-fit">
-            <AlertCircle className="w-4 h-4 text-amber-400" />
-            <span className="text-[10px] font-black text-amber-400 uppercase tracking-widest">
-              Dados de demonstração — Adicione recorrências para ver dados reais
-            </span>
-          </div>
-        )}
-
         {/* Loading */}
         {loading ? (
           <div className="flex justify-center items-center py-32">
             <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-emerald-500"></div>
+          </div>
+        ) : displaySubs.length === 0 ? (
+          /* Real Empty State */
+          <div className="glass bg-slate-900/40 rounded-[32px] border border-white/5 p-16 flex flex-col items-center justify-center text-center space-y-6">
+            <div className="w-16 h-16 bg-slate-800/60 rounded-3xl flex items-center justify-center border border-white/5">
+              <Repeat className="w-8 h-8 text-slate-600 stroke-[1.5]" />
+            </div>
+            <div className="space-y-2 max-w-md">
+              <p className="text-sm font-black uppercase tracking-wider text-slate-300">Nenhuma assinatura rastreada</p>
+              <p className="text-[11px] text-slate-500 leading-relaxed">
+                Nenhuma assinatura ou cobrança fixa mensal ativa no momento. Você pode gerenciar e adicionar suas assinaturas através do Gemini AI Brain informando suas recorrências no chat!
+              </p>
+            </div>
           </div>
         ) : (
           <>
@@ -183,7 +227,7 @@ export default function Subscriptions() {
                   const isActive = sub.status === 'ativa';
                   return (
                     <div
-                      key={sub.name}
+                      key={sub.id}
                       className={`glass bg-gradient-to-br ${sub.color} rounded-[24px] border ${sub.borderColor} p-6 hover:scale-[1.02] transition-all duration-300 cursor-pointer group relative overflow-hidden`}
                     >
                       {/* Subtle glow */}

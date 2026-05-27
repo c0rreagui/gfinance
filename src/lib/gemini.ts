@@ -227,39 +227,142 @@ const geminiTools = [
           required: ['transactionId']
         }
       },
-        {
-          name: 'delete_user_transaction',
-          description: 'Remove definitivamente uma única transação financeira do usuário no banco de dados pelo seu UUID.',
-          parameters: {
-            type: SchemaType.OBJECT,
-            properties: {
-              transactionId: { type: SchemaType.STRING, description: 'O UUID único identificador da transação a ser deletada.' }
+      {
+        name: 'delete_user_transaction',
+        description: 'Remove definitivamente uma única transação financeira do usuário no banco de dados pelo seu UUID.',
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            transactionId: { type: SchemaType.STRING, description: 'O UUID único identificador da transação a ser deletada.' }
+          },
+          required: ['transactionId']
+        }
+      },
+      {
+        name: 'delete_user_transactions',
+        description: 'Exclui uma ou mais transações financeiras do usuário no banco de dados. Pode excluir uma lista específica de IDs, filtrar por categoria ou apagar TODAS as transações do histórico de uma vez.',
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            transactionIds: { 
+              type: SchemaType.ARRAY, 
+              items: { type: SchemaType.STRING },
+              description: 'Lista opcional de UUIDs das transações a serem excluídas.' 
             },
-            required: ['transactionId']
-          }
-        },
-        {
-          name: 'delete_user_transactions',
-          description: 'Exclui uma ou mais transações financeiras do usuário no banco de dados. Pode excluir uma lista específica de IDs, filtrar por categoria ou apagar TODAS as transações do histórico de uma vez.',
-          parameters: {
-            type: SchemaType.OBJECT,
-            properties: {
-              transactionIds: { 
-                type: SchemaType.ARRAY, 
-                items: { type: SchemaType.STRING },
-                description: 'Lista opcional de UUIDs das transações a serem excluídas.' 
-              },
-              deleteAll: { 
-                type: SchemaType.BOOLEAN, 
-                description: 'Se true, remove TODAS as transações do usuário logado (limpa o histórico).' 
-              },
-              category: { 
-                type: SchemaType.STRING, 
-                description: 'Remove todas as transações de uma categoria específica.' 
-              }
+            deleteAll: { 
+              type: SchemaType.BOOLEAN, 
+              description: 'Se true, remove TODAS as transações do usuário logado (limpa o histórico).' 
+            },
+            category: { 
+              type: SchemaType.STRING, 
+              description: 'Remove todas as transações de uma categoria específica.' 
             }
           }
         }
+      },
+      {
+        name: 'list_user_reminders',
+        description: 'Lista contas a pagar, dívidas ou assinaturas recorrentes do usuário. Permite filtrar por assinaturas (isRecurring) e status pago.',
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            isRecurring: { type: SchemaType.BOOLEAN, description: 'Filtrar por assinaturas recorrentes (true) ou dívidas pontuais (false)' },
+            paid: { type: SchemaType.BOOLEAN, description: 'Filtrar por status pago (true/false)' }
+          }
+        }
+      },
+      {
+        name: 'create_user_reminder',
+        description: 'Cria uma nova conta a pagar, dívida ou assinatura recorrente na tabela reminders do usuário.',
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            title: { type: SchemaType.STRING, description: 'Título identificador da conta/dívida/assinatura (ex: Netflix, Fatura Light, Empréstimo)' },
+            amount: { type: SchemaType.NUMBER, description: 'Valor financeiro (positivo, pois representa a obrigação).' },
+            dueDate: { type: SchemaType.STRING, description: 'Data de vencimento em formato ISO (YYYY-MM-DD)' },
+            urgency: { type: SchemaType.STRING, description: 'Grau de urgência da dívida (high, medium, low)' },
+            isRecurring: { type: SchemaType.BOOLEAN, description: 'Se true, é tratado como assinatura recorrente mensal. Se false, é uma dívida/compromisso pontual.' },
+            paid: { type: SchemaType.BOOLEAN, description: 'Status inicial de pagamento (padrão false)' }
+          },
+          required: ['title', 'amount', 'dueDate']
+        }
+      },
+      {
+        name: 'update_user_reminder',
+        description: 'Atualiza detalhes de uma conta a pagar, dívida ou assinatura existente (incluindo marcar como pago ou alterar o valor/data).',
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            reminderId: { type: SchemaType.STRING, description: 'UUID único identificador do lembrete/dívida/assinatura.' },
+            title: { type: SchemaType.STRING, description: 'Novo título' },
+            amount: { type: SchemaType.NUMBER, description: 'Novo valor' },
+            dueDate: { type: SchemaType.STRING, description: 'Nova data de vencimento (YYYY-MM-DD)' },
+            urgency: { type: SchemaType.STRING, description: 'Nova urgência (high, medium, low)' },
+            isRecurring: { type: SchemaType.BOOLEAN, description: 'Alterar se é recorrente' },
+            paid: { type: SchemaType.BOOLEAN, description: 'Marcar como pago (true) ou não pago (false)' }
+          },
+          required: ['reminderId']
+        }
+      },
+      {
+        name: 'delete_user_reminder',
+        description: 'Remove permanentemente uma dívida, conta ou assinatura do usuário pelo UUID.',
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            reminderId: { type: SchemaType.STRING, description: 'UUID do lembrete a ser removido.' }
+          },
+          required: ['reminderId']
+        }
+      },
+      {
+        name: 'list_user_goals',
+        description: 'Lista as metas de investimento e patrimônio ativas do usuário.',
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {}
+        }
+      },
+      {
+        name: 'create_user_goal',
+        description: 'Cria uma nova meta de investimento ou patrimônio para o usuário.',
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            name: { type: SchemaType.STRING, description: 'Nome descritivo da meta (ex: Reserva de Emergência, Viagem Japão)' },
+            targetAmount: { type: SchemaType.NUMBER, description: 'Valor alvo/final da meta' },
+            currentAmount: { type: SchemaType.NUMBER, description: 'Valor atual acumulado (padrão 0)' },
+            color: { type: SchemaType.STRING, description: 'Nome da cor identificadora (emerald, blue, indigo, amber, pink, violet, teal, rose, red, green, orange)' }
+          },
+          required: ['name', 'targetAmount']
+        }
+      },
+      {
+        name: 'update_user_goal',
+        description: 'Atualiza uma meta de investimento existente, permitindo alterar o nome, valor alvo, valor atualizado ou a cor.',
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            goalId: { type: SchemaType.STRING, description: 'UUID único identificador da meta.' },
+            name: { type: SchemaType.STRING, description: 'Novo nome descritivo' },
+            targetAmount: { type: SchemaType.NUMBER, description: 'Novo valor alvo/final' },
+            currentAmount: { type: SchemaType.NUMBER, description: 'Novo valor acumulado' },
+            color: { type: SchemaType.STRING, description: 'Nova cor' }
+          },
+          required: ['goalId']
+        }
+      },
+      {
+        name: 'delete_user_goal',
+        description: 'Remove definitivamente uma meta de investimento pelo seu UUID.',
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            goalId: { type: SchemaType.STRING, description: 'UUID da meta a ser excluída.' }
+          },
+          required: ['goalId']
+        }
+      }
     ]
   }
 ];
@@ -486,6 +589,118 @@ export async function generateFinancialResponse(
 
           databaseModified = true;
           toolResult = { success: true, count: data?.length || 0, deleted: data };
+
+        } else if (name === 'list_user_reminders') {
+          const { isRecurring, paid } = args as any;
+          let queryBuilder = supabaseClient.from('reminders').select('*').eq('user_id', userId);
+          if (isRecurring !== undefined) {
+            queryBuilder = queryBuilder.eq('is_recurring', isRecurring);
+          }
+          if (paid !== undefined) {
+            queryBuilder = queryBuilder.eq('paid', paid);
+          }
+          const { data, error } = await queryBuilder.order('due_date', { ascending: true });
+          if (error) throw error;
+          toolResult = { success: true, reminders: data || [] };
+
+        } else if (name === 'create_user_reminder') {
+          const { title, amount, dueDate, urgency, isRecurring, paid } = args as any;
+          const { data, error } = await supabaseClient.from('reminders').insert({
+            user_id: userId,
+            title,
+            amount: Number(amount),
+            due_date: new Date(dueDate).toISOString(),
+            urgency: urgency || 'low',
+            is_recurring: isRecurring || false,
+            paid: paid || false
+          }).select('*');
+          if (error) throw error;
+          databaseModified = true;
+          toolResult = { success: true, created: data?.[0] };
+
+        } else if (name === 'update_user_reminder') {
+          const { reminderId, title, amount, dueDate, urgency, isRecurring, paid } = args as any;
+          const updates: any = {};
+          if (title !== undefined) updates.title = title;
+          if (amount !== undefined) updates.amount = Number(amount);
+          if (dueDate !== undefined) updates.due_date = new Date(dueDate).toISOString();
+          if (urgency !== undefined) updates.urgency = urgency;
+          if (isRecurring !== undefined) updates.is_recurring = isRecurring;
+          if (paid !== undefined) updates.paid = paid;
+
+          const { data, error } = await supabaseClient
+            .from('reminders')
+            .update(updates)
+            .eq('id', reminderId)
+            .eq('user_id', userId)
+            .select('*');
+          if (error) throw error;
+          databaseModified = true;
+          toolResult = { success: true, updated: data?.[0] };
+
+        } else if (name === 'delete_user_reminder') {
+          const { reminderId } = args as any;
+          const { data, error } = await supabaseClient
+            .from('reminders')
+            .delete()
+            .eq('id', reminderId)
+            .eq('user_id', userId)
+            .select('*');
+          if (error) throw error;
+          databaseModified = true;
+          toolResult = { success: true, deleted: data };
+
+        } else if (name === 'list_user_goals') {
+          const { data, error } = await supabaseClient
+            .from('goals')
+            .select('*')
+            .eq('user_id', userId)
+            .order('name', { ascending: true });
+          if (error) throw error;
+          toolResult = { success: true, goals: data || [] };
+
+        } else if (name === 'create_user_goal') {
+          const { name: goalName, targetAmount, currentAmount, color } = args as any;
+          const { data, error } = await supabaseClient.from('goals').insert({
+            user_id: userId,
+            name: goalName,
+            target_amount: Number(targetAmount),
+            current_amount: Number(currentAmount || 0),
+            color: color || 'emerald'
+          }).select('*');
+          if (error) throw error;
+          databaseModified = true;
+          toolResult = { success: true, created: data?.[0] };
+
+        } else if (name === 'update_user_goal') {
+          const { goalId, name: goalName, targetAmount, currentAmount, color } = args as any;
+          const updates: any = {};
+          if (goalName !== undefined) updates.name = goalName;
+          if (targetAmount !== undefined) updates.target_amount = Number(targetAmount);
+          if (currentAmount !== undefined) updates.current_amount = Number(currentAmount);
+          if (color !== undefined) updates.color = color;
+
+          const { data, error } = await supabaseClient
+            .from('goals')
+            .update(updates)
+            .eq('id', goalId)
+            .eq('user_id', userId)
+            .select('*');
+          if (error) throw error;
+          databaseModified = true;
+          toolResult = { success: true, updated: data?.[0] };
+
+        } else if (name === 'delete_user_goal') {
+          const { goalId } = args as any;
+          const { data, error } = await supabaseClient
+            .from('goals')
+            .delete()
+            .eq('id', goalId)
+            .eq('user_id', userId)
+            .select('*');
+          if (error) throw error;
+          databaseModified = true;
+          toolResult = { success: true, deleted: data };
 
         } else {
           throw new Error(`Função de ferramenta desconhecida: ${name}`);
