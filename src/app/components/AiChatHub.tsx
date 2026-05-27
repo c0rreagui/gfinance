@@ -33,7 +33,7 @@ export function AiChatHub() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   // Sugestões inteligentes e refinadas de perguntas
   const suggestions = [
@@ -43,9 +43,11 @@ export function AiChatHub() {
     'Sugira dicas de economia'
   ];
 
-  // Auto-scroll para a última mensagem
+  // Auto-scroll apenas dentro do container do chat (não scrollar a página inteira)
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+    }
   };
 
   useEffect(() => {
@@ -183,7 +185,7 @@ export function AiChatHub() {
       </div>
 
       {/* Histórico / Área Central */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-4 no-scrollbar">
+      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-6 space-y-4 no-scrollbar">
         {messages.length === 0 ? (
           <div className="h-full flex flex-col justify-center items-center text-center space-y-6 animate-in">
             <div className="w-14 h-14 rounded-full bg-slate-950/60 border border-white/5 flex items-center justify-center text-emerald-500 shadow-inner group-hover:scale-105 transition-transform duration-300">
@@ -253,7 +255,6 @@ export function AiChatHub() {
               </div>
             )}
 
-            <div ref={messagesEndRef} />
           </div>
         )}
       </div>

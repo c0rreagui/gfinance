@@ -130,7 +130,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     const errorMsg = err instanceof Error ? err.message : 'Erro desconhecido no servidor';
     console.error('[Gemini Chat API] Erro ao gerar resposta financeira:', err);
     return NextResponse.json(
-      { error: `Erro ao gerar insights com Inteligência Artificial: ${errorMsg}` },
+      { error: errorMsg },
       { status: 500 }
     );
   }
