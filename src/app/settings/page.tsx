@@ -531,6 +531,101 @@ export default function Settings() {
             )}
           </div>
 
+          {/* Gemini AI Brain Capabilities & Tools */}
+          <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md p-10 rounded-[48px] border border-white/50 dark:border-white/5 shadow-sm space-y-6">
+            <div>
+              <h4 className="font-black text-xl dark:text-white flex items-center gap-2.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
+                Recursos do Gemini AI Brain
+              </h4>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
+                O assistente de IA possui permissões de agente para ler, estruturar e manipular o banco de dados local com segurança sob comando de voz ou texto.
+              </p>
+            </div>
+
+            <div className="p-6 rounded-3xl bg-slate-100/50 dark:bg-slate-900/40 border border-slate-200 dark:border-white/5 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 dark:border-white/5 pb-4">
+                <div>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Motor Cognitivo</p>
+                  <p className="text-sm font-black text-slate-700 dark:text-white mt-0.5">gemini-flash-latest</p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-left sm:text-right">Permissão Global</p>
+                  <span className="inline-block mt-0.5 px-2.5 py-1 bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-[9px] font-black rounded-lg uppercase tracking-widest">
+                    Agente Operacional Ativo
+                  </span>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                  Ferramentas & Permissões Declaradas
+                </p>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {[
+                    {
+                      category: 'Transações & Movimentações',
+                      tools: [
+                        { name: 'list_user_transactions', desc: 'Pesquisa e filtra o histórico completo de transações reais.', perm: 'Leitura', color: 'text-blue-400 bg-blue-500/10' },
+                        { name: 'create_user_transaction', desc: 'Insere novos lançamentos monetários (receitas/despesas).', perm: 'Escrita', color: 'text-emerald-400 bg-emerald-500/10' },
+                        { name: 'update_user_transaction', desc: 'Corrige valores, categorias ou descrições no banco de dados.', perm: 'Escrita', color: 'text-amber-400 bg-amber-500/10' },
+                        { name: 'delete_user_transactions', desc: 'Remove registros específicos ou limpa o histórico em lote.', perm: 'Exclusão', color: 'text-red-400 bg-red-500/10' },
+                      ]
+                    },
+                    {
+                      category: 'Compromissos & Assinaturas',
+                      tools: [
+                        { name: 'list_user_reminders', desc: 'Consulta compromissos futuros ou assinaturas fixas mensais.', perm: 'Leitura', color: 'text-blue-400 bg-blue-500/10' },
+                        { name: 'create_user_reminder', desc: 'Registra novas contas, parcelas ou assinaturas periódicas.', perm: 'Escrita', color: 'text-emerald-400 bg-emerald-500/10' },
+                        { name: 'update_user_reminder', desc: 'Marca compromissos como pagos ou reprograma vencimentos.', perm: 'Escrita', color: 'text-amber-400 bg-amber-500/10' },
+                        { name: 'delete_user_reminder', desc: 'Apaga compromissos ou cancela cobranças recorrentes.', perm: 'Exclusão', color: 'text-red-400 bg-red-500/10' },
+                      ]
+                    },
+                    {
+                      category: 'Investimentos & Metas',
+                      tools: [
+                        { name: 'list_user_goals', desc: 'Analisa objetivos de acúmulo e patrimônio cadastrados.', perm: 'Leitura', color: 'text-blue-400 bg-blue-500/10' },
+                        { name: 'create_user_goal', desc: 'Adiciona novos alvos financeiros com cores e metas.', perm: 'Escrita', color: 'text-emerald-400 bg-emerald-500/10' },
+                        { name: 'update_user_goal', desc: 'Atualiza aportes e quantias acumuladas em investimentos.', perm: 'Escrita', color: 'text-amber-400 bg-amber-500/10' },
+                        { name: 'delete_user_goal', desc: 'Apaga metas e objetivos de alocação de capital.', perm: 'Exclusão', color: 'text-red-400 bg-red-500/10' },
+                      ]
+                    },
+                    {
+                      category: 'Segurança & Reconciliação',
+                      tools: [
+                        { name: 'reconcileBalances', desc: 'Recalcula receitas, despesas e saldo líquido consolidado a cada modificação.', perm: 'Segurança', color: 'text-violet-400 bg-violet-500/10' },
+                      ]
+                    }
+                  ].map((cat, idx) => (
+                    <div key={idx} className="p-4 bg-slate-100/50 dark:bg-slate-950/40 rounded-2xl border border-slate-200/50 dark:border-white/5 space-y-3">
+                      <p className="text-[9px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest border-b border-slate-200/50 dark:border-white/5 pb-1.5">
+                        {cat.category}
+                      </p>
+                      <div className="space-y-2">
+                        {cat.tools.map((tool) => (
+                          <div key={tool.name} className="space-y-1">
+                            <div className="flex justify-between items-center gap-2">
+                              <span className="font-mono text-[9px] text-slate-800 dark:text-slate-200 font-bold bg-white/60 dark:bg-slate-800/80 px-2 py-0.5 rounded border border-slate-200/60 dark:border-white/5 shrink-0 select-all">
+                                {tool.name}
+                              </span>
+                              <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-widest shrink-0 ${tool.color}`}>
+                                {tool.perm}
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-normal pl-0.5">
+                              {tool.desc}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* System Preferences */}
           <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md p-10 rounded-[48px] border border-white/50 dark:border-white/5 shadow-sm">
             <h4 className="font-black text-xl mb-8 dark:text-white">Preferências do Sistema</h4>
