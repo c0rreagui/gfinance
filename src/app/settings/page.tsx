@@ -119,7 +119,11 @@ export default function Settings() {
         provider: 'google',
         options: {
           redirectTo: `${window.location.origin}/auth/callback?next=/settings`,
-          scopes: 'https://www.googleapis.com/auth/cloud-platform openid email profile'
+          scopes: 'https://www.googleapis.com/auth/cloud-platform openid email profile',
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent',
+          }
         }
       });
       if (error) throw error;

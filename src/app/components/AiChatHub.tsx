@@ -52,6 +52,28 @@ export function AiChatHub() {
     scrollToBottom();
   }, [messages, loading]);
 
+  // Obter token Google válido: primeiro da sessão local (rápido), depois do servidor (robusto)
+  const getGoogleToken = async (supabaseToken: string | null): Promise<string | null> => {
+    // 1. Tentar da sessão client-side (disponível logo após login)
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.provider_token) return session.provider_token;
+
+    // 2. Fallback: buscar do servidor (lida com expiração e refresh automático)
+    if (!supabaseToken) return null;
+    try {
+      const res = await fetch('/api/auth/google-token', {
+        headers: { 'Authorization': `Bearer ${supabaseToken}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return data.token || null;
+      }
+    } catch {
+      // Falha silenciosa — o backend tentará sem o token
+    }
+    return null;
+  };
+
   // Enviar mensagem
   const handleSendMessage = async (queryText: string) => {
     if (!queryText.trim() || loading) return;
@@ -69,10 +91,11 @@ export function AiChatHub() {
     setMessages(prev => [...prev, userMessage]);
 
     try {
-      // Pega a sessão ativa client-side para extrair o provider_token e access_token do Supabase
       const { data: { session } } = await supabase.auth.getSession();
-      const providerToken = session?.provider_token;
-      const supabaseToken = session?.access_token;
+      const supabaseToken = session?.access_token || null;
+
+      // Estratégia em cascata para obter token Google válido
+      const providerToken = await getGoogleToken(supabaseToken);
 
       // Formata histórico para enviar ao backend
       const historyPayload = messages.map(msg => ({

@@ -169,7 +169,11 @@ export default function AuthPage() {
         provider: 'google',
         options: {
           redirectTo: `${window.location.origin}/auth/callback`,
-          scopes: 'https://www.googleapis.com/auth/cloud-platform openid email profile'
+          scopes: 'https://www.googleapis.com/auth/cloud-platform openid email profile',
+          queryParams: {
+            access_type: 'offline',  // Garante retorno do refresh_token para renovação automática
+            prompt: 'consent',        // Força exibição da tela de consentimento para obter refresh_token sempre
+          }
         }
       });
       if (error) throw error;
