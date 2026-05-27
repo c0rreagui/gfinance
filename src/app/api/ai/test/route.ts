@@ -78,7 +78,7 @@ export async function GET(req: Request): Promise<NextResponse> {
 
     if (providerToken) {
       // Teste via OAuth REST direto
-      const url = `${GEMINI_REST_BASE}/models/gemini-2.0-flash:generateContent`;
+      const url = `${GEMINI_REST_BASE}/models/gemini-flash-latest:generateContent`;
       const response = await fetch(url, {
         method: 'POST',
         headers: {
@@ -107,7 +107,7 @@ export async function GET(req: Request): Promise<NextResponse> {
       // Teste via SDK com API Key
       const { GoogleGenerativeAI } = await import('@google/generative-ai');
       const genAI = new GoogleGenerativeAI(apiKey!);
-      const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+      const model = genAI.getGenerativeModel({ model: 'gemini-flash-latest' });
       const result = await model.generateContent('Responda apenas com a palavra "OK".');
       const latency = Date.now() - start;
 
