@@ -354,6 +354,8 @@ export async function generateFinancialResponse(
     console.info(`[Gemini Brain Tool Execution] Executando ${functionCalls.length} chamadas solicitadas pela IA.`);
     
     const functionResponses = [];
+    let databaseModified = false;
+    let loggedUserId: string | null = null;
 
     for (const call of functionCalls) {
       const { name, args } = call;
@@ -370,6 +372,7 @@ export async function generateFinancialResponse(
         const { data: { user } } = await supabaseClient.auth.getUser();
         if (!user) throw new Error('Usuário do Supabase não identificado.');
         const userId = user.id;
+        loggedUserId = userId;
 
         if (name === 'list_user_transactions') {
           const { searchQuery, category, limit } = args as any;
@@ -400,8 +403,7 @@ export async function generateFinancialResponse(
 
           if (error) throw error;
 
-          // Reconciliação imediata após inserção
-          await reconcileBalances(supabaseClient, userId);
+          databaseModified = true;
           toolResult = { success: true, created: data?.[0] };
 
         } else if (name === 'update_user_transaction') {
@@ -425,8 +427,7 @@ export async function generateFinancialResponse(
 
           if (error) throw error;
 
-          // Reconciliação imediata após atualização
-          await reconcileBalances(supabaseClient, userId);
+          databaseModified = true;
           toolResult = { success: true, updated: data?.[0] };
 
         } else if (name === 'delete_user_transaction') {
@@ -441,8 +442,7 @@ export async function generateFinancialResponse(
 
           if (error) throw error;
 
-          // Reconciliação imediata após deleção
-          await reconcileBalances(supabaseClient, userId);
+          databaseModified = true;
           toolResult = { success: true, deleted: data };
 
         } else {
@@ -456,6 +456,12 @@ export async function generateFinancialResponse(
       functionResponses.push({
         functionResponse: { name, response: toolResult }
       });
+    }
+
+    // Executa a reconciliação APENAS UMA VEZ após rodar todo o lote do turno
+    if (databaseModified && supabaseClient && loggedUserId) {
+      console.info('[Gemini Brain Tool Execution] Batch de alterações detectado. Executando reconciliação única...');
+      await reconcileBalances(supabaseClient, loggedUserId);
     }
 
     // Retorna as execuções de volta ao chat para o Gemini processar
