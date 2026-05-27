@@ -118,7 +118,8 @@ export async function POST(req: Request): Promise<NextResponse> {
       message,
       financialContext,
       chatHistory,
-      providerToken || undefined
+      providerToken || undefined,
+      supabase
     );
 
     return NextResponse.json({

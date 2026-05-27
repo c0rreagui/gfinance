@@ -14,6 +14,7 @@
  */
 
 import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
+import { reconcileBalances } from './reconcile';
 
 const GEMINI_REST_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 const DEFAULT_MODEL = 'gemini-flash-latest';
@@ -180,6 +181,68 @@ export async function parseStatementWithAI(
 }
 
 // ---------------------------------------------------------------------------
+// Definições de Ferramentas (Tools) do Gemini AI Brain
+// ---------------------------------------------------------------------------
+const geminiTools = [
+  {
+    functionDeclarations: [
+      {
+        name: 'list_user_transactions',
+        description: 'Lista transações financeiras reais do usuário no G-Finance. Retorna UUIDs, descrições, valores, categorias e datas.',
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            searchQuery: { type: SchemaType.STRING, description: 'Termo de busca opcional para filtrar por descrição (ex: Netflix, Mercado)' },
+            category: { type: SchemaType.STRING, description: 'Categoria opcional para filtrar transações (ex: Alimentação, Salário, Cartão, Utilidades, Transporte, Assinaturas, Boleto, Saúde, Outros)' },
+            limit: { type: SchemaType.NUMBER, description: 'Limite máximo de registros a retornar (padrão 30)' }
+          }
+        }
+      },
+      {
+        name: 'create_user_transaction',
+        description: 'Cria/insere uma nova transação financeira (receita ou despesa) no banco de dados do usuário no G-Finance.',
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            description: { type: SchemaType.STRING, description: 'Descrição textual clara do lançamento (ex: Uber, Mercado, Freelance)' },
+            amount: { type: SchemaType.NUMBER, description: 'Valor monetário. Valores negativos para despesas/saídas, valores positivos para receitas/entradas.' },
+            category: { type: SchemaType.STRING, description: 'Categoria exata da transação (Alimentação, Salário, Cartão, Utilidades, Transporte, Assinaturas, Boleto, Rendimentos, Transferência, Saúde, Outros)' },
+            date: { type: SchemaType.STRING, description: 'Data opcional do lançamento no formato ISO (YYYY-MM-DD)' }
+          },
+          required: ['description', 'amount', 'category']
+        }
+      },
+      {
+        name: 'update_user_transaction',
+        description: 'Modifica um ou mais campos de uma transação financeira existente do usuário.',
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            transactionId: { type: SchemaType.STRING, description: 'O UUID único identificador da transação a ser modificada.' },
+            description: { type: SchemaType.STRING, description: 'Nova descrição opcional' },
+            amount: { type: SchemaType.NUMBER, description: 'Novo valor opcional (negativo para despesa, positivo para receita)' },
+            category: { type: SchemaType.STRING, description: 'Nova categoria opcional' },
+            date: { type: SchemaType.STRING, description: 'Nova data opcional no formato ISO (YYYY-MM-DD)' }
+          },
+          required: ['transactionId']
+        }
+      },
+      {
+        name: 'delete_user_transaction',
+        description: 'Remove definitivamente uma transação financeira do usuário no banco de dados pelo seu UUID.',
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            transactionId: { type: SchemaType.STRING, description: 'O UUID único identificador da transação a ser deletada.' }
+          },
+          required: ['transactionId']
+        }
+      }
+    ]
+  }
+];
+
+// ---------------------------------------------------------------------------
 // Analista Financeiro Conversacional
 // ---------------------------------------------------------------------------
 export async function generateFinancialResponse(
@@ -191,7 +254,8 @@ export async function generateFinancialResponse(
     reminders: any[];
   },
   chatHistory: { role: 'user' | 'model'; parts: { text: string }[] }[] = [],
-  oauthToken?: string
+  oauthToken?: string,
+  supabaseClient?: any
 ): Promise<string> {
   const systemPrompt = `
     Você é o "Gemini Brain", a mente analítica por trás do G-Finance (plataforma de controle financeiro premium do Guilherme, CTO & Fundador).
@@ -213,8 +277,11 @@ export async function generateFinancialResponse(
     ${JSON.stringify(financialContext.reminders, null, 2)}
     ---
     
+    Você possui ferramentas para GERENCIAR as transações do usuário no banco de dados (ex: criar transação se ele pedir pra adicionar gasto/ganho, excluir transação se ele pedir pra apagar ou relatar duplicidade, etc.). 
+    Sempre use essas ferramentas de forma direta se o usuário solicitar qualquer alteração operacional!
+    
     Diretrizes de resposta:
-    1. Baseie-se APENAS nos dados fornecidos acima. Se o usuário perguntar algo que não está nessas tabelas, responda polidamente que não possui acesso a esse dado histórico específico no momento.
+    1. Baseie-se nos dados fornecidos e nos resultados da execução das ferramentas. Se o usuário perguntar algo que não está nas tabelas e não puder ser buscado via listagem, responda polidamente que não possui acesso a esse dado histórico específico no momento.
     2. Ao citar valores monetários, formate no padrão monetário do Brasil (ex: R$ 1.250,50).
     3. Se houver despesas excessivas ou saldo negativo, aponte insights práticos para redução de gastos baseados nos maiores boletos/cartões da lista de transações recentes.
     4. Use markdown leve (negritos, listas) para estruturar as análises de forma refinada.
@@ -257,11 +324,12 @@ export async function generateFinancialResponse(
     return text;
   }
 
-  // Caminho API Key: SDK padrão com startChat
+  // Caminho API Key: SDK padrão com startChat e suporte a Function Calling
   const genAI = getGeminiClient();
   const model = genAI.getGenerativeModel({
     model: DEFAULT_MODEL,
     systemInstruction: { text: systemPrompt },
+    tools: supabaseClient ? (geminiTools as any) : undefined, // Só habilita ferramentas de escrita se o client Supabase autenticado for fornecido
     generationConfig: {
       temperature: 0.4,
       maxOutputTokens: 1024,
@@ -274,6 +342,126 @@ export async function generateFinancialResponse(
   }));
 
   const chat = model.startChat({ history: formattedHistory });
-  const result = await chat.sendMessage(query);
+  let result = await chat.sendMessage(query);
+  let functionCalls = result.response.functionCalls();
+
+  let loopCount = 0;
+  const MAX_LOOPS = 5;
+
+  // Loop de resolução consecutiva de ferramentas (Tool Calling Loop)
+  while (functionCalls && functionCalls.length > 0 && loopCount < MAX_LOOPS) {
+    loopCount++;
+    console.info(`[Gemini Brain Tool Execution] Executando ${functionCalls.length} chamadas solicitadas pela IA.`);
+    
+    const functionResponses = [];
+
+    for (const call of functionCalls) {
+      const { name, args } = call;
+      console.info(`[Gemini Brain Tool Execution] Iniciando "${name}" com argumentos:`, args);
+
+      let toolResult: any;
+
+      try {
+        if (!supabaseClient) {
+          throw new Error('SupabaseClient não fornecido para execução de ferramentas de escrita.');
+        }
+
+        // Recuperar sessão ativa segura do usuário logado
+        const { data: { user } } = await supabaseClient.auth.getUser();
+        if (!user) throw new Error('Usuário do Supabase não identificado.');
+        const userId = user.id;
+
+        if (name === 'list_user_transactions') {
+          const { searchQuery, category, limit } = args as any;
+          let queryBuilder = supabaseClient.from('transactions').select('*').eq('user_id', userId);
+          
+          if (category) queryBuilder = queryBuilder.eq('category', category);
+          if (searchQuery) queryBuilder = queryBuilder.ilike('description', `%${searchQuery}%`);
+          
+          const { data, error } = await queryBuilder
+            .order('date', { ascending: false })
+            .limit(limit || 30);
+
+          if (error) throw error;
+          toolResult = { success: true, transactions: data || [] };
+
+        } else if (name === 'create_user_transaction') {
+          const { description, amount, category, date } = args as any;
+          const icon = amount > 0 ? 'ArrowDownLeft' : 'CreditCard';
+
+          const { data, error } = await supabaseClient.from('transactions').insert({
+            user_id: userId,
+            description,
+            amount: Number(amount),
+            category,
+            date: date ? new Date(date).toISOString() : new Date().toISOString(),
+            icon
+          }).select('*');
+
+          if (error) throw error;
+
+          // Reconciliação imediata após inserção
+          await reconcileBalances(supabaseClient, userId);
+          toolResult = { success: true, created: data?.[0] };
+
+        } else if (name === 'update_user_transaction') {
+          const { transactionId, description, amount, category, date } = args as any;
+          const updates: any = {};
+          
+          if (description) updates.description = description;
+          if (amount !== undefined) {
+            updates.amount = Number(amount);
+            updates.icon = amount > 0 ? 'ArrowDownLeft' : 'CreditCard';
+          }
+          if (category) updates.category = category;
+          if (date) updates.date = new Date(date).toISOString();
+
+          const { data, error } = await supabaseClient
+            .from('transactions')
+            .update(updates)
+            .eq('id', transactionId)
+            .eq('user_id', userId)
+            .select('*');
+
+          if (error) throw error;
+
+          // Reconciliação imediata após atualização
+          await reconcileBalances(supabaseClient, userId);
+          toolResult = { success: true, updated: data?.[0] };
+
+        } else if (name === 'delete_user_transaction') {
+          const { transactionId } = args as any;
+
+          const { data, error } = await supabaseClient
+            .from('transactions')
+            .delete()
+            .eq('id', transactionId)
+            .eq('user_id', userId)
+            .select('*');
+
+          if (error) throw error;
+
+          // Reconciliação imediata após deleção
+          await reconcileBalances(supabaseClient, userId);
+          toolResult = { success: true, deleted: data };
+
+        } else {
+          throw new Error(`Função de ferramenta desconhecida: ${name}`);
+        }
+      } catch (err: any) {
+        console.error(`[Gemini Brain Tool Execution] Erro ao rodar "${name}":`, err);
+        toolResult = { success: false, error: err.message || 'Erro técnico na ferramenta.' };
+      }
+
+      functionResponses.push({
+        functionResponse: { name, response: toolResult }
+      });
+    }
+
+    // Retorna as execuções de volta ao chat para o Gemini processar
+    result = await chat.sendMessage(functionResponses as any);
+    functionCalls = result.response.functionCalls();
+  }
+
   return result.response.text();
 }
