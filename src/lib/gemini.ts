@@ -5,20 +5,28 @@
  * Fornece:
  * 1. Parser Multimodal (extratos PDF/imagens de qualquer banco) com Structured JSON Outputs.
  * 2. Analista Financeiro Conversacional com injeção de contexto (saldos, transações, metas) em tempo real.
+ *
+ * Autenticação:
+ * - Se `oauthToken` (Google Cloud Platform Bearer token) for fornecido, usa a REST API
+ *   diretamente via fetch com o header `Authorization: Bearer <token>`.
+ *   Isso é necessário pois o SDK @google/generative-ai não suporta OAuth Bearer tokens.
+ * - Se não, usa o SDK padrão com a GEMINI_API_KEY configurada no .env.local.
  */
 
 import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
 
+const GEMINI_REST_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+const DEFAULT_MODEL = 'gemini-2.0-flash';
+
 const apiKey = process.env.GEMINI_API_KEY;
 
-export function getGeminiClient(tokenMode: boolean = false): GoogleGenerativeAI {
-  const finalKey = tokenMode ? 'oauth-authenticated' : (apiKey || 'your-gemini-api-key-here');
-  if (!tokenMode && (!apiKey || apiKey === 'your-gemini-api-key-here')) {
+export function getGeminiClient(): GoogleGenerativeAI {
+  if (!apiKey || apiKey === 'your-gemini-api-key-here') {
     throw new Error(
-      'GEMINI_API_KEY não configurada. Por favor, adicione sua chave de API no arquivo .env.local.'
+      'GEMINI_API_KEY não configurada. Adicione sua chave de API no arquivo .env.local ou conecte sua conta Google em Configurações.'
     );
   }
-  return new GoogleGenerativeAI(finalKey);
+  return new GoogleGenerativeAI(apiKey);
 }
 
 export interface AITransaction {
@@ -29,69 +37,42 @@ export interface AITransaction {
   icon: string;
 }
 
-/**
- * Utiliza o Gemini 2.0 Flash com Structured Outputs para extrair lançamentos de extratos de qualquer banco.
- */
+// ---------------------------------------------------------------------------
+// Helper: chamada REST direta ao Gemini API com OAuth Bearer token
+// ---------------------------------------------------------------------------
+async function callGeminiREST(
+  modelName: string,
+  payload: object,
+  oauthToken: string
+): Promise<any> {
+  const url = `${GEMINI_REST_BASE}/models/${modelName}:generateContent`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${oauthToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(
+      `Gemini API (OAuth) retornou ${response.status}: ${errorBody}`
+    );
+  }
+
+  return response.json();
+}
+
+// ---------------------------------------------------------------------------
+// Parser Multimodal: extrai lançamentos de extratos de qualquer banco
+// ---------------------------------------------------------------------------
 export async function parseStatementWithAI(
   fileBuffer: Buffer,
   mimeType: string,
   oauthToken?: string
 ): Promise<AITransaction[]> {
-  const genAI = getGeminiClient(!!oauthToken);
-  const model = genAI.getGenerativeModel(
-    {
-      model: 'gemini-2.0-flash',
-      generationConfig: {
-      responseMimeType: 'application/json',
-      responseSchema: {
-        type: SchemaType.OBJECT,
-        properties: {
-          transactions: {
-            type: SchemaType.ARRAY,
-            description: 'Lista de lançamentos extraídos do extrato bancário',
-            items: {
-              type: SchemaType.OBJECT,
-              properties: {
-                date: {
-                  type: SchemaType.STRING,
-                  description: 'Data do lançamento no formato ISO (YYYY-MM-DD)',
-                },
-                description: {
-                  type: SchemaType.STRING,
-                  description: 'Descrição original limpa do lançamento bancário',
-                },
-                amount: {
-                  type: SchemaType.NUMBER,
-                  description: 'Valor líquido (positivo para receita/crédito, negativo para despesa/débito)',
-                },
-                category: {
-                  type: SchemaType.STRING,
-                  description: 'Categoria inferida: Alimentação, Salário, Cartão, Utilidades, Transporte, Assinaturas, Boleto, Rendimentos, Transferência, Saúde ou Outros',
-                },
-                icon: {
-                  type: SchemaType.STRING,
-                  description: 'Ícone Lucide representativo: ShoppingCart, Wallet, CreditCard, Zap, Car, Tv, FileText, Activity ou Heart',
-                },
-              },
-              required: ['date', 'description', 'amount', 'category', 'icon'],
-            },
-          },
-        },
-        required: ['transactions'],
-      },
-    },
-    },
-    oauthToken ? { customHeaders: { 'Authorization': `Bearer ${oauthToken}` } } : undefined
-  );
-
-  // Converter buffer para Part Part de dados embutidos
-  const filePart = {
-    inlineData: {
-      data: fileBuffer.toString('base64'),
-      mimeType,
-    },
-  };
-
   const prompt = `
     Analise o extrato financeiro fornecido (PDF ou Imagem).
     Extraia TODOS os lançamentos individuais de movimentações ocorridas na conta.
@@ -124,11 +105,69 @@ export async function parseStatementWithAI(
        - 'Saúde' -> 'Heart'
        - 'Outros' -> 'Activity'
     5. Mantenha os sinais monetários exatos (valores negativos para saídas, positivos para entradas).
+    
+    Retorne EXCLUSIVAMENTE um JSON válido no formato:
+    {"transactions": [{"date":"YYYY-MM-DD","description":"...","amount":0.0,"category":"...","icon":"..."}]}
   `;
 
+  const fileBase64 = fileBuffer.toString('base64');
+
+  if (oauthToken) {
+    // Caminho OAuth: REST API direta
+    const payload = {
+      contents: [
+        {
+          parts: [
+            { text: prompt },
+            { inline_data: { mime_type: mimeType, data: fileBase64 } }
+          ]
+        }
+      ],
+      generationConfig: {
+        responseMimeType: 'application/json',
+      }
+    };
+
+    const json = await callGeminiREST(DEFAULT_MODEL, payload, oauthToken);
+    const text = json.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+    const parsed = JSON.parse(text);
+    return parsed.transactions || [];
+  }
+
+  // Caminho API Key: SDK padrão com Structured Outputs
+  const genAI = getGeminiClient();
+  const model = genAI.getGenerativeModel({
+    model: DEFAULT_MODEL,
+    generationConfig: {
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: SchemaType.OBJECT,
+        properties: {
+          transactions: {
+            type: SchemaType.ARRAY,
+            description: 'Lista de lançamentos extraídos do extrato bancário',
+            items: {
+              type: SchemaType.OBJECT,
+              properties: {
+                date: { type: SchemaType.STRING, description: 'Data ISO (YYYY-MM-DD)' },
+                description: { type: SchemaType.STRING, description: 'Descrição do lançamento' },
+                amount: { type: SchemaType.NUMBER, description: 'Valor (negativo=saída, positivo=entrada)' },
+                category: { type: SchemaType.STRING, description: 'Categoria do lançamento' },
+                icon: { type: SchemaType.STRING, description: 'Ícone Lucide' },
+              },
+              required: ['date', 'description', 'amount', 'category', 'icon'],
+            },
+          },
+        },
+        required: ['transactions'],
+      },
+    },
+  });
+
+  const filePart = { inlineData: { data: fileBase64, mimeType } };
   const result = await model.generateContent([prompt, filePart]);
   const responseText = result.response.text();
-  
+
   try {
     const parsed = JSON.parse(responseText);
     return parsed.transactions || [];
@@ -138,9 +177,9 @@ export async function parseStatementWithAI(
   }
 }
 
-/**
- * Cria uma sessão conversacional com o Gemini injetando o contexto financeiro real do Supabase.
- */
+// ---------------------------------------------------------------------------
+// Analista Financeiro Conversacional
+// ---------------------------------------------------------------------------
 export async function generateFinancialResponse(
   query: string,
   financialContext: {
@@ -180,27 +219,57 @@ export async function generateFinancialResponse(
     5. Fale estritamente em português brasileiro (pt-BR).
   `;
 
-  const genAI = getGeminiClient(!!oauthToken);
-  const model = genAI.getGenerativeModel(
-    { 
-      model: 'gemini-2.0-flash',
-      systemInstruction: {
-        text: systemPrompt
-      }
-    },
-    oauthToken ? { customHeaders: { 'Authorization': `Bearer ${oauthToken}` } } : undefined
-  );
+  if (oauthToken) {
+    // Caminho OAuth: REST API direta (chat via contents array com histórico)
+    const contents: any[] = [];
 
-  // Converter histórico de chat para o padrão do SDK do Gemini
+    // Injetar system prompt como primeira mensagem do modelo (turn alternado)
+    // Na REST API do Gemini, usamos system_instruction separado
+    for (const msg of chatHistory) {
+      contents.push({
+        role: msg.role === 'model' ? 'model' : 'user',
+        parts: [{ text: msg.parts[0].text }],
+      });
+    }
+
+    // Adiciona a pergunta atual do usuário
+    contents.push({ role: 'user', parts: [{ text: query }] });
+
+    const payload = {
+      system_instruction: { parts: [{ text: systemPrompt }] },
+      contents,
+      generationConfig: {
+        temperature: 0.4,
+        maxOutputTokens: 1024,
+      }
+    };
+
+    const json = await callGeminiREST(DEFAULT_MODEL, payload, oauthToken);
+    const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) {
+      const reason = json.candidates?.[0]?.finishReason || 'UNKNOWN';
+      throw new Error(`Gemini não retornou texto. Motivo: ${reason}`);
+    }
+    return text;
+  }
+
+  // Caminho API Key: SDK padrão com startChat
+  const genAI = getGeminiClient();
+  const model = genAI.getGenerativeModel({
+    model: DEFAULT_MODEL,
+    systemInstruction: { text: systemPrompt },
+    generationConfig: {
+      temperature: 0.4,
+      maxOutputTokens: 1024,
+    }
+  });
+
   const formattedHistory = chatHistory.map((msg) => ({
     role: msg.role,
     parts: [{ text: msg.parts[0].text }],
   }));
 
-  const chat = model.startChat({
-    history: formattedHistory,
-  });
-
+  const chat = model.startChat({ history: formattedHistory });
   const result = await chat.sendMessage(query);
   return result.response.text();
 }
