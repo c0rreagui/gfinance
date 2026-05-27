@@ -112,7 +112,9 @@ export async function parseStatementWithAI(
 
   const fileBase64 = fileBuffer.toString('base64');
 
-  if (oauthToken) {
+  const hasApiKey = apiKey && apiKey !== 'your-gemini-api-key-here';
+
+  if (oauthToken && !hasApiKey) {
     // Caminho OAuth: REST API direta
     const payload = {
       contents: [
@@ -219,7 +221,9 @@ export async function generateFinancialResponse(
     5. Fale estritamente em português brasileiro (pt-BR).
   `;
 
-  if (oauthToken) {
+  const hasApiKey = apiKey && apiKey !== 'your-gemini-api-key-here';
+
+  if (oauthToken && !hasApiKey) {
     // Caminho OAuth: REST API direta (chat via contents array com histórico)
     const contents: any[] = [];
 
