@@ -152,12 +152,6 @@ export async function generateFinancialResponse(
   chatHistory: { role: 'user' | 'model'; parts: { text: string }[] }[] = [],
   oauthToken?: string
 ): Promise<string> {
-  const genAI = getGeminiClient(!!oauthToken);
-  const model = genAI.getGenerativeModel(
-    { model: 'gemini-2.0-flash' },
-    oauthToken ? { customHeaders: { 'Authorization': `Bearer ${oauthToken}` } } : undefined
-  );
-
   const systemPrompt = `
     Você é o "Gemini Brain", a mente analítica por trás do G-Finance (plataforma de controle financeiro premium do Guilherme, CTO & Fundador).
     Sua persona é direta, elegante, altamente profissional e orientada a dados. Evite introduções longas ou termos exageradamente alegres.
@@ -186,6 +180,15 @@ export async function generateFinancialResponse(
     5. Fale estritamente em português brasileiro (pt-BR).
   `;
 
+  const genAI = getGeminiClient(!!oauthToken);
+  const model = genAI.getGenerativeModel(
+    { 
+      model: 'gemini-2.0-flash',
+      systemInstruction: systemPrompt
+    },
+    oauthToken ? { customHeaders: { 'Authorization': `Bearer ${oauthToken}` } } : undefined
+  );
+
   // Converter histórico de chat para o padrão do SDK do Gemini
   const formattedHistory = chatHistory.map((msg) => ({
     role: msg.role,
@@ -194,7 +197,6 @@ export async function generateFinancialResponse(
 
   const chat = model.startChat({
     history: formattedHistory,
-    systemInstruction: systemPrompt,
   });
 
   const result = await chat.sendMessage(query);
