@@ -184,7 +184,9 @@ export async function generateFinancialResponse(
   const model = genAI.getGenerativeModel(
     { 
       model: 'gemini-2.0-flash',
-      systemInstruction: systemPrompt
+      systemInstruction: {
+        text: systemPrompt
+      }
     },
     oauthToken ? { customHeaders: { 'Authorization': `Bearer ${oauthToken}` } } : undefined
   );
