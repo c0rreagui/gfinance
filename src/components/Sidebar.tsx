@@ -13,7 +13,8 @@ import {
   BarChart3, 
   Coins, 
   Link2, 
-  Settings 
+  Settings,
+  Sparkles
 } from 'lucide-react';
 
 interface SidebarItem {
@@ -27,6 +28,7 @@ export const Sidebar: React.FC = () => {
 
   const items: SidebarItem[] = [
     { name: 'Visão Geral', icon: LayoutGrid, path: '/' },
+    { name: 'Gemini Brain', icon: Sparkles, path: '/gemini' },
     { name: 'Transações', icon: Receipt, path: '/transactions' },
     { name: 'Cartões', icon: CreditCard, path: '/cards' },
     { name: 'Dívidas', icon: Landmark, path: '/debts' },
