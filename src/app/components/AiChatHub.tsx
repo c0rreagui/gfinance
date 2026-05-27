@@ -69,9 +69,10 @@ export function AiChatHub() {
     setMessages(prev => [...prev, userMessage]);
 
     try {
-      // Pega a sessão ativa client-side para extrair o provider_token do Google OAuth
+      // Pega a sessão ativa client-side para extrair o provider_token e access_token do Supabase
       const { data: { session } } = await supabase.auth.getSession();
       const providerToken = session?.provider_token;
+      const supabaseToken = session?.access_token;
 
       // Formata histórico para enviar ao backend
       const historyPayload = messages.map(msg => ({
@@ -83,6 +84,7 @@ export function AiChatHub() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...(supabaseToken ? { 'Authorization': `Bearer ${supabaseToken}` } : {}),
           ...(providerToken ? { 'x-provider-token': providerToken } : {})
         },
         body: JSON.stringify({

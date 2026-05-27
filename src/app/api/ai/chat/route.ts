@@ -13,8 +13,19 @@ import { generateFinancialResponse } from '@/lib/gemini';
 export const runtime = 'nodejs';
 
 export async function POST(req: Request): Promise<NextResponse> {
-  // 1. Autenticação via cookies com o Supabase Server Client
+  // 1. Autenticação via cookies ou Header Authorization com o Supabase Server Client
+  const authHeader = req.headers.get('Authorization');
+  const supabaseToken = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null;
+
   const supabase = await createSupabaseServerClient();
+
+  if (supabaseToken) {
+    await supabase.auth.setSession({
+      access_token: supabaseToken,
+      refresh_token: ''
+    });
+  }
+
   const { data: { session }, error: sessionError } = await supabase.auth.getSession();
   const user = session?.user;
 

@@ -35,7 +35,18 @@ export async function GET(req: Request): Promise<NextResponse> {
 
   try {
     // 1. Autenticar usuário e extrair token OAuth da sessão
+    const authHeader = req.headers.get('Authorization');
+    const supabaseToken = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null;
+
     const supabase = await createSupabaseServerClient();
+
+    if (supabaseToken) {
+      await supabase.auth.setSession({
+        access_token: supabaseToken,
+        refresh_token: ''
+      });
+    }
+
     const { data: { session } } = await supabase.auth.getSession();
     const providerToken = req.headers.get('x-provider-token') || session?.provider_token;
 

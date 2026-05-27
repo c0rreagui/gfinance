@@ -233,8 +233,19 @@ function parseCsv(text: string): ParsedTransaction[] {
 export const runtime = 'nodejs'; // pdf-parse requer Node.js runtime
 
 export async function POST(req: Request): Promise<NextResponse> {
-  // 1. Auth via server client com cookies (sessão real)
+  // 1. Auth via server client com cookies ou Header Authorization (sessão real)
+  const authHeader = req.headers.get('Authorization');
+  const supabaseToken = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null;
+
   const supabase = await createSupabaseServerClient();
+
+  if (supabaseToken) {
+    await supabase.auth.setSession({
+      access_token: supabaseToken,
+      refresh_token: ''
+    });
+  }
+
   const { data: { user }, error: authError } = await supabase.auth.getUser();
 
   if (authError || !user) {
