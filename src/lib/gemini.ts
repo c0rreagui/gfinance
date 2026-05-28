@@ -36,6 +36,7 @@ export interface AITransaction {
   amount: number;
   category: string;
   icon: string;
+  isBalance?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -76,10 +77,13 @@ export async function parseStatementWithAI(
 ): Promise<AITransaction[]> {
   const prompt = `
     Analise o extrato financeiro fornecido (PDF ou Imagem).
-    Extraia TODOS os lançamentos individuais de movimentações ocorridas na conta.
+    Extraia TODOS os lançamentos individuais de movimentações ocorridas na conta, ALÉM de todos os saldos consolidados diários (saldos do dia / o que se manteve).
     
-    Regras de negócio:
-    1. IGNORE completamente saldos, totais consolidados, avisos e avisos publicitários do banco.
+    Regras de negócio para separação e identificação:
+    1. Identifique e separe os lançamentos em três blocos de dados distintos:
+       - ENTRADAS (Receitas): Valores em verde ou de crédito/entrada. Devem ter valor positivo (amount > 0) e isBalance = false.
+       - SAÍDAS (Despesas): Valores em vermelho ou de débito/saída. Devem ter valor negativo (amount < 0) e isBalance = false.
+       - SALDO DO DIA (O que se manteve): Valores em preto, cinza ou estáticos que representam o saldo consolidado ao final do dia. Devem ter isBalance = true, descrição amigável como "Saldo do Dia", categoria "Saldo" e icon "Calculator". O valor (amount) é o saldo consolidado exato do dia (positivo ou negativo conforme constar no saldo).
     2. Formate as datas estritamente no padrão ISO (YYYY-MM-DD).
     3. Categorize cada lançamento nas seguintes classes padrão:
        - 'Alimentação' (supermercados, restaurantes)
@@ -93,6 +97,7 @@ export async function parseStatementWithAI(
        - 'Transferência' (Pix enviados/recebidos comuns)
        - 'Saúde' (farmácias, planos de saúde)
        - 'Outros' (se não encaixar em nenhuma anterior)
+       - 'Saldo' (exclusivo para saldos diários onde isBalance = true)
     4. Defina os ícones Lucide correspondentes:
        - 'Alimentação' -> 'ShoppingCart'
        - 'Salário' -> 'Wallet'
@@ -104,11 +109,12 @@ export async function parseStatementWithAI(
        - 'Rendimentos' -> 'Activity'
        - 'Transferência' -> 'Wallet'
        - 'Saúde' -> 'Heart'
+       - 'Saldo' -> 'Calculator'
        - 'Outros' -> 'Activity'
-    5. Mantenha os sinais monetários exatos (valores negativos para saídas, positivos para entradas).
+    5. Mantenha os sinais monetários exatos (valores negativos para saídas, positivos para entradas, e o valor real do saldo para itens de saldo).
     
     Retorne EXCLUSIVAMENTE um JSON válido no formato:
-    {"transactions": [{"date":"YYYY-MM-DD","description":"...","amount":0.0,"category":"...","icon":"..."}]}
+    {"transactions": [{"date":"YYYY-MM-DD","description":"...","amount":0.0,"category":"...","icon":"...","isBalance":false/true}]}
   `;
 
   const fileBase64 = fileBuffer.toString('base64');
@@ -153,12 +159,13 @@ export async function parseStatementWithAI(
               type: SchemaType.OBJECT,
               properties: {
                 date: { type: SchemaType.STRING, description: 'Data ISO (YYYY-MM-DD)' },
-                description: { type: SchemaType.STRING, description: 'Descrição do lançamento' },
-                amount: { type: SchemaType.NUMBER, description: 'Valor (negativo=saída, positivo=entrada)' },
-                category: { type: SchemaType.STRING, description: 'Categoria do lançamento' },
+                description: { type: SchemaType.STRING, description: 'Descrição do lançamento ou indicação de saldo' },
+                amount: { type: SchemaType.NUMBER, description: 'Valor (negativo=saída, positivo=entrada, ou valor do saldo)' },
+                category: { type: SchemaType.STRING, description: 'Categoria do lançamento (use "Saldo" para saldos diários)' },
                 icon: { type: SchemaType.STRING, description: 'Ícone Lucide' },
+                isBalance: { type: SchemaType.BOOLEAN, description: 'Indica se este item representa o saldo diário (saldo do dia / o que se manteve) em vez de uma transação' }
               },
-              required: ['date', 'description', 'amount', 'category', 'icon'],
+              required: ['date', 'description', 'amount', 'category', 'icon', 'isBalance'],
             },
           },
         },

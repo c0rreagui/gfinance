@@ -46,6 +46,7 @@ const categoryIcons: { [key: string]: React.ComponentType<any> } = {
   'Rendimentos': Activity,
   'Transferência': Wallet,
   'Saúde': Heart,
+  'Saldo': Calculator,
   'Outros': Activity
 };
 
@@ -55,6 +56,7 @@ interface StagedTransaction {
   description: string;
   amount: number;
   category: string;
+  isBalance?: boolean;
 }
 
 interface ChatMessage {
@@ -173,7 +175,8 @@ export default function GeminiBrainPage() {
         date: t.date || new Date().toISOString().split('T')[0],
         description: t.description || 'Transação sem descrição',
         amount: Number(t.amount) || 0,
-        category: t.category || 'Outros'
+        category: t.category || 'Outros',
+        isBalance: !!t.isBalance
       }));
 
       setStagedTransactions(parsedTransactions);
@@ -213,7 +216,10 @@ export default function GeminiBrainPage() {
     setUploadError('');
 
     try {
-      const recordsToInsert = stagedTransactions.map((item) => ({
+      // Filtrar lançamentos de saldo para não poluir o livro-caixa/ledger
+      const transactionsToInsert = stagedTransactions.filter(item => !item.isBalance);
+
+      const recordsToInsert = transactionsToInsert.map((item) => ({
         user_id: userId,
         description: item.description,
         amount: item.amount,
@@ -222,12 +228,14 @@ export default function GeminiBrainPage() {
         icon: item.amount > 0 ? 'ArrowDownLeft' : 'CreditCard' // Ícone genérico de fluxo
       }));
 
-      // 1. Bulk insert no Supabase
-      const { error: insertError } = await supabase
-        .from('transactions')
-        .insert(recordsToInsert);
+      if (recordsToInsert.length > 0) {
+        // 1. Bulk insert no Supabase
+        const { error: insertError } = await supabase
+          .from('transactions')
+          .insert(recordsToInsert);
 
-      if (insertError) throw insertError;
+        if (insertError) throw insertError;
+      }
 
       // 2. Chamar utilitário de reconciliação de saldos
       const reconcileResult = await reconcileBalances(supabase, userId);
@@ -236,16 +244,16 @@ export default function GeminiBrainPage() {
         throw new Error(reconcileResult.error || 'Erro ao recalcular os saldos da central.');
       }
 
-      // Salvar estatísticas para o modal de sucesso
+      // Salvar estatísticas para o modal de sucesso (excluindo os saldos diários do montante acumulado)
       let totalIncome = 0;
       let totalExpense = 0;
-      stagedTransactions.forEach(t => {
+      transactionsToInsert.forEach(t => {
         if (t.amount > 0) totalIncome += t.amount;
         else totalExpense += Math.abs(t.amount);
       });
 
       setImportStats({
-        total: stagedTransactions.length,
+        total: transactionsToInsert.length,
         income: totalIncome,
         expense: totalExpense
       });
@@ -322,13 +330,13 @@ export default function GeminiBrainPage() {
     }
   };
 
-  // Cálculos consolidados locais na Fila de Staging
+  // Cálculos consolidados locais na Fila de Staging (excluindo saldos estáticos)
   const totalStagedIncome = stagedTransactions
-    .filter((t) => t.amount > 0)
+    .filter((t) => !t.isBalance && t.amount > 0)
     .reduce((sum, t) => sum + t.amount, 0);
 
   const totalStagedExpense = stagedTransactions
-    .filter((t) => t.amount < 0)
+    .filter((t) => !t.isBalance && t.amount < 0)
     .reduce((sum, t) => sum + Math.abs(t.amount), 0);
 
   return (
@@ -502,7 +510,9 @@ export default function GeminiBrainPage() {
                     <div className="flex flex-wrap items-center gap-6">
                       <div>
                         <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Total Transações</p>
-                        <p className="text-lg font-black dark:text-white mt-1">{stagedTransactions.length}</p>
+                        <p className="text-lg font-black dark:text-white mt-1">
+                          {stagedTransactions.filter(t => !t.isBalance).length}
+                        </p>
                       </div>
                       <div className="h-8 w-px bg-white/10 hidden sm:block"></div>
                       <div>
@@ -522,6 +532,19 @@ export default function GeminiBrainPage() {
                           {totalStagedExpense.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                         </p>
                       </div>
+                      {stagedTransactions.some(t => t.isBalance) && (
+                        <>
+                          <div className="h-8 w-px bg-white/10 hidden sm:block"></div>
+                          <div>
+                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest flex items-center gap-1">
+                              <Calculator className="w-3.5 h-3.5 text-slate-400" /> Saldos Diários
+                            </p>
+                            <p className="text-sm font-black text-slate-100 mt-1">
+                              {stagedTransactions.filter(t => t.isBalance).length} reg.
+                            </p>
+                          </div>
+                        </>
+                      )}
                     </div>
 
                     <button
@@ -557,9 +580,17 @@ export default function GeminiBrainPage() {
                       <tbody className="divide-y divide-white/5">
                         {stagedTransactions.map((tx) => {
                           const IconComponent = categoryIcons[tx.category] || Activity;
+                          const isBalance = !!tx.isBalance;
                           const isIncome = tx.amount > 0;
                           return (
-                            <tr key={tx.id} className="hover:bg-white/[0.02] transition-colors group">
+                            <tr 
+                              key={tx.id} 
+                              className={`transition-colors group ${
+                                isBalance 
+                                  ? 'bg-slate-900/40 hover:bg-slate-900/60 border-l-2 border-slate-500' 
+                                  : 'hover:bg-white/[0.02] border-l-2 border-transparent'
+                              }`}
+                            >
                               {/* Date Input */}
                               <td className="px-6 py-4">
                                 <input
@@ -597,6 +628,7 @@ export default function GeminiBrainPage() {
                                     <option value="Rendimentos">Rendimentos</option>
                                     <option value="Transferência">Transferência</option>
                                     <option value="Saúde">Saúde</option>
+                                    <option value="Saldo">Saldo</option>
                                     <option value="Outros">Outros</option>
                                   </select>
                                 </div>
@@ -604,30 +636,43 @@ export default function GeminiBrainPage() {
                               {/* Amount Input */}
                               <td className="px-6 py-4 text-right">
                                 <div className="flex items-center justify-end gap-2">
-                                  <span className={`text-[10px] font-black uppercase ${isIncome ? 'text-emerald-500' : 'text-slate-400'}`}>
-                                    {isIncome ? '+' : '-'}
-                                  </span>
+                                  {isBalance ? (
+                                    <span className="text-[9px] font-black uppercase text-slate-450 bg-white/5 px-2 py-0.5 rounded border border-white/5 flex items-center gap-1">
+                                      <Calculator className="w-3 h-3 text-slate-400" /> Saldo
+                                    </span>
+                                  ) : (
+                                    <span className={`text-[10px] font-black uppercase ${isIncome ? 'text-emerald-500' : 'text-slate-400'}`}>
+                                      {isIncome ? '+' : '-'}
+                                    </span>
+                                  )}
                                   <input
                                     type="number"
                                     step="0.01"
-                                    value={Math.abs(tx.amount)}
+                                    value={isBalance ? tx.amount : Math.abs(tx.amount)}
                                     onChange={(e) => {
-                                      const absVal = Math.abs(parseFloat(e.target.value) || 0);
-                                      const finalVal = isIncome ? absVal : -absVal;
+                                      const val = parseFloat(e.target.value) || 0;
+                                      const absVal = Math.abs(val);
+                                      const finalVal = isBalance ? val : (isIncome ? absVal : -absVal);
                                       handleStagedChange(tx.id, 'amount', finalVal);
                                     }}
                                     className={`bg-transparent border-0 font-black text-xs text-right w-24 focus:outline-none focus:ring-1 focus:ring-emerald-500/20 rounded px-2 py-1.5 focus:bg-slate-950 transition-all ${
-                                      isIncome ? 'text-emerald-400' : 'text-slate-200'
+                                      isBalance 
+                                        ? 'text-slate-350 font-mono font-bold' 
+                                        : isIncome 
+                                          ? 'text-emerald-400' 
+                                          : 'text-slate-200'
                                     }`}
                                   />
-                                  <button
-                                    type="button"
-                                    onClick={() => handleStagedChange(tx.id, 'amount', -tx.amount)}
-                                    title="Inverter fluxo (Receita / Despesa)"
-                                    className="p-1 hover:bg-white/5 rounded text-slate-500 hover:text-slate-300 transition-colors cursor-pointer"
-                                  >
-                                    <Shuffle className="w-3.5 h-3.5" />
-                                  </button>
+                                  {!isBalance && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleStagedChange(tx.id, 'amount', -tx.amount)}
+                                      title="Inverter fluxo (Receita / Despesa)"
+                                      className="p-1 hover:bg-white/5 rounded text-slate-500 hover:text-slate-300 transition-colors cursor-pointer"
+                                    >
+                                      <Shuffle className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
                                 </div>
                               </td>
                               {/* Delete button */}
