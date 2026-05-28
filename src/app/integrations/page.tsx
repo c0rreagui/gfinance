@@ -42,6 +42,21 @@ interface OperationLog {
 // Componente principal
 // ---------------------------------------------------------------------------
 
+const getSourceBadgeDetails = (sourceType: string | null) => {
+  switch (sourceType) {
+    case 'sms':
+      return { label: 'SMS Gateway', className: 'bg-cyan-950 text-cyan-400 border border-cyan-500/10' };
+    case 'pdf_ai':
+      return { label: 'IA Fallback', className: 'bg-violet-950 text-violet-400 border border-violet-500/10' };
+    case 'sync_sandbox':
+      return { label: 'Sandbox', className: 'bg-amber-950 text-amber-400 border border-amber-500/10' };
+    case 'sync_mtls':
+      return { label: 'mTLS Prod', className: 'bg-emerald-950 text-emerald-400 border border-emerald-500/10' };
+    default:
+      return { label: sourceType ? sourceType.toUpperCase() : 'Arquivo', className: 'bg-slate-900 text-slate-400 border border-white/5' };
+  }
+};
+
 export default function DataSources() {
   const webhookUrl = 'https://jdliepgseoyoxfygmdet.supabase.co/functions/v1/sms-webhook';
 
@@ -54,8 +69,20 @@ export default function DataSources() {
   const [successMsg, setSuccessMsg] = useState('');
   const [logs, setLogs] = useState<OperationLog[]>([]);
   const [logsLoading, setLogsLoading] = useState(true);
+  const [userId, setUserId] = useState<string>('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Direct Itaú Sync States
+  const [connectionInfo, setConnectionInfo] = useState<{
+    configured: boolean;
+    agency: string;
+    accountNumber: string;
+    lastSyncedAt: string | null;
+    mode: string;
+    isRealSync: boolean;
+  } | null>(null);
+  const [syncing, setSyncing] = useState(false);
 
   // -------------------------------------------------------------------------
   // Carregar logs reais do banco na inicialização
@@ -78,9 +105,52 @@ export default function DataSources() {
     }
   }, []);
 
+  const fetchConnectionInfo = useCallback(async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user?.id) {
+        setUserId(session.user.id);
+      }
+      const supabaseToken = session?.access_token;
+      const response = await fetch('/api/itau/sync', {
+        headers: {
+          ...(supabaseToken ? { 'Authorization': `Bearer ${supabaseToken}` } : {})
+        }
+      });
+      if (response.ok) {
+        const info = await response.json();
+        setConnectionInfo(info);
+      }
+    } catch (err) {
+      console.error('Erro ao carregar dados da conexão Itaú:', err);
+    }
+  }, []);
+
   useEffect(() => {
     fetchLogs();
-  }, [fetchLogs]);
+    fetchConnectionInfo();
+
+    // Subscribe to real-time changes on itau_sync_logs
+    const channel = supabase
+      .channel('itau_sync_logs_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // Listen to INSERT, UPDATE, DELETE
+          schema: 'public',
+          table: 'itau_sync_logs',
+        },
+        () => {
+          fetchLogs();
+          fetchConnectionInfo();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchLogs, fetchConnectionInfo]);
 
   // -------------------------------------------------------------------------
   // Handlers de UI
@@ -198,6 +268,39 @@ export default function DataSources() {
     }
   };
 
+  const handleDirectSync = async () => {
+    setSyncing(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const supabaseToken = session?.access_token;
+      const response = await fetch('/api/itau/sync', {
+        method: 'POST',
+        headers: {
+          ...(supabaseToken ? { 'Authorization': `Bearer ${supabaseToken}` } : {})
+        }
+      });
+      const result = await response.json();
+
+      if (!response.ok) {
+        setErrorMsg(result.error || 'Erro desconhecido ao sincronizar diretamente.');
+      } else {
+        const syncMsg = result.syncedRecords > 0
+          ? `${result.syncedRecords} lançamento(s) importado(s) com sucesso.`
+          : 'Nenhum novo lançamento encontrado.';
+        const modeLabel = result.mode === 'mTLS Production' ? 'Produção mTLS' : 'Simulador Sandbox';
+        setSuccessMsg(`Sincronização concluída via ${modeLabel}! ${syncMsg}`);
+        await fetchConnectionInfo();
+        await fetchLogs();
+      }
+    } catch (err) {
+      setErrorMsg('Falha de conexão ao tentar sincronizar diretamente com o Itaú.');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   // -------------------------------------------------------------------------
   // Formatação de data para exibição
   // -------------------------------------------------------------------------
@@ -293,6 +396,77 @@ export default function DataSources() {
           {/* Coluna Esquerda */}
           <div className="lg:col-span-2 space-y-8">
 
+            {/* Bloco 0: Conexão Direta Itaú */}
+            <div className="bg-slate-900/60 backdrop-blur-md p-8 rounded-[40px] border border-white/5 shadow-lg relative overflow-hidden">
+              <div className="absolute right-0 top-0 w-32 h-32 bg-orange-500/5 rounded-full blur-2xl pointer-events-none"></div>
+
+              <div className="flex justify-between items-start mb-6">
+                <div>
+                  <h4 className="font-black text-lg text-white">Conexão Bancária Direta (Itaú)</h4>
+                  <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Integração segura via mTLS / Open Finance</p>
+                </div>
+                <div className="flex flex-col items-end gap-1.5">
+                  <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-[9px] font-black text-emerald-400 uppercase tracking-wider">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    Ativa
+                  </div>
+                  {connectionInfo && (
+                    <span className={`text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md border ${
+                      connectionInfo.isRealSync 
+                        ? 'bg-emerald-950 text-emerald-400 border-emerald-500/10' 
+                        : 'bg-amber-950 text-amber-400 border-amber-500/10'
+                    }`}>
+                      {connectionInfo.isRealSync ? 'Produção mTLS' : 'Simulador Sandbox'}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-400 leading-relaxed mb-6">
+                Sincronize sua conta Itaú diretamente sem precisar fazer upload manual de arquivos. O canal utiliza chaves de segurança ponta a ponta e chapa mTLS.
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 bg-slate-950/40 p-6 rounded-3xl border border-white/5 mb-6">
+                <div>
+                  <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-1">Dados da Conta</span>
+                  <p className="text-xs font-mono font-bold text-slate-200">
+                    Agência: {connectionInfo?.agency || '4290'} | Conta: {connectionInfo?.accountNumber || '47209-1'}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-1">Última Sincronização</span>
+                  <p className="text-xs font-mono font-bold text-slate-200">
+                    {connectionInfo?.lastSyncedAt 
+                      ? formatLogDate(connectionInfo.lastSyncedAt) 
+                      : 'Nunca sincronizado'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-center gap-4">
+                <button
+                  onClick={handleDirectSync}
+                  disabled={syncing}
+                  className="w-full sm:w-auto px-8 py-3.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white text-xs font-black rounded-2xl uppercase tracking-widest shadow-xl shadow-orange-500/20 transition-all duration-300 cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2 active:scale-95 shrink-0"
+                >
+                  {syncing ? (
+                    <>
+                      <div className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-white border-t-transparent"></div>
+                      <span>Sincronizando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Sincronizar Agora</span>
+                    </>
+                  )}
+                </button>
+                <div className="text-[10px] text-slate-500 leading-normal sm:text-left text-center">
+                  O sistema de reconciliação ajusta automaticamente saldos e despesas assim que novos lançamentos entram no banco.
+                </div>
+              </div>
+            </div>
+
             {/* Bloco 1: SMS Webhook */}
             <div className="bg-slate-900/60 backdrop-blur-md p-8 rounded-[40px] border border-white/5 shadow-lg relative overflow-hidden">
               <div className="absolute right-0 top-0 w-32 h-32 bg-orange-500/5 rounded-full blur-2xl pointer-events-none"></div>
@@ -366,6 +540,21 @@ export default function DataSources() {
                     </p>
                   </div>
                 </div>
+              </div>
+
+              <div className="mt-6 pt-6 border-t border-white/5 space-y-3">
+                <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest block">Payload JSON de Exemplo (iOS Shortcuts)</span>
+                <div className="relative">
+                  <pre className="text-[10px] font-mono text-emerald-400 select-all overflow-x-auto whitespace-pre bg-slate-950 p-4 rounded-2xl border border-white/5 leading-relaxed">
+{`{
+  "texto_sms": "Itaucard: compra aprovada no MASTER BLACK... R$ 100,00",
+  "user_id": "${userId || 'Carregando...'}"
+}`}
+                  </pre>
+                </div>
+                <p className="text-[10px] text-slate-500 leading-normal">
+                  Passe o parâmetro <code className="text-slate-400 font-mono">user_id</code> no corpo JSON junto a <code className="text-slate-400 font-mono">texto_sms</code> para que a Edge Function processe com segurança.
+                </p>
               </div>
             </div>
 
@@ -515,10 +704,14 @@ export default function DataSources() {
                   ))}
                 </div>
               ) : logs.length === 0 ? (
-                <div className="text-center py-8 space-y-2">
-                  <XCircle className="w-8 h-8 text-slate-700 mx-auto" />
-                  <p className="text-slate-500 text-xs">Nenhum registro ainda.</p>
-                  <p className="text-slate-600 text-[10px]">Importe um extrato para começar.</p>
+                <div className="text-center py-10 px-6 rounded-2xl border border-dashed border-white/5 bg-slate-950/20 space-y-3">
+                  <HelpCircle className="w-8 h-8 text-slate-600 dark:text-slate-500 mx-auto stroke-[1.5]" />
+                  <div className="space-y-1">
+                    <p className="text-slate-400 text-xs font-black uppercase tracking-wider">Aguardando Lançamentos</p>
+                    <p className="text-slate-500 text-[11px] leading-relaxed max-w-[240px] mx-auto">
+                      Sua linha do tempo de sincronização está vazia. Importe um arquivo ou conecte sua conta para começar.
+                    </p>
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-3.5">
@@ -531,14 +724,15 @@ export default function DataSources() {
                       >
                         <div className="flex justify-between items-start">
                           <div className="space-y-0.5">
-                            <span className={`px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-wider inline-flex items-center gap-1 ${
-                              log.source_type === 'sms'
-                                ? 'bg-cyan-950 text-cyan-400 border border-cyan-500/10'
-                                : 'bg-emerald-950 text-emerald-400 border border-emerald-500/10'
-                            }`}>
-                              {log.source_type === 'sms' ? 'SMS' : 'Arquivo'}
-                            </span>
-                            <span className="text-[9px] text-slate-500 block font-bold font-mono">
+                            {(() => {
+                              const badge = getSourceBadgeDetails(log.source_type);
+                              return (
+                                <span className={`px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-wider inline-flex items-center gap-1 ${badge.className}`}>
+                                  {badge.label}
+                                </span>
+                              );
+                            })()}
+                            <span className="text-[9px] text-slate-500 block font-bold font-mono pt-1">
                               {formatLogDate(log.created_at)}
                             </span>
                           </div>

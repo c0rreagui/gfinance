@@ -106,25 +106,29 @@ async function parsePdf(buffer: Buffer): Promise<ParsedTransaction[]> {
 
   const transactions: ParsedTransaction[] = [];
 
+  // Dividir o texto em linhas brutas e limpar cada uma de forma ultra-resiliente
+  const lines = text.split(/\r?\n/).map(line => line.trim()).filter(line => line.length > 0);
+
   // Regex calibrada para o formato de extrato Itaú conta corrente:
-  // DD/MM/YYYY  DESCRIÇÃO (pode ter espaços e caracteres)  VALOR (ex: -1.234,56 ou 987,65)
-  // Usamos \s+ em vez de \s{2,} porque o parser pode retornar apenas um espaço de separação.
-  const lineRegex = /^(\d{2}\/\d{2}\/\d{4})\s+(.+?)\s+(-?\d{1,3}(?:\.\d{3})*,\d{2})\s*$/gm;
+  // DD/MM/YYYY  DESCRIÇÃO  VALOR (ex: -1.234,56 ou 987,65)
+  // Permite flexibilidade de whitespace (\s+) e é aplicada linha a linha sem a flag global
+  const lineRegex = /^(\d{2}\/\d{2}\/\d{4})\s+(.+?)\s+(-?\d{1,3}(?:\.\d{3})*,\d{2})$/;
 
-  let match: RegExpExecArray | null;
-  while ((match = lineRegex.exec(text)) !== null) {
+  for (const line of lines) {
+    const match = line.match(lineRegex);
+    if (!match) continue;
+
     const [, rawDate, rawDesc, rawAmount] = match;
-
     const description = rawDesc.trim();
 
-    // Ignorar linhas de saldo (não são lançamentos)
+    // Ignorar linhas de saldo consolidado (não representam lançamentos de movimentação)
     if (/^SALDO DO DIA$/i.test(description)) continue;
 
-    // Parsear data: DD/MM/YYYY → ISO
+    // Converter data: DD/MM/YYYY → ISO
     const [day, month, year] = rawDate.split('/');
     const isoDate = `${year}-${month}-${day}T12:00:00.000Z`;
 
-    // Parsear valor: remover pontos de milhar, trocar vírgula por ponto
+    // Normalizar valor: remover pontos de milhar, trocar vírgula por ponto decimal
     const amountStr = rawAmount.replace(/\./g, '').replace(',', '.');
     const amount = parseFloat(amountStr);
 

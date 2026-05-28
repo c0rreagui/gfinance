@@ -4,7 +4,7 @@
 
 import { NextResponse } from 'next/server';
 import https from 'https';
-import { supabase } from '@/lib/supabase';
+import { createSupabaseServerClient } from '@/lib/supabase-server';
 
 // Helper to generate a unique hash for deduplication
 const generateTransactionHash = (userId: string, date: string, desc: string, amount: number) => {
@@ -19,11 +19,65 @@ const generateTransactionHash = (userId: string, date: string, desc: string, amo
   return `itau-${Math.abs(hash)}`;
 };
 
+export async function GET(req: Request) {
+  try {
+    const authHeader = req.headers.get('Authorization');
+    const supabaseToken = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null;
+
+    const supabase = await createSupabaseServerClient();
+
+    if (supabaseToken) {
+      await supabase.auth.setSession({
+        access_token: supabaseToken,
+        refresh_token: ''
+      });
+    }
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Sessão inválida.' }, { status: 401 });
+    }
+
+    const { data: connection } = await supabase
+      .from('itau_connections')
+      .select('*')
+      .eq('user_id', user.id)
+      .single();
+
+    const cert = process.env.ITAU_CERT_PEM;
+    const key = process.env.ITAU_KEY_PEM;
+    const isRealSync = !!(cert && key);
+
+    return NextResponse.json({
+      configured: !!connection,
+      agency: connection?.agency || '4290',
+      accountNumber: connection?.account_number || '47209-1',
+      lastSyncedAt: connection?.last_synced_at || null,
+      mode: isRealSync ? 'mTLS Production' : 'Realistic Simulation Sandbox',
+      isRealSync
+    });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
+
 export async function POST(req: Request) {
   try {
     // 1. Authenticate user session securely (Strict JWT gate)
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
+    const authHeader = req.headers.get('Authorization');
+    const supabaseToken = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null;
+
+    const supabase = await createSupabaseServerClient();
+
+    if (supabaseToken) {
+      await supabase.auth.setSession({
+        access_token: supabaseToken,
+        refresh_token: ''
+      });
+    }
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
       return NextResponse.json({ error: 'Sessão inválida. Por favor, faça login novamente.' }, { status: 401 });
     }
 
@@ -108,6 +162,8 @@ export async function POST(req: Request) {
         await supabase.from('itau_sync_logs').insert({
           user_id: user.id,
           status: 'failed',
+          source_type: 'sync_mtls',
+          file_name: 'Conexão Direta Itaú',
           error_message: err.message
         });
         return NextResponse.json({ error: `Instabilidade no Gateway Itaú: ${err.message}` }, { status: 502 });
@@ -221,7 +277,6 @@ export async function POST(req: Request) {
 
         // Update balance records
         const updateBalance = async (label: string, value: number, type: string, icon: string) => {
-          const formattedValue = value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
           const existing = (userBalances || []).find((b: any) => b.type === type);
           
           if (existing) {
@@ -249,11 +304,16 @@ export async function POST(req: Request) {
       }
     }
 
+    const currentSourceType = isRealSync ? 'sync_mtls' : 'sync_sandbox';
+
     // 6. Record successful sync log
     await supabase.from('itau_sync_logs').insert({
       user_id: user.id,
       status: 'success',
-      records_synced: syncedCount
+      source_type: currentSourceType,
+      records_synced: syncedCount,
+      records_total: syncRecords.length,
+      file_name: 'Conexão Direta Itaú'
     });
 
     // Update last sync flag in connection table
