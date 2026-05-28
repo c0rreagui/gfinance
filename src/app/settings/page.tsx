@@ -4,16 +4,18 @@ import React, { useState, useEffect, useRef } from 'react';
 import { User, Shield, Bell, Eye, KeyRound, CheckCircle, HelpCircle, AlertCircle } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { encryptPassword } from '@/lib/crypto';
+import { reconcileBalances } from '@/lib/reconcile';
 
 interface Profile {
   id: string;
   full_name: string;
   avatar_url: string;
   pin: string | null;
+  initial_balance?: number;
 }
 
 export default function Settings() {
-  const [profile, setProfile] = useState<Profile>({ id: '', full_name: '', avatar_url: '', pin: null });
+  const [profile, setProfile] = useState<Profile>({ id: '', full_name: '', avatar_url: '', pin: null, initial_balance: 0 });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [email, setEmail] = useState('');
@@ -75,7 +77,8 @@ export default function Settings() {
             id: user.id,
             full_name: updatedName,
             avatar_url: updatedAvatar,
-            pin: data?.pin || null
+            pin: data?.pin || null,
+            initial_balance: Number(data?.initial_balance) || 0
           };
         }
 
@@ -84,10 +87,14 @@ export default function Settings() {
             id: user.id,
             full_name: user.user_metadata?.full_name || 'Guilherme R.',
             avatar_url: user.user_metadata?.avatar_url || '',
-            pin: null
+            pin: null,
+            initial_balance: 0
           };
           setProfile(defaultProfile);
         } else {
+          if (currentProfile) {
+            currentProfile.initial_balance = Number(currentProfile.initial_balance) || 0;
+          }
           setProfile(currentProfile);
         }
 
@@ -166,11 +173,16 @@ export default function Settings() {
           id: profile.id,
           full_name: profile.full_name,
           avatar_url: profile.avatar_url,
+          initial_balance: profile.initial_balance || 0,
           updated_at: new Date().toISOString()
         });
 
       if (error) throw error;
-      setProfileSuccess('Perfil atualizado com sucesso!');
+      
+      // Dynamic on-the-fly reconciliation
+      await reconcileBalances(supabase, profile.id);
+      
+      setProfileSuccess('Perfil atualizado e saldos reconciliados com sucesso!');
     } catch (err: any) {
       setProfileError(`Erro ao salvar perfil: ${err.message}`);
     } finally {
@@ -360,6 +372,27 @@ export default function Settings() {
                       value={email}
                       className="w-full px-6 py-4 bg-slate-100/50 dark:bg-slate-900/50 border border-slate-200 dark:border-white/5 rounded-2xl font-bold text-slate-400 dark:text-slate-500 cursor-not-allowed"
                     />
+                  </div>
+                  <div className="md:col-span-2 mt-4">
+                    <div className="p-6 bg-slate-500/5 dark:bg-slate-900/40 rounded-3xl border border-slate-100 dark:border-white/5 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Saldo Inicial da Conta</label>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          Ajuste o saldo de partida da sua conta. Esse valor será somado às suas receitas e despesas para consolidar o saldo total exibido no painel principal.
+                        </p>
+                      </div>
+                      <div className="relative w-full md:w-64">
+                        <span className="absolute left-6 top-1/2 -translate-y-1/2 text-sm font-bold text-slate-400">R$</span>
+                        <input 
+                          type="number" 
+                          step="0.01"
+                          placeholder="0,00"
+                          value={profile.initial_balance !== undefined ? profile.initial_balance : ''}
+                          onChange={(e) => setProfile({ ...profile, initial_balance: e.target.value !== '' ? parseFloat(e.target.value) : 0 })}
+                          className="w-full pl-12 pr-6 py-4 bg-white/40 dark:bg-slate-800/40 border border-slate-200 dark:border-white/5 rounded-2xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all font-bold text-slate-700 dark:text-white"
+                        />
+                      </div>
+                    </div>
                   </div>
                 </div>
 

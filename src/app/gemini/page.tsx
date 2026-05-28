@@ -78,6 +78,14 @@ export default function GeminiBrainPage() {
   const [importSuccess, setImportSuccess] = useState(false);
   const [importStats, setImportStats] = useState({ total: 0, income: 0, expense: 0 });
 
+  // Mismatch & Sync States
+  const [mismatchDetected, setMismatchDetected] = useState(false);
+  const [targetBalance, setTargetBalance] = useState(0);
+  const [currentTotal, setCurrentTotal] = useState(0);
+  const [initialBalanceDiff, setInitialBalanceDiff] = useState(0);
+  const [oldInitialBalance, setOldInitialBalance] = useState(0);
+  const [syncingInitialBalance, setSyncingInitialBalance] = useState(false);
+
   // Chat State
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [inputMessage, setInputMessage] = useState('');
@@ -244,6 +252,35 @@ export default function GeminiBrainPage() {
         throw new Error(reconcileResult.error || 'Erro ao recalcular os saldos da central.');
       }
 
+      // Check if there was any balance snapshot parsed in stagedTransactions
+      const balanceRow = stagedTransactions.find(item => item.isBalance);
+      if (balanceRow) {
+        const parsedTarget = balanceRow.amount;
+        
+        // Fetch current profile to get old initial_balance
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('initial_balance')
+          .eq('id', userId)
+          .single();
+          
+        const oldInit = Number(profile?.initial_balance) || 0;
+        const currentCalcTotal = reconcileResult.data?.total || 0;
+        
+        if (Math.abs(currentCalcTotal - parsedTarget) > 0.01) {
+          const diff = parsedTarget - currentCalcTotal;
+          setMismatchDetected(true);
+          setTargetBalance(parsedTarget);
+          setCurrentTotal(currentCalcTotal);
+          setInitialBalanceDiff(diff);
+          setOldInitialBalance(oldInit);
+        } else {
+          setMismatchDetected(false);
+        }
+      } else {
+        setMismatchDetected(false);
+      }
+
       // Salvar estatísticas para o modal de sucesso (excluindo os saldos diários do montante acumulado)
       let totalIncome = 0;
       let totalExpense = 0;
@@ -265,6 +302,35 @@ export default function GeminiBrainPage() {
       setUploadError(err.message || 'Erro crítico ao conciliar transações.');
     } finally {
       setImporting(false);
+    }
+  };
+
+  // Ajustar e Sincronizar o Saldo Inicial de partida
+  const handleSyncInitialBalance = async () => {
+    if (!userId || !mismatchDetected) return;
+    setSyncingInitialBalance(true);
+    setUploadError('');
+    try {
+      const newInitBalance = oldInitialBalance + initialBalanceDiff;
+      
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ initial_balance: newInitBalance })
+        .eq('id', userId);
+        
+      if (updateError) throw updateError;
+      
+      // Re-reconcile
+      const reconcileResult = await reconcileBalances(supabase, userId);
+      if (!reconcileResult.success) throw new Error(reconcileResult.error);
+      
+      setMismatchDetected(false);
+      setCurrentTotal(reconcileResult.data?.total || 0);
+    } catch (err: any) {
+      console.error(err);
+      setUploadError(err.message || 'Falha ao sincronizar o saldo inicial.');
+    } finally {
+      setSyncingInitialBalance(false);
     }
   };
 
@@ -482,16 +548,52 @@ export default function GeminiBrainPage() {
               )}
 
               {importSuccess && (
-                <div className="p-8 border-b border-emerald-500/20 bg-emerald-500/5 text-emerald-400 flex flex-col items-center text-center gap-4 animate-in">
-                  <div className="w-12 h-12 bg-emerald-500 rounded-full flex items-center justify-center text-white shadow-xl shadow-emerald-500/30">
-                    <CheckCircle className="w-7 h-7" />
+                <div className="flex flex-col animate-in">
+                  <div className="p-8 border-b border-emerald-500/20 bg-emerald-500/5 text-emerald-400 flex flex-col items-center text-center gap-4">
+                    <div className="w-12 h-12 bg-emerald-500 rounded-full flex items-center justify-center text-white shadow-xl shadow-emerald-500/30">
+                      <CheckCircle className="w-7 h-7" />
+                    </div>
+                    <div>
+                      <h3 className="font-black uppercase text-sm tracking-wider">Conciliação Concluída com Sucesso!</h3>
+                      <p className="text-xs text-slate-400 mt-2 max-w-md">
+                        Foram salvas **{importStats.total} transações** (Receitas: {importStats.income.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} | Despesas: {importStats.expense.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}). Os saldos globais e cashflow foram atualizados em tempo real.
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="font-black uppercase text-sm tracking-wider">Conciliação Concluída com Sucesso!</h3>
-                    <p className="text-xs text-slate-400 mt-2 max-w-md">
-                      Foram salvas **{importStats.total} transações** (Receitas: {importStats.income.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} | Despesas: {importStats.expense.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}). Os saldos globais e cashflow foram atualizados em tempo real.
-                    </p>
-                  </div>
+
+                  {mismatchDetected && (
+                    <div className="p-8 border-b border-white/5 bg-white/[0.02] text-slate-100 flex flex-col gap-6 items-center text-center animate-in duration-500">
+                      <div className="space-y-2">
+                        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-800 border border-white/5 text-[10px] font-black uppercase text-slate-400 tracking-wider">
+                          💡 Sincronização Inteligente
+                        </div>
+                        <h4 className="font-black text-sm text-slate-200 mt-2">Diferença de Saldo Detectada</h4>
+                        <p className="text-xs text-slate-400 max-w-lg leading-relaxed">
+                          O saldo final do seu extrato bancário é de <span className="font-bold text-white">{targetBalance.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>, mas o saldo atualizado no G-Finance é de <span className="font-bold text-white">{currentTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>.
+                        </p>
+                        <p className="text-xs text-slate-500 max-w-md">
+                          Isso ocorre porque seu saldo inicial de partida era de <span className="font-bold text-slate-400">{oldInitialBalance.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span> antes desse extrato. Deseja ajustar automaticamente seu saldo inicial para <span className="font-bold text-emerald-400">{(oldInitialBalance + initialBalanceDiff).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>?
+                        </p>
+                      </div>
+
+                      <button
+                        onClick={handleSyncInitialBalance}
+                        disabled={syncingInitialBalance}
+                        className="px-8 py-3.5 bg-emerald-500 hover:bg-emerald-600 text-white text-[10px] font-black rounded-2xl uppercase tracking-widest transition-all cursor-pointer shadow-lg shadow-emerald-500/10 disabled:opacity-50 inline-flex items-center gap-2"
+                      >
+                        {syncingInitialBalance ? (
+                          <>
+                            <div className="animate-spin rounded-full h-3.5 w-3.5 border-t-2 border-b-2 border-white"></div>
+                            Sincronizando...
+                          </>
+                        ) : (
+                          <>
+                            Ajustar Saldo Inicial de Partida (R$ {initialBalanceDiff > 0 ? '+' : ''}{initialBalanceDiff.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 

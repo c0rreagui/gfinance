@@ -5,6 +5,7 @@
 import { NextResponse } from 'next/server';
 import https from 'https';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
+import { reconcileBalances } from '@/lib/reconcile';
 
 // Helper to generate a unique hash for deduplication
 const generateTransactionHash = (userId: string, date: string, desc: string, amount: number) => {
@@ -250,58 +251,7 @@ export async function POST(req: Request) {
 
     // 5. Update user balance metrics dynamically based on synced records
     if (syncedCount > 0) {
-      const { data: userBalances } = await supabase
-        .from('balances')
-        .select('*')
-        .eq('user_id', user.id);
-
-      // Recompute Total Income and Expenses
-      const { data: allTransactions } = await supabase
-        .from('transactions')
-        .select('amount')
-        .eq('user_id', user.id);
-
-      if (allTransactions && allTransactions.length > 0) {
-        let total = 0;
-        let income = 0;
-        let expense = 0;
-
-        allTransactions.forEach((t) => {
-          total += t.amount;
-          if (t.amount > 0) {
-            income += t.amount;
-          } else {
-            expense += Math.abs(t.amount);
-          }
-        });
-
-        // Update balance records
-        const updateBalance = async (label: string, value: number, type: string, icon: string) => {
-          const existing = (userBalances || []).find((b: any) => b.type === type);
-          
-          if (existing) {
-            await supabase
-              .from('balances')
-              .update({ amount: value, trend: '+4.5%' })
-              .eq('id', existing.id);
-          } else {
-            await supabase
-              .from('balances')
-              .insert({
-                user_id: user.id,
-                label,
-                amount: value,
-                trend: '+0.0%',
-                icon,
-                type
-              });
-          }
-        };
-
-        await updateBalance('Saldo Total', total, 'total', 'Wallet');
-        await updateBalance('Receitas', income, 'income', 'ArrowUpCircle');
-        await updateBalance('Despesas', expense, 'expense', 'ArrowDownCircle');
-      }
+      await reconcileBalances(supabase, user.id);
     }
 
     const currentSourceType = isRealSync ? 'sync_mtls' : 'sync_sandbox';

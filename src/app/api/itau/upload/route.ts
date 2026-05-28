@@ -10,6 +10,7 @@ import { NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
 import crypto from 'crypto';
 import { parseStatementWithAI } from '@/lib/gemini';
+import { reconcileBalances } from '@/lib/reconcile';
 
 // ---------------------------------------------------------------------------
 // Tipos internos
@@ -107,7 +108,7 @@ async function parsePdf(buffer: Buffer): Promise<ParsedTransaction[]> {
   const transactions: ParsedTransaction[] = [];
 
   // Dividir o texto em linhas brutas e limpar cada uma de forma ultra-resiliente
-  const lines = text.split(/\r?\n/).map(line => line.trim()).filter(line => line.length > 0);
+  const lines = text.split(/\r?\n/).map((line: string) => line.trim()).filter((line: string) => line.length > 0);
 
   // Regex calibrada para o formato de extrato Itaú conta corrente:
   // DD/MM/YYYY  DESCRIÇÃO  VALOR (ex: -1.234,56 ou 987,65)
@@ -406,45 +407,7 @@ export async function POST(req: Request): Promise<NextResponse> {
 
   // 6. Recalcular e atualizar saldos se houve inserções
   if (result.inserted > 0) {
-    const { data: allTx } = await supabase
-      .from('transactions')
-      .select('amount')
-      .eq('user_id', user.id);
-
-    if (allTx && allTx.length > 0) {
-      let total = 0;
-      let income = 0;
-      let expense = 0;
-
-      for (const t of allTx) {
-        const amt = parseFloat(t.amount);
-        total += amt;
-        if (amt > 0) income += amt;
-        else expense += Math.abs(amt);
-      }
-
-      const { data: balances } = await supabase
-        .from('balances')
-        .select('id, type')
-        .eq('user_id', user.id);
-
-      const upsertBalance = async (type: string, label: string, value: number, icon: string) => {
-        const existing = (balances || []).find((b) => b.type === type);
-        if (existing) {
-          await supabase.from('balances').update({ amount: value }).eq('id', existing.id);
-        } else {
-          await supabase.from('balances').insert({
-            user_id: user.id, label, amount: value, trend: '+0.0%', icon, type,
-          });
-        }
-      };
-
-      await Promise.all([
-        upsertBalance('total', 'Saldo Total', total, 'Wallet'),
-        upsertBalance('income', 'Receitas', income, 'ArrowUpCircle'),
-        upsertBalance('expense', 'Despesas', expense, 'ArrowDownCircle'),
-      ]);
-    }
+    await reconcileBalances(supabase, user.id);
   }
 
   // 7. Registrar log de operação no banco

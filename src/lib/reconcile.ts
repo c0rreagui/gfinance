@@ -24,6 +24,18 @@ export async function reconcileBalances(
       throw new Error(`Falha ao buscar transações: ${txError.message}`);
     }
 
+    // 1.5 Buscar saldo inicial do perfil
+    const { data: profile, error: profileError } = await supabaseClient
+      .from('profiles')
+      .select('initial_balance')
+      .eq('id', userId)
+      .single();
+
+    let initialBalance = 0;
+    if (!profileError && profile) {
+      initialBalance = Number(profile.initial_balance) || 0;
+    }
+
     // 2. Calcular os agregados financeiros
     let income = 0;
     let expense = 0;
@@ -39,9 +51,9 @@ export async function reconcileBalances(
       });
     }
 
-    const total = income - expense;
+    const total = initialBalance + income - expense;
 
-    console.info(`[Reconcile] Agregados calculados: Receitas = R$ ${income}, Despesas = R$ ${expense}, Total = R$ ${total}`);
+    console.info(`[Reconcile] Agregados calculados: Inicial = R$ ${initialBalance}, Receitas = R$ ${income}, Despesas = R$ ${expense}, Total = R$ ${total}`);
 
     // 3. Atualizar em paralelo as três métricas essenciais na tabela "balances"
     const [r1, r2, r3] = await Promise.all([
