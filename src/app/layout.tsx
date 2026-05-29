@@ -19,10 +19,23 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="pt-BR" className="light h-full">
+    <html lang="pt-BR" className="dark h-full">
       <head>
-        {/* Lucide CDN script is not required since we use standard lucide-react npm package */}
-        {/* We can import Spline viewer script if needed, but we will make it client-side compatible */}
+        {/* Blocking theme-initialization script to prevent theme flash */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              try {
+                const theme = localStorage.getItem('theme');
+                if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                  document.documentElement.classList.add('dark');
+                } else {
+                  document.documentElement.classList.remove('dark');
+                }
+              } catch (_) {}
+            `,
+          }}
+        />
         <script 
           type="module" 
           src="https://unpkg.com/@splinetool/viewer@1.0.27/build/spline-viewer.js"
