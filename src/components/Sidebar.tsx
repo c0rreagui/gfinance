@@ -42,7 +42,7 @@ export const Sidebar: React.FC = () => {
     return null;
   }
 
-  const isTaskModule = pathname.startsWith('/tasks');
+  const isTaskModule = pathname.startsWith('/tasks') || currentQuery.includes('module=work');
 
   // Dynamic items based on context (G-Finance vs. Work & Tasks)
   const financeItems: SidebarItem[] = [
@@ -56,14 +56,14 @@ export const Sidebar: React.FC = () => {
     { name: 'Relatórios', icon: BarChart3, path: '/analytics' },
     { name: 'Cripto', icon: Coins, path: '/crypto' },
     { name: 'Fontes de Dados', icon: Link2, path: '/integrations' },
-    { name: 'Ajustes', icon: Settings, path: '/settings' },
+    { name: 'Ajustes', icon: Settings, path: '/settings?module=finance' },
   ];
 
   const taskItems: SidebarItem[] = [
     { name: 'Quadro Kanban', icon: Briefcase, path: '/tasks' },
     { name: 'Projetos', icon: Target, path: '/tasks?tab=projects' },
     { name: 'Gravações & Transcrições', icon: Mic, path: '/tasks?tab=transcriptions' },
-    { name: 'Ajustes', icon: Settings, path: '/settings' },
+    { name: 'Ajustes', icon: Settings, path: '/settings?module=work' },
   ];
 
   const items = isTaskModule ? taskItems : financeItems;
@@ -83,10 +83,10 @@ export const Sidebar: React.FC = () => {
             </div>
             <div className="flex flex-col">
               <span className="font-black text-xl tracking-tight dark:text-white leading-none">
-                G-Hub
+                {isTaskModule ? 'G-Work' : 'G-Finance'}
               </span>
               <span className="text-[10px] uppercase font-bold text-slate-400 mt-1">
-                {isTaskModule ? 'G-Work' : 'G-Finance'}
+                G-Hub
               </span>
             </div>
           </div>

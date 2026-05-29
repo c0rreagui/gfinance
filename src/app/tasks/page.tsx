@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { Suspense, useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { 
   Plus, 
   Briefcase, 
@@ -70,6 +71,18 @@ interface Transcription {
 }
 
 export default function TasksPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex-1 flex justify-center items-center h-full min-h-[500px]">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+      </div>
+    }>
+      <TasksPageContent />
+    </Suspense>
+  );
+}
+
+function TasksPageContent() {
   const [mounted, setMounted] = useState(false);
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -105,21 +118,23 @@ export default function TasksPage() {
   const [filterProject, setFilterProject] = useState<string | null>(null);
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
 
+  const searchParams = useSearchParams();
+  const tab = searchParams.get('tab');
+
   useEffect(() => {
     setMounted(true);
     checkUser();
-
-    // Switch tabs on mount based on query parameters safely in browser
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const tab = params.get('tab');
-      if (tab === 'projects') {
-        setActiveTab('projects');
-      } else if (tab === 'transcriptions') {
-        setActiveTab('transcriptions');
-      }
-    }
   }, []);
+
+  useEffect(() => {
+    if (tab === 'projects') {
+      setActiveTab('projects');
+    } else if (tab === 'transcriptions') {
+      setActiveTab('transcriptions');
+    } else {
+      setActiveTab('tasks');
+    }
+  }, [tab]);
 
   const checkUser = async () => {
     try {
