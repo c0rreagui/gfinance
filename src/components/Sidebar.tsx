@@ -2,7 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { 
   LayoutGrid, 
   Receipt, 
@@ -29,20 +29,16 @@ interface SidebarItem {
 
 export const Sidebar: React.FC = () => {
   const pathname = usePathname();
-  const [currentQuery, setCurrentQuery] = React.useState('');
-
-  React.useEffect(() => {
-    if (typeof window !== 'undefined') {
-      setCurrentQuery(window.location.search);
-    }
-  }, [pathname]);
+  const searchParams = useSearchParams();
+  const currentTab = searchParams.get('tab');
+  const moduleParam = searchParams.get('module');
 
   // Hide sidebar on Hub Portal and Auth pages
   if (pathname === '/' || pathname === '/auth' || pathname === '/auth/callback') {
     return null;
   }
 
-  const isTaskModule = pathname.startsWith('/tasks') || currentQuery.includes('module=work');
+  const isTaskModule = pathname.startsWith('/tasks') || moduleParam === 'work';
 
   // Dynamic items based on context (G-Finance vs. Work & Tasks)
   const financeItems: SidebarItem[] = [
@@ -95,7 +91,27 @@ export const Sidebar: React.FC = () => {
           <nav className="space-y-1">
             {items.map((item) => {
               const Icon = item.icon;
-              const isActive = pathname === item.path || (item.path.includes('?') && pathname + currentQuery === item.path);
+              
+              // Precise, robust active tab check using Next.js reactive hooks
+              let isActive = false;
+              if (item.path.includes('?')) {
+                const url = new URL(item.path, 'http://localhost');
+                const pathTab = url.searchParams.get('tab');
+                const pathModule = url.searchParams.get('module');
+                
+                if (pathTab) {
+                  isActive = pathname === url.pathname && currentTab === pathTab;
+                } else if (pathModule) {
+                  isActive = pathname === url.pathname && (moduleParam === pathModule || (!moduleParam && pathModule === 'finance'));
+                }
+              } else {
+                if (item.path === '/tasks') {
+                  isActive = pathname === '/tasks' && !currentTab;
+                } else {
+                  isActive = pathname === item.path;
+                }
+              }
+
               return (
                 <Link
                   key={item.name}

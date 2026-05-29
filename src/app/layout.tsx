@@ -4,6 +4,7 @@
  */
 
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import "./globals.css";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
@@ -46,7 +47,9 @@ export default function RootLayout({
         <div className="mesh-gradient"></div>
         <div id="root" className="flex-1 flex overflow-hidden w-full h-full">
           <div className="flex w-full h-full transition-colors duration-500">
-            <Sidebar />
+            <Suspense fallback={<div className="w-64 bg-slate-950/20 border-r border-slate-800/80 backdrop-blur-xl"></div>}>
+              <Sidebar />
+            </Suspense>
             <div className="flex-1 flex flex-col overflow-hidden">
               <Header />
               <div className="flex-1 overflow-hidden">

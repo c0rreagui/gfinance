@@ -105,6 +105,13 @@ function TasksPageContent() {
   const [newDescription, setNewDescription] = useState('');
   const [newPriority, setNewPriority] = useState<'low' | 'medium' | 'high'>('medium');
   const [newProjectId, setNewProjectId] = useState<string | null>(null);
+
+  // Project Modal States
+  const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
+  const [projectModalLoading, setProjectModalLoading] = useState(false);
+  const [newProjectName, setNewProjectName] = useState('');
+  const [newProjectDesc, setNewProjectDesc] = useState('');
+  const [newProjectColor, setNewProjectColor] = useState<string>('emerald');
   const [newDueDate, setNewDueDate] = useState<any>(null);
   const [columnToAddTask, setColumnToAddTask] = useState<'todo' | 'in_progress' | 'completed'>('todo');
 
@@ -295,6 +302,42 @@ function TasksPageContent() {
       message.success('Atividade removida com sucesso.');
     } catch (err: any) {
       message.error(err.message || 'Erro ao remover atividade.');
+    }
+  };
+
+  const handleCreateProject = async () => {
+    if (!newProjectName.trim()) {
+      message.warning('O nome do projeto é obrigatório!');
+      return;
+    }
+
+    try {
+      setProjectModalLoading(true);
+      const { data, error } = await supabase
+        .from('tasks_projects')
+        .insert({
+          user_id: user.id,
+          name: newProjectName,
+          description: newProjectDesc,
+          color: newProjectColor
+        })
+        .select('*');
+
+      if (error) throw error;
+
+      message.success('Projeto criado com sucesso!');
+      setIsProjectModalOpen(false);
+      
+      setNewProjectName('');
+      setNewProjectDesc('');
+      setNewProjectColor('emerald');
+
+      // Refresh data
+      await fetchData(user.id);
+    } catch (err: any) {
+      message.error(err.message || 'Erro ao criar projeto.');
+    } finally {
+      setProjectModalLoading(false);
     }
   };
 
@@ -495,6 +538,16 @@ function TasksPageContent() {
             <ListTodo className="w-4 h-4" /> Quadro Kanban
           </button>
           <button
+            onClick={() => setActiveTab('projects')}
+            className={`px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all cursor-pointer flex items-center gap-2 ${
+              activeTab === 'projects'
+                ? 'bg-blue-500 text-white shadow-md shadow-blue-500/20'
+                : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <Target className="w-4 h-4" /> Projetos
+          </button>
+          <button
             onClick={() => setActiveTab('transcriptions')}
             className={`px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all cursor-pointer flex items-center gap-2 ${
               activeTab === 'transcriptions'
@@ -645,6 +698,81 @@ function TasksPageContent() {
 
             </div>
 
+          </div>
+        ) : activeTab === 'projects' ? (
+          /* =========================================================================
+             3. PROJECTS VIEW
+             ========================================================================= */
+          <div className="flex-1 overflow-y-auto p-8 space-y-6 no-scrollbar">
+            <div className="flex justify-between items-center">
+              <div>
+                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Ativos</h4>
+                <h3 className="text-xl font-black dark:text-white mt-1 tracking-tight">Meus Projetos & Iniciativas</h3>
+              </div>
+              <button 
+                onClick={() => setIsProjectModalOpen(true)}
+                className="px-5 py-3 bg-blue-500 hover:bg-blue-600 text-white text-xs font-black rounded-2xl uppercase tracking-widest shadow-xl shadow-blue-500/20 transition-all cursor-pointer flex items-center gap-2"
+              >
+                <Plus className="w-4 h-4" /> Novo Projeto
+              </button>
+            </div>
+
+            {projects.length === 0 ? (
+              <div className="text-center py-20 bg-white/10 dark:bg-slate-900/10 rounded-[32px] border border-dashed border-slate-200 dark:border-white/5">
+                <Target className="w-12 h-12 text-slate-400 mx-auto mb-4 animate-pulse" />
+                <h5 className="font-black text-sm dark:text-white uppercase tracking-tight">Nenhum Projeto Ativo</h5>
+                <p className="text-xs text-slate-400 mt-2 max-w-sm mx-auto">
+                  Crie seu primeiro projeto para segmentar suas atividades, transcrever áudios focados e auditar metas com IA.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                {projects.map((proj) => {
+                  const projectTasks = tasks.filter(t => t.project_id === proj.id);
+                  const completedCount = projectTasks.filter(t => t.status === 'completed').length;
+                  const totalCount = projectTasks.length;
+                  const percentComplete = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+                  
+                  return (
+                    <TiltCard key={proj.id} className="bg-slate-950/40 backdrop-blur-xl p-8 rounded-[48px] border border-slate-800/80 hover:border-blue-500/30 transition-all duration-500 relative overflow-hidden flex flex-col justify-between aspect-[1.1/1] shadow-[0_0_50px_rgba(0,0,0,0.3)] hover:shadow-[0_0_50px_rgba(59,130,246,0.04)]">
+                      <div className="absolute -top-10 -right-10 w-40 h-40 bg-blue-500/5 rounded-full blur-3xl pointer-events-none"></div>
+                      
+                      <div className="space-y-6 relative z-10">
+                        <div className="flex justify-between items-start">
+                          <span className={`w-3.5 h-3.5 rounded-full bg-${proj.color}-500 shadow-[0_0_15px_rgba(0,0,0,0.2)] block`}></span>
+                          <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 bg-slate-900 border border-slate-800 px-3 py-1 rounded-xl">
+                            {totalCount} ativas
+                          </span>
+                        </div>
+                        
+                        <div>
+                          <h4 className="text-xl font-black text-white tracking-[-0.02em] group-hover:text-blue-400 transition-colors">
+                            {proj.name}
+                          </h4>
+                          <p className="text-slate-300 font-medium text-xs mt-3 leading-relaxed line-clamp-3">
+                            {proj.description || 'Sem descrição cadastrada para este projeto.'}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Progress tracker */}
+                      <div className="space-y-3 relative z-10 pt-6 border-t border-slate-800/80">
+                        <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          <span>Progresso</span>
+                          <span className="text-white font-black">{percentComplete}%</span>
+                        </div>
+                        <div className="w-full bg-slate-900 border border-slate-800/50 h-2.5 rounded-full overflow-hidden">
+                          <div 
+                            className="bg-blue-500 h-full rounded-full transition-all duration-1000"
+                            style={{ width: `${percentComplete}%` }}
+                          ></div>
+                        </div>
+                      </div>
+                    </TiltCard>
+                  );
+                })}
+              </div>
+            )}
           </div>
         ) : (
           /* =========================================================================
@@ -1076,6 +1204,66 @@ function TasksPageContent() {
               </div>
             </div>
           ))}
+        </div>
+      </Modal>
+
+      <Modal
+        title={
+          <div className="flex items-center gap-2 pb-2">
+            <Target className="w-5 h-5 text-blue-500 animate-pulse" />
+            <span className="font-black text-lg dark:text-white">Novo Projeto</span>
+          </div>
+        }
+        open={isProjectModalOpen}
+        onOk={handleCreateProject}
+        onCancel={() => setIsProjectModalOpen(false)}
+        confirmLoading={projectModalLoading}
+        okText="Criar Projeto"
+        cancelText="Cancelar"
+        className="glass-modal dark:bg-slate-900"
+        okButtonProps={{ className: 'bg-blue-500 hover:bg-blue-600 rounded-xl font-bold border-none h-10 px-5 text-xs uppercase tracking-widest cursor-pointer shadow-lg shadow-blue-500/20' }}
+        cancelButtonProps={{ className: 'rounded-xl font-bold h-10 px-5 text-xs uppercase tracking-widest cursor-pointer' }}
+        maskStyle={{ backdropFilter: 'blur(10px)' }}
+        style={{ borderRadius: '32px', overflow: 'hidden' }}
+      >
+        <div className="space-y-5 pt-4">
+          <div>
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Nome do Projeto</label>
+            <Input
+              placeholder="Ex: Reengenharia de App, Synapse Core..."
+              value={newProjectName}
+              onChange={(e) => setNewProjectName(e.target.value)}
+              className="py-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/5 rounded-xl text-sm focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Descrição / Escopo</label>
+            <TextArea
+              rows={3}
+              placeholder="Adicione objetivos estratégicos, cliente ou cronograma..."
+              value={newProjectDesc}
+              onChange={(e) => setNewProjectDesc(e.target.value)}
+              className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/5 rounded-xl text-sm focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Cor de Identificação</label>
+            <Select
+              value={newProjectColor}
+              onChange={(val) => setNewProjectColor(val)}
+              className="w-full h-11"
+              dropdownStyle={{ borderRadius: '16px' }}
+            >
+              <Option value="emerald">Verde Esmeralda (G-Finance)</Option>
+              <Option value="blue">Azul Cobalto (G-Work)</Option>
+              <Option value="indigo">Índigo Real</Option>
+              <Option value="amber">Âmbar Dourado</Option>
+              <Option value="pink">Rosa Vibrante</Option>
+              <Option value="violet">Violeta Profundo</Option>
+            </Select>
+          </div>
         </div>
       </Modal>
 
