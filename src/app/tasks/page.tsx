@@ -16,7 +16,8 @@ import {
   FileText,
   User,
   Trash2,
-  ListTodo
+  ListTodo,
+  CornerUpLeft
 } from 'lucide-react';
 import { 
   Tabs, 
