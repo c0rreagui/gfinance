@@ -1,12 +1,18 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { usePathname } from 'next/navigation';
 import { Sun, Moon, User } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
 export const Header: React.FC = () => {
+  const pathname = usePathname();
   const [isDark, setIsDark] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+
+  if (pathname === '/' || pathname === '/auth' || pathname === '/auth/callback') {
+    return null;
+  }
 
   useEffect(() => {
     try {
@@ -90,10 +96,25 @@ export const Header: React.FC = () => {
     return `${months[date.getMonth()]} ${date.getFullYear()}`;
   };
 
+  const getPageTitle = () => {
+    if (pathname.startsWith('/tasks')) return 'G-Work';
+    if (pathname.startsWith('/finance')) return 'Dashboard Financeiro';
+    if (pathname.startsWith('/transactions')) return 'Extrato de Lançamentos';
+    if (pathname.startsWith('/cards')) return 'Meus Cartões';
+    if (pathname.startsWith('/debts')) return 'Controle de Dívidas';
+    if (pathname.startsWith('/wealth')) return 'Investimentos';
+    if (pathname.startsWith('/subscriptions')) return 'Assinaturas Recorrentes';
+    if (pathname.startsWith('/analytics')) return 'Relatórios & Analytics';
+    if (pathname.startsWith('/crypto')) return 'Monitor Cripto';
+    if (pathname.startsWith('/integrations')) return 'Fontes de Dados';
+    if (pathname.startsWith('/settings')) return 'Ajustes do Sistema';
+    return 'Dashboard';
+  };
+
   return (
     <header className="h-20 px-8 flex items-center justify-between glass border-b border-slate-200 dark:border-white/5 sticky top-0 z-20">
       <div className="flex items-center gap-4">
-        <h2 className="text-xl font-black dark:text-white">Dashboard</h2>
+        <h2 className="text-xl font-black dark:text-white">{getPageTitle()}</h2>
         <div className="h-4 w-px bg-slate-200 dark:bg-white/10"></div>
         <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">
           {getMonthYear()}

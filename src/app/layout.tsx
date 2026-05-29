@@ -1,5 +1,5 @@
 /**
- * G-Finance — Root Layout
+ * G-Hub — Root Layout
  * Built with Next.js, TS & Supabase Security (RLS Audited)
  */
 
@@ -9,8 +9,8 @@ import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
 
 export const metadata: Metadata = {
-  title: "G-Finance | Command Center",
-  description: "Immersive 3D Glassmorphic Wealth Management Platform",
+  title: "G-Hub | Command Center",
+  description: "Immersive 3D Glassmorphic Command Center (G-Finance & G-Work)",
 };
 
 export default function RootLayout({

@@ -1,7 +1,11 @@
-# CLAUDE.md — G-Finance Guidelines
+# CLAUDE.md — G-Hub Guidelines
 
 ## Project Context
-G-Finance is a state-of-the-art personal and corporate wealth management platform. It features an immersive 3D Glassmorphism interface, premium 3D Tilt Cards, mesh gradient layers, and real-time bank account syncing.
+G-Hub is a state-of-the-art integrated command center. It unifies:
+1. **G-Finance**: A premium wealth and portfolio management platform.
+2. **G-Work**: A task and AI-assisted work manager connected with audio transcriptions.
+
+The application features an immersive 3D Glassmorphic interface, premium 3D Tilt Cards, mesh gradient layers, and deep AI integrations.
 
 ## Technology Stack
 - **Frontend**: Next.js 14+ (App Router, TypeScript, React 19)

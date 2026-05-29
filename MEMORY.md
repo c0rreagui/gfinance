@@ -1,17 +1,20 @@
-# MEMORY.md — G-Finance Neural State
+# MEMORY.md — G-Hub Neural State
 
 ## Active Goals
-- Port the premium HTML 3D prototype into a fully functional Next.js App Router workspace.
-- Implement secure Supabase Database schema with rigorous RLS policies.
-- Connect frontend routes dynamically to Supabase Auth & real-time updates.
+- Maintain the unified G-Hub command center with premium 3D Glassmorphic visuals.
+- Support G-Finance (wealth tracker) and G-Work (Kanban, Gemini Task Parser and transcription history).
+- Ensure strict database security with RLS policies and audit checks.
 
 ## Current State
 - [x] Initialized Git repository and pushed to `c0rreagui/gfinance` origin.
-- [x] Scaffolding of Next.js 14 App Router skeleton with TypeScript and Tailwind CSS.
-- [x] Installed production dependencies (`@supabase/supabase-js`, `@supabase/ssr`, `lucide-react`).
+- [x] Scaffolding of Next.js 14/15/16 App Router skeleton with TypeScript and Tailwind CSS.
+- [x] Installed production dependencies (`@supabase/supabase-js`, `@supabase/ssr`, `lucide-react`, `antd`, `@ant-design/icons`).
 - [x] Disabled Next.js devIndicators overlay.
-- [/] Ready to design Supabase migrations and implement RLS audit tools.
+- [x] Developed robust Supabase database schema for Tasks, Projects, and Transcriptions with RLS.
+- [x] Ported premium 3D Tilt Cards portal at `/` and routed modules to `/finance` and `/tasks`.
+- [x] Successfully completed G-Hub rebranding (naming structures, package.json, layouts, sidebars, headers, cards).
 
 ## Architecture Decisions
-- **Root Repository Level**: Decided to place the Next.js workspace directly at the repository root folder rather than a nested subdirectory. This simplifies Vercel serverless builds and deployment triggers.
-- **Git Clean Purge**: Used git clean to successfully purge temporary and misrouted dependency structures from the PowerShell recursive copy operation.
+- **Root Repository Level**: Next.js workspace at the repository root to simplify serverless hosting builds.
+- **Unified Branding (G-Hub)**: Consolidated G-Finance and G-Work under a cohesive, premium glassmorphism ecosystem.
+- **SSR Hydration Safe Guards**: Restricted browser attribute access (like `window.location.search`) to client-side safe hooks (`useEffect`) to avoid pre-rendering crashes.
