@@ -275,6 +275,23 @@ export default function FinancialCalendar() {
     // Build date for selected day
     const transactionDate = new Date(year, month, selectedDay, 12, 0, 0);
 
+    const getCategoryIcon = (cat: string, type: 'income' | 'expense') => {
+      if (type === 'income') return 'ArrowDownLeft';
+      switch (cat) {
+        case 'Alimentação': return 'ShoppingCart';
+        case 'Salário': return 'Wallet';
+        case 'Cartão': return 'CreditCard';
+        case 'Utilidades': return 'Zap';
+        case 'Transporte': return 'Car';
+        case 'Assinaturas': return 'Tv';
+        case 'Boleto': return 'FileText';
+        case 'Rendimentos': return 'Activity';
+        case 'Transferência': return 'Wallet';
+        case 'Saúde': return 'Heart';
+        default: return 'Activity';
+      }
+    };
+
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
@@ -287,7 +304,7 @@ export default function FinancialCalendar() {
         description: formDesc,
         category: formCategory,
         amount: numericAmount,
-        icon: formType === 'expense' ? 'ShoppingCart' : 'ArrowDownLeft',
+        icon: getCategoryIcon(formCategory, formType),
         date: transactionDate.toISOString()
       });
 
@@ -658,7 +675,14 @@ export default function FinancialCalendar() {
                       <option value="Alimentação">Alimentação</option>
                       <option value="Lazer">Lazer</option>
                       <option value="Salário">Salário</option>
+                      <option value="Cartão">Cartão</option>
+                      <option value="Utilidades">Utilidades</option>
                       <option value="Transporte">Transporte</option>
+                      <option value="Assinaturas">Assinaturas</option>
+                      <option value="Boleto">Boleto</option>
+                      <option value="Rendimentos">Rendimentos</option>
+                      <option value="Transferência">Transferência</option>
+                      <option value="Saúde">Saúde</option>
                     </select>
                   </div>
 
