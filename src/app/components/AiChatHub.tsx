@@ -19,7 +19,8 @@ import {
   HelpCircle,
   TrendingUp,
   Wallet,
-  ArrowRight
+  ArrowRight,
+  History
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
@@ -38,6 +39,8 @@ export function AiChatHub() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [chatSessions, setChatSessions] = useState<{ id: string; title: string; updated_at: string }[]>([]);
+  const [showHistoryDropdown, setShowHistoryDropdown] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const messagesContainerRef = useRef<HTMLDivElement>(null);
 
@@ -68,7 +71,10 @@ export function AiChatHub() {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         const token = session?.access_token;
-        if (!token) return;
+        if (!token) {
+          setLoading(false);
+          return;
+        }
 
         // Buscar sessões de chat ordenadas por atualizada mais recente
         const response = await fetch('/api/ai/sessions', {
@@ -80,6 +86,7 @@ export function AiChatHub() {
         if (response.ok) {
           const data = await response.json();
           const sessions = data.sessions || [];
+          setChatSessions(sessions);
           
           if (sessions.length > 0) {
             const latestSession = sessions[0];
@@ -181,6 +188,19 @@ export function AiChatHub() {
         setActiveSessionId(data.sessionId);
       }
 
+      // Recarrega sessões de chat para manter o título e ordenação atualizados no dropdown
+      if (supabaseToken) {
+        const responseSessions = await fetch('/api/ai/sessions', {
+          headers: {
+            'Authorization': `Bearer ${supabaseToken}`
+          }
+        });
+        if (responseSessions.ok) {
+          const sessionsData = await responseSessions.json();
+          setChatSessions(sessionsData.sessions || []);
+        }
+      }
+
       const modelResponse: ChatMessage = {
         role: 'model',
         parts: [{ text: data.response }]
@@ -191,6 +211,85 @@ export function AiChatHub() {
     } catch (err: any) {
       setErrorMsg(err.message || 'Erro de rede ou cota esgotada. Tente novamente.');
       // Mantém a última mensagem enviada para que o usuário possa ver o que digitou e ver o erro contextualizado
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Selecionar sessão do histórico
+  const handleSelectSession = async (sid: string) => {
+    setActiveSessionId(sid);
+    setShowHistoryDropdown(false);
+    setLoading(true);
+    setErrorMsg('');
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) return;
+
+      const msgsResponse = await fetch(`/api/ai/sessions/${sid}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (msgsResponse.ok) {
+        const msgsData = await msgsResponse.json();
+        const formatted = (msgsData.messages || []).map((m: any) => ({
+          role: m.role,
+          parts: [{ text: m.content }]
+        }));
+        setMessages(formatted);
+      } else {
+        setErrorMsg('Falha ao carregar histórico da conversa selecionada.');
+      }
+    } catch (err: any) {
+      console.error(err);
+      setErrorMsg('Erro de conexão ao carregar conversa.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Instanciar nova sessão limpa
+  const handleNewSession = async () => {
+    setLoading(true);
+    setErrorMsg('');
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) return;
+
+      const response = await fetch('/api/ai/sessions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ title: 'Nova Conversa' })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setActiveSessionId(data.session.id);
+        setMessages([]);
+        setShowHistoryDropdown(false);
+
+        // Recarrega lista de sessões
+        const listResponse = await fetch('/api/ai/sessions', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        if (listResponse.ok) {
+          const listData = await listResponse.json();
+          setChatSessions(listData.sessions || []);
+        }
+      } else {
+        setErrorMsg('Erro ao iniciar nova conversa.');
+      }
+    } catch {
+      setErrorMsg('Falha de conexão.');
     } finally {
       setLoading(false);
     }
@@ -211,6 +310,71 @@ export function AiChatHub() {
   return (
     <div className="bg-slate-900/40 backdrop-blur-xl rounded-[40px] border border-white/5 shadow-2xl flex flex-col h-[520px] overflow-hidden relative group hover:border-emerald-500/10 transition-all duration-500">
       
+      {/* Dropdown de Histórico de Conversas (Drawer/Overlay) */}
+      {showHistoryDropdown && (
+        <div className="absolute inset-0 bg-slate-950/95 backdrop-blur-md z-40 p-6 flex flex-col space-y-4 animate-in fade-in zoom-in-95 duration-200">
+          <div className="flex justify-between items-center pb-2 border-b border-white/5">
+            <div className="flex items-center gap-2">
+              <History className="w-4 h-4 text-emerald-400" />
+              <h5 className="text-[10px] font-black text-white tracking-widest uppercase">Histórico de Sessões</h5>
+            </div>
+            <button
+              onClick={() => setShowHistoryDropdown(false)}
+              className="text-[9px] font-black text-slate-500 hover:text-white uppercase tracking-wider cursor-pointer"
+            >
+              Fechar
+            </button>
+          </div>
+
+          {/* Atalho para Criar Nova Sessão de Conversa */}
+          <button
+            onClick={handleNewSession}
+            className="w-full p-3.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all duration-300 flex items-center justify-center gap-2 cursor-pointer active:scale-98"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            Nova Conversa
+          </button>
+
+          {/* Lista de Sessões */}
+          <div className="flex-1 overflow-y-auto space-y-2.5 pr-1 no-scrollbar">
+            {chatSessions.length === 0 ? (
+              <div className="h-full flex flex-col justify-center items-center text-center p-4">
+                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Nenhuma conversa encontrada</p>
+              </div>
+            ) : (
+              chatSessions.map((session) => {
+                const isActive = session.id === activeSessionId;
+                return (
+                  <div
+                    key={session.id}
+                    onClick={() => handleSelectSession(session.id)}
+                    className={`p-3.5 rounded-2xl border text-left cursor-pointer transition-all duration-300 flex justify-between items-center group/item ${
+                      isActive 
+                        ? 'bg-slate-900 border-emerald-500/25 shadow-lg shadow-emerald-500/2' 
+                        : 'bg-slate-900/40 border-white/5 hover:bg-slate-900/80 hover:border-white/10'
+                    }`}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[11px] font-bold text-slate-200 truncate group-hover/item:text-emerald-400 transition-colors">
+                        {session.title}
+                      </div>
+                      <div className="text-[8px] text-slate-600 font-black uppercase tracking-widest mt-1 flex items-center gap-1.5">
+                        <span>ID: {session.id.substring(0, 8)}...</span>
+                        <span>•</span>
+                        <span>{new Date(session.updated_at).toLocaleDateString('pt-BR')}</span>
+                      </div>
+                    </div>
+                    {isActive && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]"></span>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Glow Superior Ativo ao Pensar */}
       <div className={`absolute top-0 left-1/4 right-1/4 h-[2px] bg-gradient-to-r from-orange-500 via-amber-400 to-emerald-500 blur-[2px] transition-opacity duration-500 ${loading ? 'opacity-100 animate-pulse' : 'opacity-0'}`}></div>
 
@@ -231,15 +395,29 @@ export function AiChatHub() {
             <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-0.5">Analista Pessoal e Predictor</p>
           </div>
         </div>
-        {messages.length > 0 && (
+        <div className="flex items-center gap-1.5">
           <button
-            onClick={handleClearChat}
-            className="p-2 hover:bg-white/5 text-slate-500 hover:text-slate-300 rounded-xl transition-colors cursor-pointer text-[10px] font-black uppercase tracking-widest flex items-center gap-1"
-            title="Limpar Conversa"
+            onClick={() => setShowHistoryDropdown(prev => !prev)}
+            className={`p-2 rounded-xl transition-all duration-300 flex items-center justify-center border cursor-pointer ${
+              showHistoryDropdown 
+                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
+                : 'bg-white/5 text-slate-500 hover:text-slate-300 border-transparent hover:bg-white/10'
+            }`}
+            title="Histórico de Sessões"
           >
-            Limpar
+            <History className="w-3.5 h-3.5" />
           </button>
-        )}
+          
+          {messages.length > 0 && (
+            <button
+              onClick={handleClearChat}
+              className="p-2 bg-white/5 hover:bg-white/10 border border-transparent text-slate-500 hover:text-slate-300 rounded-xl transition-colors cursor-pointer text-[10px] font-black uppercase tracking-widest flex items-center gap-1"
+              title="Limpar Conversa"
+            >
+              Limpar
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Histórico / Área Central */}

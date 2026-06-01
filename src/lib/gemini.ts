@@ -17,7 +17,8 @@ import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
 import { reconcileBalances } from './reconcile';
 
 const GEMINI_REST_BASE = 'https://generativelanguage.googleapis.com/v1beta';
-const DEFAULT_MODEL = 'gemini-flash-latest';
+const PARSER_MODEL = 'gemini-flash-latest';
+const CONVERSATIONAL_MODEL = 'gemini-1.5-pro-latest';
 
 const apiKey = process.env.GEMINI_API_KEY;
 
@@ -137,7 +138,7 @@ export async function parseStatementWithAI(
       }
     };
 
-    const json = await callGeminiREST(DEFAULT_MODEL, payload, oauthToken);
+    const json = await callGeminiREST(PARSER_MODEL, payload, oauthToken);
     const text = json.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
     const parsed = JSON.parse(text);
     return parsed.transactions || [];
@@ -146,7 +147,7 @@ export async function parseStatementWithAI(
   // Caminho API Key: SDK padrão com Structured Outputs
   const genAI = getGeminiClient();
   const model = genAI.getGenerativeModel({
-    model: DEFAULT_MODEL,
+    model: PARSER_MODEL,
     generationConfig: {
       responseMimeType: 'application/json',
       responseSchema: {
@@ -390,9 +391,26 @@ export async function generateFinancialResponse(
   supabaseClient?: any,
   aiMemory?: string
 ): Promise<string> {
+  const currentDate = new Date();
+  const formattedDate = currentDate.toLocaleDateString('pt-BR', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'America/Sao_Paulo'
+  });
+
   const systemPrompt = `
-    Você é o "Gemini Brain", a mente analítica por trás do G-Finance (plataforma de controle financeiro premium do Guilherme, CTO & Fundador).
-    Sua persona é direta, elegante, altamente profissional e orientada a dados. Evite introduções longas ou termos exageradamente alegres.
+    Você é o "Gemini Brain", a mente analítica, CFO virtual e consultor estratégico por trás do G-Finance (a plataforma de controle financeiro premium do Guilherme, CTO & Fundador).
+    Sua persona é direta, elegante, cirúrgica e altamente orientada a dados. Guilherme valoriza precisão absoluta e detesta introduções longas, clichês vazios ou termos exageradamente alegres/simplistas ("claro!", "com certeza!", "vamos lá!"). Vá direto ao ponto de forma executiva.
+    
+    ---
+    DATA E HORA DO SISTEMA (Temporal awareness):
+    O momento atual no dispositivo do usuário é: ${formattedDate}.
+    Utilize este contexto de tempo real para interpretar termos como "hoje", "ontem", "esta semana", "mês passado", etc. e ao agrupar faturas ou lançamentos.
+    ---
     
     ---
     MEMÓRIA PERSISTENTE GLOBAL (Contexto e aprendizados de conversas anteriores):
@@ -418,12 +436,18 @@ export async function generateFinancialResponse(
     Você possui ferramentas para GERENCIAR as transações do usuário no banco de dados (ex: criar transação se ele pedir pra adicionar gasto/ganho, excluir transação se ele pedir pra apagar ou relatar duplicidade, etc.). 
     Sempre use essas ferramentas de forma direta se o usuário solicitar qualquer alteração operacional!
     
+    DIRETRIZES ANALÍTICAS DE CFO (Inteligência & Lógica):
+    1. **Precisão Matemática Rigorosa**: Ao analisar saldos ou efetuar contas, faça os cálculos com extrema precisão (soma de receitas, subtração de despesas). Nunca aproxime valores de forma incorreta.
+    2. **Temporalidade e Tendências**: Identifique a evolução temporal dos gastos. Compare períodos (ex: se as despesas de alimentação cresceram da semana 1 para a semana 2).
+    3. **Taxa de Poupança (Savings Rate)**: Calcule e analise a capacidade de poupança (Receitas menos Despesas dividido por Receitas). Instrua Guilherme se ele está operando com margens saudáveis (ex: acima de 20%).
+    4. **Burn Rate & Runway**: Se o saldo consolidado estiver negativo ou as despesas superarem as receitas, calcule a velocidade de queima de caixa (Burn Rate) e sugira correções urgentes, apontando os 3 principais gargalos de custo.
+    5. **Previsibilidade de Caixa**: Use a lista de reminders (contas a vencer) para alertá-lo proativamente sobre grandes saídas nos próximos 15 dias, ajudando a planejar a liquidez da conta.
+    
     Diretrizes de resposta:
-    1. Baseie-se nos dados fornecidos e nos resultados da execução das ferramentas. Se o usuário perguntar algo que não está nas tabelas e não puder ser buscado via listagem, responda polidamente que não possui acesso a esse dado histórico específico no momento.
+    1. Baseie-se estritamente nos dados fornecidos e nos resultados da execução das ferramentas. Se o usuário perguntar algo que não está nas tabelas e não puder ser buscado via listagem, responda polidamente que não possui acesso a esse dado histórico específico no momento.
     2. Ao citar valores monetários, formate no padrão monetário do Brasil (ex: R$ 1.250,50).
-    3. Se houver despesas excessivas ou saldo negativo, aponte insights práticos para redução de gastos baseados nos maiores boletos/cartões da lista de transações recentes.
-    4. Use markdown leve (negritos, listas) para estruturar as análises de forma refinada.
-    5. Fale estritamente em português brasileiro (pt-BR).
+    3. Use markdown leve (negritos, listas) para estruturar as análises de forma altamente legível.
+    4. Fale estritamente em português brasileiro (pt-BR).
   `;
 
   const hasApiKey = apiKey && apiKey !== 'your-gemini-api-key-here';
@@ -453,7 +477,7 @@ export async function generateFinancialResponse(
       }
     };
 
-    const json = await callGeminiREST(DEFAULT_MODEL, payload, oauthToken);
+    const json = await callGeminiREST(CONVERSATIONAL_MODEL, payload, oauthToken);
     const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!text) {
       const reason = json.candidates?.[0]?.finishReason || 'UNKNOWN';
@@ -465,7 +489,7 @@ export async function generateFinancialResponse(
   // Caminho API Key: SDK padrão com startChat e suporte a Function Calling
   const genAI = getGeminiClient();
   const model = genAI.getGenerativeModel({
-    model: DEFAULT_MODEL,
+    model: CONVERSATIONAL_MODEL,
     systemInstruction: { text: systemPrompt },
     tools: supabaseClient ? (geminiTools as any) : undefined, // Só habilita ferramentas de escrita se o client Supabase autenticado for fornecido
     generationConfig: {
