@@ -18,7 +18,7 @@ import { reconcileBalances } from './reconcile';
 
 const GEMINI_REST_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 const PARSER_MODEL = 'gemini-flash-latest';
-const CONVERSATIONAL_MODEL = 'gemini-1.5-pro';
+const CONVERSATIONAL_MODEL = 'gemini-2.5-flash';
 
 const apiKey = process.env.GEMINI_API_KEY;
 
