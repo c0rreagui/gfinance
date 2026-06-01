@@ -10,9 +10,6 @@ export const Header: React.FC = () => {
   const [isDark, setIsDark] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
-  if (pathname === '/' || pathname === '/auth' || pathname === '/auth/callback') {
-    return null;
-  }
 
   useEffect(() => {
     try {
@@ -110,6 +107,10 @@ export const Header: React.FC = () => {
     if (pathname.startsWith('/settings')) return 'Ajustes do Sistema';
     return 'Dashboard';
   };
+
+  if (pathname === '/' || pathname === '/auth' || pathname === '/auth/callback') {
+    return null;
+  }
 
   return (
     <header className="h-20 px-8 flex items-center justify-between glass border-b border-slate-200 dark:border-white/5 sticky top-0 z-20">
