@@ -18,7 +18,8 @@ import {
   Briefcase,
   Mic,
   CornerUpLeft,
-  Wallet
+  Wallet,
+  Calendar
 } from 'lucide-react';
 
 interface SidebarItem {
@@ -43,6 +44,7 @@ export const Sidebar: React.FC = () => {
   // Dynamic items based on context (G-Finance vs. Work & Tasks)
   const financeItems: SidebarItem[] = [
     { name: 'Visão Geral', icon: LayoutGrid, path: '/finance' },
+    { name: 'Calendário', icon: Calendar, path: '/finance/calendar' },
     { name: 'Gemini Brain', icon: Sparkles, path: '/gemini' },
     { name: 'Transações', icon: Receipt, path: '/transactions' },
     { name: 'Cartões', icon: CreditCard, path: '/cards' },
