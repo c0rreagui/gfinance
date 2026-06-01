@@ -34,7 +34,7 @@ const formatMessageText = (text: string): string => {
   return text.replace(/\*\*/g, '');
 };
 
-export function AiChatHub() {
+export function AiChatHub({ isFloating = false }: { isFloating?: boolean }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -271,7 +271,7 @@ export function AiChatHub() {
   };
 
   return (
-    <div className="bg-slate-900/40 backdrop-blur-xl rounded-[40px] border border-white/5 shadow-2xl flex flex-col h-[520px] overflow-hidden relative group hover:border-emerald-500/10 transition-all duration-500">
+    <div className={isFloating ? "flex flex-col h-full w-full bg-transparent relative" : "bg-slate-900/40 backdrop-blur-xl rounded-[40px] border border-white/5 shadow-2xl flex flex-col h-[520px] overflow-hidden relative group hover:border-emerald-500/10 transition-all duration-500"}>
       
       {/* Dropdown de Histórico de Conversas (Drawer/Overlay) */}
       {showHistoryDropdown && (

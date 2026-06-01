@@ -8,6 +8,7 @@ import { Suspense } from "react";
 import "./globals.css";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
+import { GeminiFab } from "@/components/GeminiFab";
 
 export const metadata: Metadata = {
   title: "G-Hub | Command Center",
@@ -55,6 +56,7 @@ export default function RootLayout({
               <div className="flex-1 overflow-hidden">
                 {children}
               </div>
+              <GeminiFab />
             </div>
           </div>
         </div>
