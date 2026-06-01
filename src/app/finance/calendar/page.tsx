@@ -16,7 +16,9 @@ import {
   AlertCircle, 
   CheckCircle2,
   CalendarDays,
-  Sparkles
+  Sparkles,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
@@ -51,12 +53,63 @@ interface CalendarEvent {
   paid?: boolean;
 }
 
+// 2. Synthetic Haptic Click using Web Audio API
+const playHapticClick = () => {
+  try {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const ctx = new AudioContextClass();
+    
+    // Satisfying high-frequency magnetic snap style click
+    const osc1 = ctx.createOscillator();
+    const osc2 = ctx.createOscillator();
+    const gain = ctx.createGain();
+    
+    osc1.type = 'sine';
+    osc1.frequency.setValueAtTime(2000, ctx.currentTime);
+    osc1.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.04);
+    
+    osc2.type = 'triangle';
+    osc2.frequency.setValueAtTime(1200, ctx.currentTime);
+    osc2.frequency.exponentialRampToValueAtTime(80, ctx.currentTime + 0.03);
+    
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.04);
+    
+    osc1.connect(gain);
+    osc2.connect(gain);
+    gain.connect(ctx.destination);
+    
+    osc1.start();
+    osc2.start();
+    osc1.stop(ctx.currentTime + 0.04);
+    osc2.stop(ctx.currentTime + 0.04);
+  } catch (err) {
+    console.warn('Web Audio click sound failed to play:', err);
+  }
+};
+
+// 8. Subscription Brand Colors mapping helper
+const getBrandColor = (title: string): string => {
+  const lowerTitle = title.toLowerCase();
+  if (lowerTitle.includes('netflix')) return '#E50914';
+  if (lowerTitle.includes('spotify')) return '#1DB954';
+  if (lowerTitle.includes('prime') || lowerTitle.includes('amazon')) return '#00A8E8';
+  if (lowerTitle.includes('openai') || lowerTitle.includes('chatgpt')) return '#10A37F';
+  return '#3b82f6';
+};
+
 export default function FinancialCalendar() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [initialBalance, setInitialBalance] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [userId, setUserId] = useState<string | null>(null);
+
+  // 1. Privacy Mode States
+  const [isPrivate, setIsPrivate] = useState(false);
+  const [revealId, setRevealId] = useState<string | null>(null);
 
   // Detail Drawer States
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
@@ -69,6 +122,10 @@ export default function FinancialCalendar() {
   const [formType, setFormType] = useState<'income' | 'expense'>('expense');
   const [formCategory, setFormCategory] = useState('Outros');
   const [formError, setFormError] = useState('');
+  const [isRecurring, setIsRecurring] = useState(false);
+  
+  // Clipboard state for iCal subscription URL
+  const [copied, setCopied] = useState(false);
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
@@ -78,6 +135,8 @@ export default function FinancialCalendar() {
       setLoading(true);
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
+
+      setUserId(user.id);
 
       // 1. Fetch user initial balance from profiles
       const { data: profile } = await supabase
@@ -116,13 +175,40 @@ export default function FinancialCalendar() {
     fetchCalendarData();
   }, []);
 
+  // 1. Hover handlers for temporal private reveal
+  const handleRevealHover = (id: string, e: React.MouseEvent) => {
+    if (isPrivate && e.ctrlKey) {
+      setRevealId(id);
+    } else {
+      setRevealId(null);
+    }
+  };
+
+  // Helper to render currencies with absolute privacy support
+  const renderCurrency = (amount: number, id: string, className?: string) => {
+    const isBlurred = isPrivate && revealId !== id;
+    return (
+      <span 
+        className={`${className || ''} transition-all duration-300 ${
+          isBlurred ? 'blur-[8px] select-none hover:blur-none' : ''
+        }`}
+        onMouseMove={(e) => handleRevealHover(id, e)}
+        onMouseLeave={() => setRevealId(null)}
+      >
+        {amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+      </span>
+    );
+  };
+
   const handlePrevMonth = () => {
+    playHapticClick();
     setCurrentDate(new Date(year, month - 1, 1));
     setSelectedDay(null);
     setIsDrawerOpen(false);
   };
 
   const handleNextMonth = () => {
+    playHapticClick();
     setCurrentDate(new Date(year, month + 1, 1));
     setSelectedDay(null);
     setIsDrawerOpen(false);
@@ -146,6 +232,37 @@ export default function FinancialCalendar() {
 
   // 2. Map all transactions and replicated reminders to specific days in the current month
   const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  // Helper to detect if a day is strictly in the past
+  const isPastDay = (dayNum: number) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const cellDate = new Date(year, month, dayNum);
+    return cellDate < today;
+  };
+
+  // 6. CFO Confidence Score Badge calculation
+  const confidenceScore = useMemo(() => {
+    const today = new Date();
+    const currentYear = today.getFullYear();
+    const currentMonth = today.getMonth();
+    
+    // Check if selected month is in the past
+    if (year < currentYear || (year === currentYear && month < currentMonth)) {
+      return '100% Consolidado';
+    }
+    
+    const diffMonths = (year - currentYear) * 12 + (month - currentMonth);
+    
+    if (diffMonths === 0) {
+      return '98% Confiança';
+    } else if (diffMonths === 1) {
+      return '90% Confiança';
+    } else {
+      const score = Math.max(50, 90 - (diffMonths - 1) * 10);
+      return `${score}% Confiança`;
+    }
+  }, [year, month]);
 
   const dailyEvents = useMemo(() => {
     const map: Record<number, CalendarEvent[]> = {};
@@ -175,16 +292,33 @@ export default function FinancialCalendar() {
     reminders.forEach((rem) => {
       const remDate = new Date(rem.due_date);
       
+      // Dynamic logic to detect if a reminder is an income or expense
+      // If amount is positive and matches typical income categories or titles
+      const isIncomeReminder = rem.amount > 0 && (
+        rem.category_icon === 'ArrowDownLeft' ||
+        rem.category_icon === 'Wallet' ||
+        rem.title.toLowerCase().includes('salário') ||
+        rem.title.toLowerCase().includes('receita') ||
+        rem.title.toLowerCase().includes('rendimento')
+      );
+      // If it's a despesa and stored as positive, force negative sign for calendar projection
+      // If it's stored as negative, keep negative. If income, keep positive.
+      const resolvedAmount = rem.amount < 0 
+        ? rem.amount 
+        : isIncomeReminder 
+        ? rem.amount 
+        : -rem.amount;
+
       if (rem.is_recurring) {
         // If recurring: replicates on the same day of the current active month
         const dayOfMonth = remDate.getUTCDate();
         if (map[dayOfMonth]) {
           map[dayOfMonth].push({
             id: rem.id,
-            type: rem.category_icon ? 'subscription' : 'reminder',
+            type: rem.category_icon && rem.category_icon !== 'ArrowDownLeft' ? 'subscription' : 'reminder',
             title: rem.title,
-            amount: -Math.abs(rem.amount), // despesas recorrentes
-            category: rem.category_icon ? 'Assinatura' : 'Lançamento Fixo',
+            amount: resolvedAmount,
+            category: rem.category_icon ? (isIncomeReminder ? 'Receita Recorrente' : 'Assinatura') : 'Lançamento Fixo',
             icon: rem.category_icon || 'Repeat',
             paid: rem.paid
           });
@@ -198,9 +332,9 @@ export default function FinancialCalendar() {
               id: rem.id,
               type: 'reminder',
               title: rem.title,
-              amount: -Math.abs(rem.amount),
-              category: 'Boleto',
-              icon: 'AlertCircle',
+              amount: resolvedAmount,
+              category: isIncomeReminder ? 'Receita Prevista' : 'Boleto',
+              icon: rem.category_icon || 'AlertCircle',
               paid: rem.paid
             });
           }
@@ -264,6 +398,68 @@ export default function FinancialCalendar() {
     };
   }, [dailyEvents, daysInMonth]);
 
+  // 7. iCal Subscription Copy Link Action
+  const handleSyncCalendar = () => {
+    if (!userId) return;
+    playHapticClick();
+    const url = `${window.location.origin}/api/finance/calendar/export?userId=${userId}`;
+    navigator.clipboard.writeText(url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  // 9. 1-Click Quick-Pay toggle
+  const handleTogglePaid = async (id: string) => {
+    playHapticClick();
+    try {
+      const { error } = await supabase
+        .from('reminders')
+        .update({ paid: true })
+        .eq('id', id);
+
+      if (error) throw error;
+
+      await fetchCalendarData();
+    } catch (err) {
+      console.error('Error toggling paid state:', err);
+    }
+  };
+
+  // 10. Drag-and-Drop Rescheduling handlers
+  const handleDragStart = (e: React.DragEvent, reminderId: string) => {
+    e.dataTransfer.setData('text/plain', reminderId);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleDrop = async (e: React.DragEvent, dayNum: number) => {
+    e.preventDefault();
+    const reminderId = e.dataTransfer.getData('text/plain');
+    if (!reminderId) return;
+
+    playHapticClick();
+
+    const newDate = new Date(year, month, dayNum, 12, 0, 0);
+    const formattedDate = newDate.toISOString().split('T')[0];
+
+    try {
+      const { error } = await supabase
+        .from('reminders')
+        .update({ due_date: formattedDate })
+        .eq('id', reminderId);
+
+      if (error) throw error;
+
+      await fetchCalendarData();
+    } catch (err) {
+      console.error('Error updating rescheduled date:', err);
+    }
+  };
+
   // Drawer Create Transaction Action
   const handleCreateTransaction = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -299,16 +495,39 @@ export default function FinancialCalendar() {
         return;
       }
 
-      const { error } = await supabase.from('transactions').insert({
-        user_id: user.id,
-        description: formDesc,
-        category: formCategory,
-        amount: numericAmount,
-        icon: getCategoryIcon(formCategory, formType),
-        date: transactionDate.toISOString()
-      });
+      if (isRecurring) {
+        // Create as a recurring reminder/subscription in Supabase
+        const categoryIcon = getCategoryIcon(formCategory, formType);
+        const { error } = await supabase.from('reminders').insert({
+          user_id: user.id,
+          title: formDesc,
+          amount: numericAmount, // Stores signed value (- for despesa, + for receita)
+          due_date: transactionDate.toISOString(),
+          is_recurring: true,
+          paid: false,
+          urgency: 'medium',
+          category_icon: categoryIcon,
+          brand_color: getBrandColor(formDesc),
+          frequency: 'mensal'
+        });
 
-      if (error) throw error;
+        if (error) throw error;
+      } else {
+        // Create as a standard one-off transaction
+        const { error } = await supabase.from('transactions').insert({
+          user_id: user.id,
+          description: formDesc,
+          category: formCategory,
+          amount: numericAmount,
+          icon: getCategoryIcon(formCategory, formType),
+          date: transactionDate.toISOString()
+        });
+
+        if (error) throw error;
+      }
+
+      // Synthesize satisfatory feedback on creation
+      playHapticClick();
 
       // Re-fetch
       await fetchCalendarData();
@@ -317,6 +536,7 @@ export default function FinancialCalendar() {
       setFormDesc('');
       setFormAmount('');
       setFormCategory('Outros');
+      setIsRecurring(false);
       setIsFormOpen(false);
 
     } catch (err: any) {
@@ -352,51 +572,97 @@ export default function FinancialCalendar() {
 
   return (
     <div className="flex-1 overflow-hidden flex bg-slate-950 text-slate-100 h-full relative">
+      {/* 3. Inline styled keyframes for high-end cascade */}
+      <style dangerouslySetInnerHTML={{__html: `
+        @keyframes fadeSlideUp {
+          from { opacity: 0; transform: translateY(16px); filter: blur(4px); }
+          to { opacity: 1; transform: translateY(0); filter: blur(0); }
+        }
+        .stagger-in {
+          animation: fadeSlideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+        }
+      `}} />
+
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(16,185,129,0.06),rgba(255,255,255,0))] pointer-events-none z-0"></div>
 
       <main className="flex-1 overflow-y-auto p-8 no-scrollbar relative z-10 flex flex-col h-full">
         <div className="max-w-6xl mx-auto space-y-6 w-full flex-1 flex flex-col">
+          
           {/* Header */}
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shrink-0">
+          <div className="stagger-in flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shrink-0" style={{ animationDelay: '50ms' }}>
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 bg-emerald-500 rounded-xl flex items-center justify-center text-white shadow-lg shadow-emerald-500/20">
                 <CalendarIcon className="w-5 h-5" />
               </div>
-              <div>
-                <h1 className="text-lg font-black tracking-tight uppercase">Calendário Financeiro</h1>
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <h1 className="text-base font-black tracking-tight uppercase">Calendário Financeiro</h1>
+                  
+                  {/* 6. CFO Confidence Score Badge */}
+                  <div className="flex items-center gap-1 px-2.5 py-0.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[9px] font-black uppercase tracking-wider rounded-full shadow-lg shadow-emerald-500/5 backdrop-blur-md">
+                    <Sparkles className="w-3 h-3 text-emerald-400" />
+                    <span>{confidenceScore}</span>
+                  </div>
+                </div>
                 <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
                   Fluxo de Caixa Projetado & Lançamentos Periódicos
                 </p>
               </div>
             </div>
 
-            {/* Navigation Month Control */}
-            <div className="flex items-center gap-2 bg-slate-900/60 border border-white/5 p-1 rounded-2xl">
-              <button 
-                onClick={handlePrevMonth}
-                className="p-2 hover:bg-white/5 rounded-xl transition-all cursor-pointer text-slate-400 hover:text-white"
+            {/* Navigation & Controls */}
+            <div className="flex items-center gap-3">
+              {/* 7. iCal Sync Button */}
+              {userId && (
+                <button
+                  onClick={handleSyncCalendar}
+                  className="flex items-center gap-2 px-3 py-2 bg-slate-900/60 border border-white/5 hover:border-white/10 hover:bg-slate-900 rounded-xl transition-all text-[10px] font-black uppercase tracking-widest text-slate-300 hover:text-white cursor-pointer shadow-lg shadow-black/20"
+                >
+                  <CalendarDays className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>{copied ? 'Link Copiado!' : 'Sincronizar Agenda'}</span>
+                </button>
+              )}
+
+              {/* 1. Privacy Mode Glassmorphic Toggle */}
+              <button
+                onClick={() => {
+                  playHapticClick();
+                  setIsPrivate(!isPrivate);
+                }}
+                className="p-2 bg-slate-900/60 border border-white/5 hover:border-white/10 rounded-xl transition-all cursor-pointer text-slate-400 hover:text-white flex items-center justify-center shrink-0 shadow-lg shadow-black/20"
+                title={isPrivate ? "Revelar Valores (Ctrl + Mouse sobre o campo)" : "Ocultar Valores (Modo Privacidade)"}
               >
-                <ChevronLeft className="w-4 h-4" />
+                {isPrivate ? <Eye className="w-4 h-4 text-emerald-400" /> : <EyeOff className="w-4 h-4" />}
               </button>
-              <span className="text-xs font-black uppercase tracking-widest px-4 text-slate-200 capitalize">
-                {monthName}
-              </span>
-              <button 
-                onClick={handleNextMonth}
-                className="p-2 hover:bg-white/5 rounded-xl transition-all cursor-pointer text-slate-400 hover:text-white"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
+
+              {/* Navigation Month Control */}
+              <div className="flex items-center gap-2 bg-slate-900/60 border border-white/5 p-1 rounded-2xl shadow-lg shadow-black/20">
+                <button 
+                  onClick={handlePrevMonth}
+                  className="p-2 hover:bg-white/5 rounded-xl transition-all cursor-pointer text-slate-400 hover:text-white"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <span className="text-xs font-black uppercase tracking-widest px-4 text-slate-200 capitalize">
+                  {monthName}
+                </span>
+                <button 
+                  onClick={handleNextMonth}
+                  className="p-2 hover:bg-white/5 rounded-xl transition-all cursor-pointer text-slate-400 hover:text-white"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           </div>
 
           {/* Top KPIs Banner */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 shrink-0">
+          <div className="stagger-in grid grid-cols-1 md:grid-cols-3 gap-4 shrink-0" style={{ animationDelay: '100ms' }}>
             <div className="glass bg-slate-900/40 border border-white/5 rounded-[24px] p-5 flex items-center justify-between">
               <div>
                 <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Receitas Previstas</p>
                 <p className="text-lg font-black text-emerald-400 mt-1">
-                  {monthKpis.projectedIncomes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                  {renderCurrency(monthKpis.projectedIncomes, 'kpi-incomes')}
                 </p>
               </div>
               <div className="p-2.5 bg-emerald-500/10 text-emerald-400 rounded-xl">
@@ -408,7 +674,7 @@ export default function FinancialCalendar() {
               <div>
                 <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Despesas Projetadas</p>
                 <p className="text-lg font-black text-red-400 mt-1">
-                  {monthKpis.projectedExpenses.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                  {renderCurrency(monthKpis.projectedExpenses, 'kpi-expenses')}
                 </p>
               </div>
               <div className="p-2.5 bg-red-500/10 text-red-400 rounded-xl">
@@ -419,8 +685,8 @@ export default function FinancialCalendar() {
             <div className="glass bg-slate-900/40 border border-white/5 rounded-[24px] p-5 flex items-center justify-between">
               <div>
                 <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Resultado Líquido do Mês</p>
-                <p className={`text-lg font-black mt-1 ${monthKpis.netProjections >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {monthKpis.netProjections.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                <p className="text-lg font-black mt-1">
+                  {renderCurrency(monthKpis.netProjections, 'kpi-net', monthKpis.netProjections >= 0 ? 'text-emerald-400' : 'text-red-400')}
                 </p>
               </div>
               <div className={`p-2.5 rounded-xl ${monthKpis.netProjections >= 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>
@@ -458,6 +724,22 @@ export default function FinancialCalendar() {
                 const hasSubscriptions = events.some(e => e.type === 'subscription');
                 const hasReminders = events.some(e => e.type === 'reminder');
 
+                // 5. Past vs Future Temporal styling
+                const cellIsPast = isPastDay(dayNum);
+                const temporalCellClass = cellIsPast
+                  ? 'opacity-70 saturate-50 hover:opacity-100 hover:saturate-100'
+                  : 'bright-cell';
+
+                // 4. Data Congestion & Proportions Progress Bar calculation
+                const dayEvents = events.slice(0, 3);
+                const hasMoreThan3 = events.length > 3;
+                const totalIncomesVolume = events.filter(e => e.amount > 0).reduce((sum, e) => sum + e.amount, 0);
+                const totalExpensesVolume = events.filter(e => e.amount < 0).reduce((sum, e) => sum + Math.abs(e.amount), 0);
+                const totalVolume = totalIncomesVolume + totalExpensesVolume;
+                
+                const incomePct = totalVolume > 0 ? (totalIncomesVolume / totalVolume) * 100 : 0;
+                const expensePct = totalVolume > 0 ? (totalExpensesVolume / totalVolume) * 100 : 0;
+
                 return (
                   <div
                     key={`day-${dayNum}`}
@@ -465,11 +747,14 @@ export default function FinancialCalendar() {
                       setSelectedDay(dayNum);
                       setIsDrawerOpen(true);
                     }}
-                    className={`rounded-[20px] p-3 border transition-all duration-300 flex flex-col justify-between cursor-pointer group hover:scale-[1.02] ${
+                    onDragOver={handleDragOver}
+                    onDrop={(e) => handleDrop(e, dayNum)}
+                    className={`rounded-[20px] p-3 border transition-all duration-300 flex flex-col justify-between cursor-pointer group hover:scale-[1.02] stagger-in ${
                       isSelected
                         ? 'bg-emerald-500/10 border-emerald-500 shadow-lg shadow-emerald-500/5'
                         : 'bg-slate-900/40 border-white/5 hover:border-white/10 hover:bg-slate-900/80'
-                    }`}
+                    } ${temporalCellClass}`}
+                    style={{ animationDelay: `${200 + idx * 8}ms` }}
                   >
                     {/* Day number & indicators */}
                     <div className="flex justify-between items-start">
@@ -479,20 +764,66 @@ export default function FinancialCalendar() {
                         {dayNum}
                       </span>
 
-                      {/* Dot indicators */}
+                      {/* Dot indicators - Hidden when page displays mini-badges or limited to 3 */}
                       <div className="flex gap-1">
-                        {hasIncomes && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" title="Receitas" />}
-                        {hasExpenses && <span className="w-1.5 h-1.5 rounded-full bg-red-400" title="Despesas" />}
-                        {hasSubscriptions && <span className="w-1.5 h-1.5 rounded-full bg-blue-400" title="Assinaturas" />}
-                        {hasReminders && <span className="w-1.5 h-1.5 rounded-full bg-amber-400" title="Dívidas/Boletos" />}
+                        {hasIncomes && <span className="w-1 h-1 rounded-full bg-emerald-400" title="Receitas" />}
+                        {hasExpenses && <span className="w-1 h-1 rounded-full bg-red-400" title="Despesas" />}
+                        {hasSubscriptions && <span className="w-1 h-1 rounded-full bg-blue-400" title="Assinaturas" />}
+                        {hasReminders && <span className="w-1 h-1 rounded-full bg-amber-400" title="Dívidas/Boletos" />}
                       </div>
                     </div>
 
+                    {/* 4. Mini Events list inside cell */}
+                    <div className="flex-1 flex flex-col justify-center my-2 space-y-1">
+                      {dayEvents.map((ev, i) => {
+                        const isInc = ev.amount > 0;
+                        return (
+                          <div
+                            key={ev.id + '-' + i}
+                            className={`text-[8px] font-black px-1.5 py-0.5 rounded-md truncate flex items-center justify-between ${
+                              isInc 
+                                ? 'bg-emerald-500/10 text-emerald-400/90 border border-emerald-500/10' 
+                                : 'bg-red-500/10 text-red-400/90 border border-red-500/10'
+                            }`}
+                          >
+                            <span className="truncate max-w-[65px]">{ev.title}</span>
+                            <span 
+                              className={`font-mono font-bold shrink-0 transition-all duration-300 ${
+                                isPrivate && revealId !== `cell-ev-${ev.id}` ? 'blur-[4px] select-none' : ''
+                              }`}
+                              onMouseMove={(e) => handleRevealHover(`cell-ev-${ev.id}`, e)}
+                              onMouseLeave={() => setRevealId(null)}
+                            >
+                              {isInc ? '+' : '-'}{Math.abs(ev.amount).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
+                            </span>
+                          </div>
+                        );
+                      })}
+                      
+                      {/* Subtle Congestion Indicators */}
+                      {hasMoreThan3 && (
+                        <div className="space-y-1 pt-0.5">
+                          <div className="text-[8px] font-black text-slate-400 uppercase tracking-widest text-left leading-none">
+                            +{events.length - 3} lançamentos
+                          </div>
+                          {/* Proportions Progress Bar */}
+                          <div className="h-0.5 w-full bg-white/10 rounded-full overflow-hidden flex">
+                            <div className="bg-emerald-500 h-full transition-all duration-300" style={{ width: `${incomePct}%` }} />
+                            <div className="bg-red-500 h-full transition-all duration-300" style={{ width: `${expensePct}%` }} />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
                     {/* Balance projection at the bottom */}
-                    <div className="mt-4 text-right">
-                      <span className={`text-[8px] font-mono font-bold block ${
-                        dailyProjBalance >= 0 ? 'text-emerald-500/80' : 'text-red-500/80'
-                      }`}>
+                    <div className="text-right">
+                      <span 
+                        className={`text-[8px] font-mono font-bold block transition-all duration-300 ${
+                          dailyProjBalance >= 0 ? 'text-emerald-500/80' : 'text-red-500/80'
+                        } ${isPrivate && revealId !== `cell-bal-${dayNum}` ? 'blur-[8px] select-none hover:blur-none' : ''}`}
+                        onMouseMove={(e) => handleRevealHover(`cell-bal-${dayNum}`, e)}
+                        onMouseLeave={() => setRevealId(null)}
+                      >
                         {dailyProjBalance.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                       </span>
                     </div>
@@ -536,9 +867,12 @@ export default function FinancialCalendar() {
 
               {/* Day Projections Balance KPI */}
               <div className="p-4 rounded-2xl bg-slate-950/40 border border-white/5 flex justify-between items-center">
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Saldo Diário Projetado</span>
-                <span className={`text-sm font-black font-mono ${selectedDayProjectedBalance >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {selectedDayProjectedBalance.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                {/* 5. Past vs Future Label logic */}
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                  {isPastDay(selectedDay) ? 'Saldo Consolidado' : 'Saldo Diário Projetado'}
+                </span>
+                <span className="text-sm font-black font-mono">
+                  {renderCurrency(selectedDayProjectedBalance, 'drawer-balance', selectedDayProjectedBalance >= 0 ? 'text-emerald-400' : 'text-red-400')}
                 </span>
               </div>
 
@@ -552,23 +886,57 @@ export default function FinancialCalendar() {
                 ) : (
                   selectedDayItems.map((ev) => {
                     const isIncome = ev.amount > 0;
+                    const isReminder = ev.type === 'reminder' || ev.type === 'subscription';
+                    
+                    // 8. Brand Color Vertical Line Accent
+                    const brandColor = isReminder ? getBrandColor(ev.title) : null;
+                    
+                    // 9. Checkbox visualization logic
+                    const showCheckbox = isReminder && ev.paid !== undefined;
+
                     return (
                       <div
                         key={ev.id}
-                        className="p-4 bg-slate-950/30 border border-white/5 rounded-2xl flex justify-between items-center hover:border-white/10 transition-colors"
+                        draggable={isReminder && !ev.paid}
+                        onDragStart={isReminder ? (e) => handleDragStart(e, ev.id) : undefined}
+                        className={`relative overflow-hidden pl-5 p-4 bg-slate-950/30 border border-white/5 rounded-2xl flex justify-between items-center hover:border-white/10 transition-colors ${
+                          isReminder && !ev.paid ? 'cursor-grab active:cursor-grabbing' : ''
+                        }`}
                       >
+                        {brandColor && (
+                          <div 
+                            className="absolute left-0 top-0 bottom-0 w-[3px]"
+                            style={{ backgroundColor: brandColor }}
+                          />
+                        )}
+
                         <div className="flex items-center gap-3">
-                          <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs ${
-                            ev.type === 'transaction'
-                              ? isIncome 
-                                ? 'bg-emerald-500/10 text-emerald-400'
-                                : 'bg-red-500/10 text-red-400'
+                          {/* 9. 1-Click Quick-Pay Checkbox */}
+                          {showCheckbox && (
+                            <button
+                              onClick={() => !ev.paid && handleTogglePaid(ev.id)}
+                              className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 transition-colors ${
+                                ev.paid 
+                                  ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-400' 
+                                  : 'border-slate-600 hover:border-emerald-500 cursor-pointer'
+                              }`}
+                              title={ev.paid ? 'Confirmado' : 'Marcar como Pago'}
+                            >
+                              {ev.paid ? (
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                              ) : null}
+                            </button>
+                          )}
+
+                          <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs shrink-0 ${
+                            isIncome
+                              ? 'bg-emerald-500/10 text-emerald-400'
                               : ev.type === 'subscription'
                               ? 'bg-blue-500/10 text-blue-400'
                               : 'bg-amber-500/10 text-amber-400'
                           }`}>
-                            {ev.type === 'transaction' ? (
-                              isIncome ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />
+                            {isIncome ? (
+                              <TrendingUp className="w-4 h-4" />
                             ) : ev.type === 'subscription' ? (
                               <Repeat className="w-4 h-4" />
                             ) : (
@@ -582,9 +950,10 @@ export default function FinancialCalendar() {
                             </span>
                           </div>
                         </div>
+
                         <div className="text-right">
-                          <p className={`text-xs font-black ${isIncome ? 'text-emerald-400' : 'text-slate-200'}`}>
-                            {ev.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          <p className="text-xs font-black">
+                            {renderCurrency(ev.amount, `drawer-item-${ev.id}`, isIncome ? 'text-emerald-400' : 'text-slate-200')}
                           </p>
                           {ev.paid !== undefined && (
                             <span className={`text-[7px] font-black uppercase tracking-widest ${
@@ -684,6 +1053,26 @@ export default function FinancialCalendar() {
                       <option value="Transferência">Transferência</option>
                       <option value="Saúde">Saúde</option>
                     </select>
+                  </div>
+
+                  {/* 11. Recurring Toggle Switch */}
+                  <div className="flex items-center justify-between p-3.5 bg-slate-950/60 border border-white/5 rounded-xl animate-in fade-in duration-350">
+                    <div className="flex flex-col text-left">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-300">Repetir Mensalmente</span>
+                      <span className="text-[8px] text-slate-500 font-bold uppercase tracking-widest mt-0.5">Criará um lançamento recorrente</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        playHapticClick();
+                        setIsRecurring(!isRecurring);
+                      }}
+                      className={`w-9 h-5 rounded-full p-0.5 transition-colors duration-200 focus:outline-none cursor-pointer flex items-center ${
+                        isRecurring ? 'bg-emerald-500 justify-end' : 'bg-slate-800 justify-start'
+                      }`}
+                    >
+                      <span className="w-4 h-4 rounded-full bg-white shadow-md transform duration-200" />
+                    </button>
                   </div>
 
                   <div className="flex gap-2">
