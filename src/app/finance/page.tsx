@@ -18,6 +18,7 @@ import {
 import { TiltCard } from '@/components/TiltCard';
 import { supabase } from '@/lib/supabase';
 import { AiChatHub } from '@/app/components/AiChatHub';
+import { reconcileBalances } from '@/lib/reconcile';
 
 // Lucide Icon mapping dictionary helper
 const iconMap: { [key: string]: React.ComponentType<any> } = {

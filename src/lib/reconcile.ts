@@ -55,31 +55,99 @@ export async function reconcileBalances(
 
     console.info(`[Reconcile] Agregados calculados: Inicial = R$ ${initialBalance}, Receitas = R$ ${income}, Despesas = R$ ${expense}, Total = R$ ${total}`);
 
-    // 3. Atualizar em paralelo as três métricas essenciais na tabela "balances"
-    const [r1, r2, r3] = await Promise.all([
-      supabaseClient
-        .from('balances')
-        .update({ amount: total, trend: '+0%' })
-        .eq('user_id', userId)
-        .eq('type', 'total'),
-      supabaseClient
-        .from('balances')
-        .update({ amount: income, trend: '+0%' })
-        .eq('user_id', userId)
-        .eq('type', 'income'),
-      supabaseClient
-        .from('balances')
-        .update({ amount: expense, trend: '+0%' })
-        .eq('user_id', userId)
-        .eq('type', 'expense')
-    ]);
+    // 3. Query existing balances for this user to avoid missing rows on update
+    const { data: existingBalances, error: fetchBalError } = await supabaseClient
+      .from('balances')
+      .select('id, type')
+      .eq('user_id', userId);
 
-    // Tratar erros de atualização
-    if (r1.error) throw new Error(`Erro ao atualizar saldo total: ${r1.error.message}`);
-    if (r2.error) throw new Error(`Erro ao atualizar receitas: ${r2.error.message}`);
-    if (r3.error) throw new Error(`Erro ao atualizar despesas: ${r3.error.message}`);
+    if (fetchBalError) {
+      throw new Error(`Falha ao verificar linhas de saldo existentes: ${fetchBalError.message}`);
+    }
 
-    console.info('[Reconcile] Saldos atualizados com sucesso no banco de dados!');
+    const findExisting = (t: string) => existingBalances?.find((b: any) => b.type === t);
+
+    const totalRow = findExisting('total');
+    const incomeRow = findExisting('income');
+    const expenseRow = findExisting('expense');
+
+    const promises = [];
+
+    // Reconcile and save "total"
+    if (totalRow) {
+      promises.push(
+        supabaseClient
+          .from('balances')
+          .update({ amount: total, trend: '+0%' })
+          .eq('id', totalRow.id)
+      );
+    } else {
+      promises.push(
+        supabaseClient
+          .from('balances')
+          .insert({
+            user_id: userId,
+            type: 'total',
+            label: 'Saldo Total',
+            amount: total,
+            trend: '+0%',
+            icon: 'Wallet'
+          })
+      );
+    }
+
+    // Reconcile and save "income"
+    if (incomeRow) {
+      promises.push(
+        supabaseClient
+          .from('balances')
+          .update({ amount: income, trend: '+0%' })
+          .eq('id', incomeRow.id)
+      );
+    } else {
+      promises.push(
+        supabaseClient
+          .from('balances')
+          .insert({
+            user_id: userId,
+            type: 'income',
+            label: 'Receitas',
+            amount: income,
+            trend: '+0%',
+            icon: 'ArrowUpCircle'
+          })
+      );
+    }
+
+    // Reconcile and save "expense"
+    if (expenseRow) {
+      promises.push(
+        supabaseClient
+          .from('balances')
+          .update({ amount: expense, trend: '+0%' })
+          .eq('id', expenseRow.id)
+      );
+    } else {
+      promises.push(
+        supabaseClient
+          .from('balances')
+          .insert({
+            user_id: userId,
+            type: 'expense',
+            label: 'Despesas',
+            amount: expense,
+            trend: '+0%',
+            icon: 'ArrowDownCircle'
+          })
+      );
+    }
+
+    const results = await Promise.all(promises);
+    for (const r of results) {
+      if (r.error) throw new Error(r.error.message);
+    }
+
+    console.info('[Reconcile] Saldos harmonizados e persistidos com sucesso no Supabase!');
 
     return { 
       success: true,
