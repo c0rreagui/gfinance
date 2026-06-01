@@ -94,6 +94,8 @@ export default function Settings() {
         } else {
           if (currentProfile) {
             currentProfile.initial_balance = Number(currentProfile.initial_balance) || 0;
+            setPushNotif(currentProfile.push_notifications_enabled !== false);
+            setTwoFactor(!!currentProfile.two_factor_enabled);
           }
           setProfile(currentProfile);
         }
@@ -174,6 +176,8 @@ export default function Settings() {
           full_name: profile.full_name,
           avatar_url: profile.avatar_url,
           initial_balance: profile.initial_balance || 0,
+          push_notifications_enabled: pushNotif,
+          two_factor_enabled: twoFactor,
           updated_at: new Date().toISOString()
         });
 

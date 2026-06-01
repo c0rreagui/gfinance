@@ -30,6 +30,9 @@ interface Reminder {
   created_at?: string;
   urgency?: string;
   is_recurring?: boolean;
+  frequency?: string;
+  category_icon?: string;
+  brand_color?: string;
 }
 
 const serviceIcons: Record<string, any> = {
@@ -57,26 +60,51 @@ const serviceGradients = [
 function resolveSubscription(rem: Reminder, index: number) {
   const titleLower = rem.title.toLowerCase();
   let Icon = Repeat;
-  for (const [key, iconVal] of Object.entries(serviceIcons)) {
-    if (titleLower.includes(key)) {
-      Icon = iconVal;
-      break;
+  
+  if (rem.category_icon && serviceIcons[rem.category_icon.toLowerCase()]) {
+    Icon = serviceIcons[rem.category_icon.toLowerCase()];
+  } else {
+    for (const [key, iconVal] of Object.entries(serviceIcons)) {
+      if (titleLower.includes(key)) {
+        Icon = iconVal;
+        break;
+      }
     }
   }
 
   const grad = serviceGradients[index % serviceGradients.length];
   const day = rem.due_date ? new Date(rem.due_date).getUTCDate() : 1;
 
+  let color = grad.color;
+  let borderColor = grad.borderColor;
+
+  if (rem.brand_color) {
+    const map: Record<string, { color: string; borderColor: string }> = {
+      red: { color: 'from-red-500/10 to-red-900/5', borderColor: 'border-red-500/20' },
+      green: { color: 'from-green-500/10 to-green-900/5', borderColor: 'border-green-500/20' },
+      blue: { color: 'from-blue-500/10 to-blue-900/5', borderColor: 'border-blue-500/20' },
+      indigo: { color: 'from-indigo-500/10 to-indigo-900/5', borderColor: 'border-indigo-500/20' },
+      emerald: { color: 'from-emerald-500/10 to-emerald-900/5', borderColor: 'border-emerald-500/20' },
+      amber: { color: 'from-amber-500/10 to-amber-900/5', borderColor: 'border-amber-500/20' },
+      orange: { color: 'from-orange-500/10 to-orange-900/5', borderColor: 'border-orange-500/20' },
+      violet: { color: 'from-violet-500/10 to-violet-900/5', borderColor: 'border-violet-500/20' },
+    };
+    if (map[rem.brand_color.toLowerCase()]) {
+      color = map[rem.brand_color.toLowerCase()].color;
+      borderColor = map[rem.brand_color.toLowerCase()].borderColor;
+    }
+  }
+
   return {
     id: rem.id,
     name: rem.title,
     price: Math.abs(rem.amount || 0),
-    frequency: 'Mensal',
+    frequency: rem.frequency || 'Mensal',
     status: rem.paid ? 'pausada' : 'ativa',
     day,
     icon: Icon,
-    color: grad.color,
-    borderColor: grad.borderColor,
+    color,
+    borderColor,
   };
 }
 

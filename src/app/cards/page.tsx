@@ -26,46 +26,132 @@ interface CardTransaction {
 export default function CardsPage() {
   const [showCardNumber, setShowCardNumber] = useState(false);
   const [cardLimit, setCardLimit] = useState(25000);
-  const [usedLimit, setUsedLimit] = useState(8244.70);
+  const [usedLimit, setUsedLimit] = useState(0);
   const [cardTransactions, setCardTransactions] = useState<CardTransaction[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const fetchCardData = async () => {
-      try {
-        setLoading(true);
-        // Buscar lançamentos de cartão de crédito no Supabase
-        const { data, error } = await supabase
-          .from('transactions')
-          .select('*')
-          .eq('category', 'Cartão')
-          .order('date', { ascending: false })
-          .limit(10);
+  // Dynamic card metadata states
+  const [cardId, setCardId] = useState<string | null>(null);
+  const [cardName, setCardName] = useState('G-Black');
+  const [lastFour, setLastFour] = useState('9912');
+  const [expirationDate, setExpirationDate] = useState('12/32');
+  const [ownerName, setOwnerName] = useState('Guilherme C. S. P.');
+  const [memberSince, setMemberSince] = useState('2026');
 
-        if (error) throw error;
-        setCardTransactions(data || []);
-        
-        // Calcular valor de despesa total na categoria Cartão
-        const { data: allTxs } = await supabase
-          .from('transactions')
-          .select('amount')
-          .eq('category', 'Cartão');
+  const fetchCardData = async () => {
+    try {
+      setLoading(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
 
-        if (allTxs) {
-          const sum = allTxs.reduce((acc, t) => acc + Math.abs(t.amount), 0);
-          if (sum > 0) setUsedLimit(sum);
-        }
-      } catch (err) {
-        console.error('Error fetching card transactions:', err);
-      } finally {
-        setLoading(false);
+      // 1. Fetch user profile to get global custom limit fallback and name
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('full_name, card_limit')
+        .eq('id', user.id)
+        .single();
+
+      if (profile?.full_name) {
+        setOwnerName(profile.full_name);
       }
-    };
+
+      // 2. Fetch user's credit card records from the new table
+      let { data: dbCards } = await supabase
+        .from('credit_cards')
+        .select('*')
+        .eq('user_id', user.id);
+
+      if (!dbCards || dbCards.length === 0) {
+        // Auto-provision initial premium credit card in database
+        const initialLimit = profile?.card_limit ? Number(profile.card_limit) : 25000;
+        const { data: newCard } = await supabase
+          .from('credit_cards')
+          .insert({
+            user_id: user.id,
+            card_name: 'G-Black',
+            last_four: '9912',
+            expiration_date: '12/32',
+            card_limit: initialLimit,
+            spline_url: 'https://prod.spline.design/1e9d1552-3443-485d-a066-e46604b8db02/scene.splinecode'
+          })
+          .select()
+          .single();
+
+        if (newCard) {
+          dbCards = [newCard];
+        }
+      }
+
+      if (dbCards && dbCards.length > 0) {
+        const activeCard = dbCards[0];
+        setCardId(activeCard.id);
+        setCardName(activeCard.card_name);
+        setLastFour(activeCard.last_four);
+        setExpirationDate(activeCard.expiration_date);
+        setCardLimit(Number(activeCard.card_limit));
+        if (activeCard.created_at) {
+          setMemberSince(new Date(activeCard.created_at).getFullYear().toString());
+        }
+      }
+
+      // 3. Buscar lançamentos de cartão de crédito no Supabase
+      const { data, error } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('category', 'Cartão')
+        .order('date', { ascending: false })
+        .limit(10);
+
+      if (error) throw error;
+      setCardTransactions(data || []);
+      
+      // Calcular valor de despesa total na categoria Cartão
+      const { data: allTxs } = await supabase
+        .from('transactions')
+        .select('amount')
+        .eq('category', 'Cartão');
+
+      if (allTxs) {
+        const sum = allTxs.reduce((acc, t) => acc + Math.abs(t.amount), 0);
+        setUsedLimit(sum);
+      }
+    } catch (err) {
+      console.error('Error fetching card transactions:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     fetchCardData();
   }, []);
 
+  const handleLimitChange = async (newLimit: number) => {
+    setCardLimit(newLimit);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Update in profiles table
+      await supabase
+        .from('profiles')
+        .update({ card_limit: newLimit })
+        .eq('id', user.id);
+
+      // Update in credit_cards table
+      if (cardId) {
+        await supabase
+          .from('credit_cards')
+          .update({ card_limit: newLimit })
+          .eq('id', cardId);
+      }
+    } catch (e) {
+      console.error('Erro ao salvar novo limite:', e);
+    }
+  };
+
   const availableLimit = cardLimit - usedLimit;
-  const limitPercentage = (usedLimit / cardLimit) * 100;
+  const limitPercentage = cardLimit > 0 ? (usedLimit / cardLimit) * 100 : 0;
 
   return (
     <div className="flex-1 overflow-y-auto p-8 bg-slate-950 text-slate-100 h-full no-scrollbar relative">
@@ -104,7 +190,7 @@ export default function CardsPage() {
                       <div className="w-6 h-6 bg-emerald-500 rounded-lg flex items-center justify-center text-white font-black text-sm">
                         G
                       </div>
-                      <span className="font-black text-sm tracking-tight text-white uppercase">G-Black</span>
+                      <span className="font-black text-sm tracking-tight text-white uppercase">{cardName}</span>
                     </div>
                     <p className="text-[7px] text-slate-400 font-bold uppercase tracking-widest">Solo Platinum Elite</p>
                   </div>
@@ -118,7 +204,7 @@ export default function CardsPage() {
                 <div className="space-y-1">
                   <div className="flex items-center gap-3">
                     <p className="font-mono text-lg tracking-[0.25em] text-white">
-                      {showCardNumber ? "4290 8812 3456 9912" : "•••• •••• •••• 9912"}
+                      {showCardNumber ? `4290 8812 3456 ${lastFour}` : `•••• •••• •••• ${lastFour}`}
                     </p>
                     <button 
                       onClick={(e) => { e.stopPropagation(); setShowCardNumber(!showCardNumber); }}
@@ -130,11 +216,11 @@ export default function CardsPage() {
                   <div className="flex gap-6 mt-4">
                     <div>
                       <p className="text-[7px] text-slate-500 font-bold uppercase tracking-widest">Validade</p>
-                      <p className="text-[10px] font-bold text-slate-300 mt-0.5">12/32</p>
+                      <p className="text-[10px] font-bold text-slate-300 mt-0.5">{expirationDate}</p>
                     </div>
                     <div>
                       <p className="text-[7px] text-slate-500 font-bold uppercase tracking-widest">Membro Desde</p>
-                      <p className="text-[10px] font-bold text-slate-300 mt-0.5">2026</p>
+                      <p className="text-[10px] font-bold text-slate-300 mt-0.5">{memberSince}</p>
                     </div>
                   </div>
                 </div>
@@ -143,7 +229,7 @@ export default function CardsPage() {
                 <div className="flex justify-between items-end border-t border-white/5 pt-4">
                   <div>
                     <p className="text-[7px] text-slate-500 font-bold uppercase tracking-widest">Titular</p>
-                    <p className="text-xs font-black uppercase tracking-wider text-slate-100 mt-0.5">Guilherme C. S. P.</p>
+                    <p className="text-xs font-black uppercase tracking-wider text-slate-100 mt-0.5">{ownerName}</p>
                   </div>
                   <div className="flex -space-x-2">
                     <div className="w-6 h-6 rounded-full bg-emerald-500/20 border border-emerald-400/20 backdrop-blur-sm"></div>
@@ -201,7 +287,7 @@ export default function CardsPage() {
                   max="100000" 
                   step="5000"
                   value={cardLimit}
-                  onChange={(e) => setCardLimit(Number(e.target.value))}
+                  onChange={(e) => handleLimitChange(Number(e.target.value))}
                   className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500" 
                 />
                 <div className="flex justify-between text-[10px] text-slate-500 font-bold">
@@ -222,8 +308,8 @@ export default function CardsPage() {
                   <h2 className="text-sm font-black uppercase tracking-wider">Últimos Lançamentos</h2>
                   <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">Filtrado por compras no cartão</p>
                 </div>
-                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
-                  Fevereiro 2026
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest capitalize">
+                  {new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
                 </span>
               </div>
 
