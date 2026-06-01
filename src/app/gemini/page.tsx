@@ -71,6 +71,11 @@ interface ChatMessage {
   isCompacted?: boolean;
 }
 
+const formatMessageText = (text: string): string => {
+  if (!text) return '';
+  return text.replace(/\*\*/g, '');
+};
+
 export default function GeminiBrainPage() {
   const [activeTab, setActiveTab] = useState<'importer' | 'chat'>('importer');
   
@@ -1182,7 +1187,7 @@ export default function GeminiBrainPage() {
                                 ? 'bg-slate-900 border border-white/5 text-slate-200 rounded-tl-sm' 
                                 : 'bg-emerald-500 text-white font-medium rounded-tr-sm shadow-lg shadow-emerald-500/10'
                             }`}>
-                              {msg.parts[0].text}
+                              {formatMessageText(msg.parts[0].text)}
                               
                               {/* Compacted state indicator tag */}
                               {isCompacted && (

@@ -28,10 +28,16 @@ interface ChatMessage {
   parts: { text: string }[];
 }
 
+const formatMessageText = (text: string): string => {
+  if (!text) return '';
+  return text.replace(/\*\*/g, '');
+};
+
 export function AiChatHub() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
   const messagesContainerRef = useRef<HTMLDivElement>(null);
 
@@ -53,6 +59,58 @@ export function AiChatHub() {
   useEffect(() => {
     scrollToBottom();
   }, [messages, loading]);
+
+  // Carregar última sessão ativa e seu histórico no mount
+  useEffect(() => {
+    const loadLatestSession = async () => {
+      setLoading(true);
+      setErrorMsg('');
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        if (!token) return;
+
+        // Buscar sessões de chat ordenadas por atualizada mais recente
+        const response = await fetch('/api/ai/sessions', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const sessions = data.sessions || [];
+          
+          if (sessions.length > 0) {
+            const latestSession = sessions[0];
+            setActiveSessionId(latestSession.id);
+
+            // Carrega as mensagens da última sessão
+            const msgsResponse = await fetch(`/api/ai/sessions/${latestSession.id}`, {
+              headers: {
+                'Authorization': `Bearer ${token}`
+              }
+            });
+
+            if (msgsResponse.ok) {
+              const msgsData = await msgsResponse.json();
+              const formatted = (msgsData.messages || []).map((m: any) => ({
+                role: m.role,
+                parts: [{ text: m.content }]
+              }));
+              setMessages(formatted);
+            }
+          }
+        }
+      } catch (err: any) {
+        console.error('Erro ao carregar última sessão na Home:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadLatestSession();
+  }, []);
 
   // Obter token Google válido: primeiro da sessão local (rápido), depois do servidor (robusto)
   const getGoogleToken = async (supabaseToken: string | null): Promise<string | null> => {
@@ -99,12 +157,6 @@ export function AiChatHub() {
       // Estratégia em cascata para obter token Google válido
       const providerToken = await getGoogleToken(supabaseToken);
 
-      // Formata histórico para enviar ao backend
-      const historyPayload = messages.map(msg => ({
-        role: msg.role,
-        parts: [{ text: msg.parts[0].text }]
-      }));
-
       const response = await fetch('/api/ai/chat', {
         method: 'POST',
         headers: {
@@ -114,7 +166,7 @@ export function AiChatHub() {
         },
         body: JSON.stringify({
           message: queryText,
-          history: historyPayload
+          sessionId: activeSessionId
         })
       });
 
@@ -122,6 +174,11 @@ export function AiChatHub() {
 
       if (!response.ok) {
         throw new Error(data.error || 'Falha ao obter resposta da Inteligência Artificial.');
+      }
+
+      // Se o backend criou uma nova sessão (ou compactou)
+      if (data.sessionId && data.sessionId !== activeSessionId) {
+        setActiveSessionId(data.sessionId);
       }
 
       const modelResponse: ChatMessage = {
@@ -146,6 +203,7 @@ export function AiChatHub() {
 
   const handleClearChat = () => {
     setMessages([]);
+    setActiveSessionId(null);
     setErrorMsg('');
     setLoading(false);
   };
@@ -235,7 +293,7 @@ export function AiChatHub() {
                   }`}>
                     {/* Renderiza quebras de linha básicas no Markdown simplificado */}
                     <div className="whitespace-pre-line text-slate-300">
-                      {msg.parts[0].text}
+                      {formatMessageText(msg.parts[0].text)}
                     </div>
                   </div>
                 </div>
