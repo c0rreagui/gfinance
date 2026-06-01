@@ -243,20 +243,29 @@ serve(async (req) => {
 
     // 9. If inserted, reconcile balances dynamically
     if (!isDuplicate) {
+      // Buscar saldo inicial do perfil do usuário para preservar a integridade matemática
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("initial_balance")
+        .eq("id", userId)
+        .single();
+      const initialBalance = Number(profile?.initial_balance) || 0;
+
       const { data: allTx } = await supabase
         .from("transactions")
         .select("amount")
         .eq("user_id", userId);
 
       if (allTx && allTx.length > 0) {
-        let total = 0;
+        let total = initialBalance;
         let income = 0;
         let expense = 0;
 
         for (const t of allTx) {
-          total += t.amount;
-          if (t.amount > 0) income += t.amount;
-          else expense += Math.abs(t.amount);
+          const val = Number(t.amount);
+          total += val;
+          if (val > 0) income += val;
+          else expense += Math.abs(val);
         }
 
         const { data: balances } = await supabase

@@ -17,7 +17,12 @@ import {
   FolderMinus,
   CheckCircle,
   Calculator,
-  Shuffle
+  Shuffle,
+  Plus,
+  MessageSquare,
+  History,
+  Brain,
+  Layers
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { reconcileBalances } from '@/lib/reconcile';
@@ -63,6 +68,7 @@ interface ChatMessage {
   id: string;
   role: 'user' | 'model';
   parts: { text: string }[];
+  isCompacted?: boolean;
 }
 
 export default function GeminiBrainPage() {
@@ -93,6 +99,14 @@ export default function GeminiBrainPage() {
   const [chatError, setChatError] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Persistent Chat Sessions and Memory State
+  const [chatSessions, setChatSessions] = useState<{ id: string; title: string; created_at: string }[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [loadingSessions, setLoadingSessions] = useState(false);
+  const [compacting, setCompacting] = useState(false);
+  const [aiMemory, setAiMemory] = useState<string>('');
+  const [showMemoryModal, setShowMemoryModal] = useState(false);
+
   // Auth Info
   const [userId, setUserId] = useState<string | null>(null);
 
@@ -108,6 +122,185 @@ export default function GeminiBrainPage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMessages, chatLoading]);
+
+  // Carregar sessões de chat do banco de dados
+  const fetchChatSessions = async () => {
+    setLoadingSessions(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const response = await fetch('/api/ai/sessions', {
+        headers: {
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setChatSessions(data.sessions || []);
+        // Seleciona a primeira sessão se nenhuma estiver ativa
+        if (data.sessions && data.sessions.length > 0 && !activeSessionId) {
+          handleSelectSession(data.sessions[0].id);
+        }
+      }
+    } catch (err) {
+      console.error('Erro ao carregar sessões:', err);
+    } finally {
+      setLoadingSessions(false);
+    }
+  };
+
+  // Carregar mensagens de uma sessão específica
+  const fetchSessionMessages = async (sid: string) => {
+    setChatLoading(true);
+    setChatError('');
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const response = await fetch(`/api/ai/sessions/${sid}`, {
+        headers: {
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const formatted = (data.messages || []).map((m: any) => ({
+          id: m.id,
+          role: m.role,
+          parts: [{ text: m.content }],
+          isCompacted: !!m.is_compacted
+        }));
+        setChatMessages(formatted);
+        setActiveSessionId(sid);
+      } else {
+        setChatError('Falha ao carregar mensagens desta conversa.');
+      }
+    } catch (err) {
+      setChatError('Erro de conexão ao carregar conversa.');
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  // Buscar memória global do usuário
+  const fetchUserMemory = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('ai_memory')
+          .eq('id', user.id)
+          .single();
+        setAiMemory(profile?.ai_memory || '');
+      }
+    } catch (err) {
+      console.error('Erro ao carregar memória global:', err);
+    }
+  };
+
+  // Switch de sessão ativa
+  const handleSelectSession = (sid: string) => {
+    setActiveSessionId(sid);
+    fetchSessionMessages(sid);
+  };
+
+  // Iniciar nova conversa (POST /api/ai/sessions)
+  const handleNewConversation = async () => {
+    setChatLoading(true);
+    setChatError('');
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const response = await fetch('/api/ai/sessions', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ title: 'Nova Conversa' })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setChatSessions(prev => [data.session, ...prev]);
+        setActiveSessionId(data.session.id);
+        setChatMessages([]);
+      } else {
+        setChatError('Erro ao instanciar nova conversa.');
+      }
+    } catch {
+      setChatError('Falha de conexão.');
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  // Excluir conversa permanentemente
+  const handleDeleteSession = async (sid: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm('Deseja excluir esta conversa permanentemente?')) return;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const response = await fetch(`/api/ai/sessions/${sid}`, {
+        method: 'DELETE',
+        headers: {
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        }
+      });
+      if (response.ok) {
+        setChatSessions(prev => prev.filter(s => s.id !== sid));
+        if (activeSessionId === sid) {
+          setChatMessages([]);
+          setActiveSessionId(null);
+        }
+      }
+    } catch {
+      console.error('Erro ao excluir conversa.');
+    }
+  };
+
+  // Forçar compactação manual (/compact)
+  const handleCompactSession = async () => {
+    if (!activeSessionId || chatLoading || compacting) return;
+    setCompacting(true);
+    setChatError('');
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const response = await fetch('/api/ai/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          message: '/compact',
+          sessionId: activeSessionId
+        })
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Erro ao rodar compactação.');
+      }
+
+      // Recarrega mensagens e a memória do usuário
+      await fetchUserMemory();
+      await fetchSessionMessages(activeSessionId);
+    } catch (err: any) {
+      setChatError(err.message || 'Falha ao compactar sessão.');
+    } finally {
+      setCompacting(false);
+    }
+  };
+
+  // Efeito para carregar as sessões e a memória perene do usuário ao alternar para o chat
+  useEffect(() => {
+    if (activeTab === 'chat') {
+      fetchChatSessions();
+      fetchUserMemory();
+    }
+  }, [activeTab]);
 
   // Importer Drag & Drop Handlers
   const handleDrag = (e: React.DragEvent) => {
@@ -253,9 +446,12 @@ export default function GeminiBrainPage() {
       }
 
       // Check if there was any balance snapshot parsed in stagedTransactions
-      const balanceRow = stagedTransactions.find(item => item.isBalance);
-      if (balanceRow) {
-        const parsedTarget = balanceRow.amount;
+      const balanceRows = stagedTransactions.filter(item => item.isBalance);
+      // Sort deterministicamente por data decrescente (saldo mais recente primeiro)
+      const latestBalanceRow = balanceRows.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+      
+      if (latestBalanceRow) {
+        const parsedTarget = latestBalanceRow.amount;
         
         // Fetch current profile to get old initial_balance
         const { data: profile } = await supabase
@@ -337,7 +533,7 @@ export default function GeminiBrainPage() {
   // Enviar Mensagem no Chat Conversacional
   const handleSendChatMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!inputMessage.trim() || chatLoading) return;
+    if (!inputMessage.trim() || chatLoading || compacting) return;
 
     setChatError('');
     const userQuery = inputMessage.trim();
@@ -345,7 +541,7 @@ export default function GeminiBrainPage() {
     setChatLoading(true);
 
     const userMessage: ChatMessage = {
-      id: `chat-${Date.now()}-user`,
+      id: `chat-temp-${Date.now()}-user`,
       role: 'user',
       parts: [{ text: userQuery }]
     };
@@ -356,12 +552,7 @@ export default function GeminiBrainPage() {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
 
-      // Monta histórico no formato correto
-      const historyPayload = chatMessages.map((msg) => ({
-        role: msg.role,
-        parts: [{ text: msg.parts[0].text }]
-      }));
-
+      // Executa chamada para a rota de chat com a sessão atual
       const response = await fetch('/api/ai/chat', {
         method: 'POST',
         headers: {
@@ -370,7 +561,7 @@ export default function GeminiBrainPage() {
         },
         body: JSON.stringify({
           message: userQuery,
-          history: historyPayload
+          sessionId: activeSessionId // Envia o id da sessão ativa se houver
         })
       });
 
@@ -380,17 +571,40 @@ export default function GeminiBrainPage() {
         throw new Error(data.error || 'Erro de conexão.');
       }
 
+      // Se a resposta retornou uma nova sessão (ex: primeiro prompt), atualizamos a UI
+      const hasNewSession = data.sessionId && data.sessionId !== activeSessionId;
+      const targetSessionId = data.sessionId || activeSessionId;
+
+      if (hasNewSession) {
+        setActiveSessionId(data.sessionId);
+        await fetchChatSessions(); // Recarrega sessões para exibir o título correto
+      }
+
       const modelMessage: ChatMessage = {
-        id: `chat-${Date.now()}-model`,
+        id: `chat-temp-${Date.now()}-model`,
         role: 'model',
         parts: [{ text: data.response }]
       };
 
-      setChatMessages((prev) => [...prev, modelMessage]);
+      setChatMessages((prev) => {
+        // Remove mensagens temporárias e adiciona a real retornada
+        const filtered = prev.filter(m => !m.id.startsWith('chat-temp-'));
+        return [...filtered, userMessage, modelMessage];
+      });
+
+      // Recarrega memória global e mensagens caso tenha havido compactação (manual ou automática)
+      if (data.compacted || data.autoCompacted) {
+        await fetchUserMemory();
+        if (targetSessionId) {
+          await fetchSessionMessages(targetSessionId); // recarrega histórico compactado
+        }
+      }
 
     } catch (err: any) {
       console.error(err);
       setChatError(err.message || 'O Gemini Brain encontrou uma instabilidade ao responder.');
+      // Remove mensagens temporárias em caso de erro
+      setChatMessages((prev) => prev.filter(m => !m.id.startsWith('chat-temp-')));
     } finally {
       setChatLoading(false);
     }
@@ -801,8 +1015,118 @@ export default function GeminiBrainPage() {
 
         {/* Tab 2: Chat Conversational Section */}
         {activeTab === 'chat' && (
-          <div className="flex-1 flex overflow-hidden p-8 animate-in">
-            <div className="flex-1 max-w-4xl mx-auto flex flex-col glass rounded-[36px] border border-white/5 bg-slate-900/20 overflow-hidden relative">
+          <div className="flex-1 flex overflow-hidden p-8 gap-8 animate-in relative">
+            
+            {/* Sidebar for Persistent Conversations (Sessões) */}
+            <div className="w-80 flex flex-col gap-4 shrink-0 glass rounded-[32px] border border-white/5 bg-slate-900/40 p-5 overflow-hidden">
+              <div className="flex items-center justify-between pb-3 border-b border-white/5">
+                <div className="flex items-center gap-2">
+                  <History className="w-4 h-4 text-emerald-400" />
+                  <span className="text-xs font-black uppercase tracking-wider text-slate-200">Conversas Recentes</span>
+                </div>
+                <button
+                  onClick={handleNewConversation}
+                  disabled={chatLoading}
+                  className="p-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-xl transition-all cursor-pointer border border-emerald-500/20 active:scale-95 flex items-center justify-center"
+                  title="Nova Conversa"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Sessions List */}
+              <div className="flex-1 overflow-y-auto space-y-2 pr-1 no-scrollbar">
+                {loadingSessions ? (
+                  <div className="py-10 text-center space-y-2">
+                    <div className="animate-spin rounded-full h-5 w-5 border-2 border-emerald-500 border-t-transparent mx-auto"></div>
+                    <p className="text-[10px] text-slate-500 uppercase tracking-widest font-black">Carregando Histórico...</p>
+                  </div>
+                ) : chatSessions.length === 0 ? (
+                  <div className="py-10 text-center text-slate-500">
+                    <MessageSquare className="w-8 h-8 mx-auto opacity-20 mb-2 stroke-[1.5]" />
+                    <p className="text-[10px] uppercase tracking-widest font-black">Nenhum Chat Salvo</p>
+                  </div>
+                ) : (
+                  chatSessions.map((session) => {
+                    const isActive = session.id === activeSessionId;
+                    return (
+                      <div
+                        key={session.id}
+                        onClick={() => handleSelectSession(session.id)}
+                        className={`flex items-center justify-between p-3.5 rounded-2xl cursor-pointer group transition-all border ${
+                          isActive
+                            ? 'bg-emerald-500/10 border-emerald-500/20 text-white'
+                            : 'border-transparent hover:bg-white/[0.02] text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <MessageSquare className={`w-4 h-4 shrink-0 ${isActive ? 'text-emerald-400' : 'text-slate-500'}`} />
+                          <span className="text-xs font-bold truncate pr-2">{session.title}</span>
+                        </div>
+                        <button
+                          onClick={(e) => handleDeleteSession(session.id, e)}
+                          className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-red-500/10 text-slate-500 hover:text-red-400 rounded-lg transition-all"
+                          title="Excluir Conversa"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* Main Conversation Window */}
+            <div className="flex-1 flex flex-col glass rounded-[36px] border border-white/5 bg-slate-900/20 overflow-hidden relative">
+              
+              {/* Premium Conversation Header */}
+              <div className="px-8 py-5 border-b border-white/5 bg-slate-900/40 backdrop-blur-md flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-400 border border-emerald-500/10">
+                    <Bot className="w-4.5 h-4.5" />
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-black uppercase tracking-wider text-white">Gemini Conversational Brain</h3>
+                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Mente Integrada ao Banco de Dados</p>
+                  </div>
+                </div>
+
+                {/* Right Actions: Perene Memory Badge & Compaction Button */}
+                <div className="flex items-center gap-3">
+                  {/* Global Memory Badge Indicator */}
+                  <button
+                    onClick={() => setShowMemoryModal(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-violet-500/10 border border-violet-500/20 text-[9px] font-black text-violet-400 uppercase tracking-widest cursor-pointer hover:bg-violet-500/20 transition-all active:scale-95"
+                    title="Ver consciência permanente consolidada"
+                  >
+                    <Brain className="w-3.5 h-3.5 animate-pulse" />
+                    <span>Memória Perene: Ativa</span>
+                  </button>
+
+                  {/* Claude-like Compaction button */}
+                  {activeSessionId && chatMessages.length > 0 && (
+                    <button
+                      onClick={handleCompactSession}
+                      disabled={chatLoading || compacting}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-[9px] font-black text-emerald-400 uppercase tracking-widest cursor-pointer hover:bg-emerald-500/20 transition-all active:scale-95 disabled:opacity-50"
+                      title="Compactar histórico desta sessão e integrar consciência à memória global permanente (/compact)"
+                    >
+                      {compacting ? (
+                        <>
+                          <div className="animate-spin rounded-full h-3 w-3 border-2 border-emerald-400 border-t-transparent mx-auto"></div>
+                          <span>Compactando...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Layers className="w-3.5 h-3.5" />
+                          <span>Compactar Contexto</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+              </div>
               
               {/* Scrollable messages box */}
               <div className="flex-1 overflow-y-auto p-8 space-y-6 no-scrollbar">
@@ -814,30 +1138,59 @@ export default function GeminiBrainPage() {
                     <div>
                       <h3 className="text-base font-black uppercase tracking-wider">Gemini Conversational Brain</h3>
                       <p className="text-xs text-slate-400 mt-2 max-w-md mx-auto leading-relaxed">
-                        Faça perguntas complexas sobre saldos, metas e boletos. Toda a base financeira do G-Finance ( Supabase ) é integrada e contextualizada em tempo real.
+                        Faça perguntas complexas sobre saldos, metas e boletos. Toda a base financeira do G-Finance (Supabase) é integrada e contextualizada em tempo real.
                       </p>
+                      <div className="mt-6 flex flex-wrap gap-2 justify-center max-w-lg mx-auto">
+                        <span className="text-[9px] font-black uppercase tracking-widest px-2.5 py-1 bg-slate-900 border border-white/5 rounded-full text-slate-400"># Análise de Despesas</span>
+                        <span className="text-[9px] font-black uppercase tracking-widest px-2.5 py-1 bg-slate-900 border border-white/5 rounded-full text-slate-400"># Projeção de Metas</span>
+                        <span className="text-[9px] font-black uppercase tracking-widest px-2.5 py-1 bg-slate-900 border border-white/5 rounded-full text-slate-400"># Auditoria de Extratos</span>
+                      </div>
                     </div>
                   </div>
                 ) : (
                   <div className="space-y-6">
                     {chatMessages.map((msg) => {
                       const isModel = msg.role === 'model';
+                      const isCompacted = msg.isCompacted;
+                      // Detect system notifications
+                      const isSystemIndicator = msg.parts[0].text.startsWith('[Histórico compactado!');
+
+                      if (isSystemIndicator) {
+                        return (
+                          <div key={msg.id} className="flex justify-center my-4 animate-in">
+                            <div className="flex items-center gap-2 px-4 py-2 bg-emerald-500/5 border border-emerald-500/10 text-emerald-400 rounded-2xl text-[10px] font-black uppercase tracking-wider shadow-inner">
+                              <Brain className="w-3.5 h-3.5 animate-pulse" />
+                              <span>{msg.parts[0].text.replace(/^\[|\]$/g, '')}</span>
+                            </div>
+                          </div>
+                        );
+                      }
+
                       return (
                         <div 
                           key={msg.id} 
-                          className={`flex items-start gap-4 ${isModel ? '' : 'justify-end'}`}
+                          className={`flex items-start gap-4 ${isModel ? '' : 'justify-end'} ${isCompacted ? 'opacity-40 hover:opacity-100 transition-opacity' : ''}`}
                         >
                           {isModel && (
                             <div className="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center text-white shrink-0 mt-1 shadow-md shadow-emerald-500/20">
                               <Bot className="w-4.5 h-4.5" />
                             </div>
                           )}
-                          <div className={`p-5 rounded-3xl text-sm max-w-[80%] leading-relaxed ${
-                            isModel 
-                              ? 'bg-slate-900 border border-white/5 text-slate-200 rounded-tl-sm' 
-                              : 'bg-emerald-500 text-white font-medium rounded-tr-sm shadow-lg shadow-emerald-500/10'
-                          }`}>
-                            {msg.parts[0].text}
+                          <div className="relative group">
+                            <div className={`p-5 rounded-3xl text-sm max-w-[500px] leading-relaxed relative ${
+                              isModel 
+                                ? 'bg-slate-900 border border-white/5 text-slate-200 rounded-tl-sm' 
+                                : 'bg-emerald-500 text-white font-medium rounded-tr-sm shadow-lg shadow-emerald-500/10'
+                            }`}>
+                              {msg.parts[0].text}
+                              
+                              {/* Compacted state indicator tag */}
+                              {isCompacted && (
+                                <span className="absolute bottom-2 right-3 text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-white/5 border border-white/5 text-slate-500 select-none">
+                                  Arquivado (Memória)
+                                </span>
+                              )}
+                            </div>
                           </div>
                           {!isModel && (
                             <div className="w-8 h-8 rounded-lg bg-slate-800 border border-white/5 flex items-center justify-center text-slate-300 shrink-0 mt-1 shadow-sm">
@@ -864,8 +1217,17 @@ export default function GeminiBrainPage() {
                   </div>
                 )}
 
+                {compacting && (
+                  <div className="flex justify-center my-4 animate-pulse">
+                    <div className="flex items-center gap-2 px-4 py-2 bg-violet-500/5 border border-violet-500/10 text-violet-400 rounded-2xl text-[10px] font-black uppercase tracking-wider">
+                      <div className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-violet-400 border-t-transparent animate-pulse"></div>
+                      <span>Compactando consciência... Gravando na memória permanente</span>
+                    </div>
+                  </div>
+                )}
+
                 {chatError && (
-                  <div className="p-4 bg-red-500/10 border border-red-500/20 text-red-400 rounded-2xl flex items-start gap-2 text-xs">
+                  <div className="p-4 bg-red-500/10 border border-red-500/20 text-red-400 rounded-2xl flex items-start gap-2 text-xs animate-in">
                     <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                     <span>{chatError}</span>
                   </div>
@@ -883,18 +1245,73 @@ export default function GeminiBrainPage() {
                   type="text" 
                   value={inputMessage}
                   onChange={(e) => setInputMessage(e.target.value)}
-                  placeholder="Pergunte sobre seus saldos, despesas mensais ou investimentos..."
+                  placeholder={
+                    activeSessionId 
+                      ? "Pergunte sobre seus saldos, despesas mensais ou investimentos... (digite /compact para comprimir histórico)"
+                      : "Digite sua primeira pergunta para iniciar uma nova conversa persistente..."
+                  }
                   className="flex-1 px-5 py-4 bg-slate-955 border border-white/5 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:bg-slate-950 transition-all placeholder:text-slate-500"
                 />
                 <button
                   type="submit"
-                  disabled={!inputMessage.trim() || chatLoading}
+                  disabled={!inputMessage.trim() || chatLoading || compacting}
                   className="p-4 bg-emerald-500 hover:bg-emerald-600 disabled:bg-emerald-500/30 text-white rounded-2xl shadow-xl shadow-emerald-500/20 transition-all flex items-center justify-center cursor-pointer border border-emerald-400 shrink-0"
                 >
                   <Send className="w-5 h-5" />
                 </button>
               </form>
             </div>
+
+            {/* Premium Global Memory Modal (Show User Memory) */}
+            {showMemoryModal && (
+              <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center z-50 p-8 animate-in fade-in duration-300">
+                <div className="glass max-w-2xl w-full rounded-[36px] border border-white/10 bg-slate-900/90 shadow-2xl overflow-hidden flex flex-col max-h-[80%] animate-in zoom-in-95 duration-300">
+                  <div className="p-6 border-b border-white/5 flex items-center justify-between bg-slate-950/40">
+                    <div className="flex items-center gap-3">
+                      <Brain className="w-5 h-5 text-violet-400" />
+                      <div>
+                        <h4 className="text-xs font-black uppercase tracking-wider text-white">Memória Cognitiva Permanente</h4>
+                        <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mt-0.5">Visão de Consciência do Gemini Brain</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setShowMemoryModal(false)}
+                      className="px-3 py-1.5 hover:bg-white/5 text-[10px] font-black uppercase text-slate-400 hover:text-slate-200 border border-white/5 hover:border-white/10 rounded-xl transition-all cursor-pointer"
+                    >
+                      Fechar
+                    </button>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-8 space-y-4 no-scrollbar">
+                    {aiMemory ? (
+                      <div className="space-y-4">
+                        <p className="text-xs text-slate-400 leading-relaxed uppercase tracking-wider font-bold">
+                          🧠 Esta é a bagagem acumulada cruzada de todas as sessões anteriores. O Gemini carrega este contexto permanentemente em todas as novas conversas:
+                        </p>
+                        <div className="bg-slate-950 p-6 rounded-2xl border border-white/5 leading-relaxed text-slate-350 font-mono text-[11px] whitespace-pre-wrap">
+                          {aiMemory}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="py-12 text-center space-y-4">
+                        <Brain className="w-12 h-12 mx-auto text-slate-700 stroke-[1.5] animate-pulse" />
+                        <div className="space-y-2">
+                          <p className="text-xs font-black text-slate-300 uppercase tracking-wider">Memória Permanente Vazia</p>
+                          <p className="text-[11px] text-slate-500 max-w-sm mx-auto leading-relaxed">
+                            Converse com a inteligência artificial normalmente ou clique em <strong>"Compactar Contexto"</strong> no cabeçalho do chat para sumarizar e consolidar seus primeiros aprendizados aqui!
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <div className="p-6 border-t border-white/5 bg-slate-950/20 text-center">
+                    <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">
+                      G-Finance Cognition Unit — Sandbox & mTLS Security Verified
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
           </div>
         )}
       </div>

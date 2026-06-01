@@ -320,13 +320,15 @@ export async function POST(req: Request): Promise<NextResponse> {
         console.log('[Parser] Processando extrato via inteligência artificial (Gemini)...');
         try {
           const aiTx = await parseStatementWithAI(buffer, 'application/pdf', providerToken || undefined);
-          parsed = aiTx.map((t) => ({
-            date: t.date.includes('T') ? t.date : `${t.date}T12:00:00.000Z`,
-            description: `${t.description} (IA)`,
-            amount: t.amount,
-            category: t.category,
-            icon: t.icon,
-          }));
+          parsed = aiTx
+            .filter((t) => !t.isBalance)
+            .map((t) => ({
+              date: t.date.includes('T') ? t.date : `${t.date}T12:00:00.000Z`,
+              description: `${t.description} (IA)`,
+              amount: t.amount,
+              category: t.category,
+              icon: t.icon,
+            }));
           parsedByAi = true;
         } catch (aiError) {
           console.error('[Parser] Falha crítica no parser de IA do Gemini:', aiError);

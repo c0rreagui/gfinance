@@ -387,12 +387,18 @@ export async function generateFinancialResponse(
   },
   chatHistory: { role: 'user' | 'model'; parts: { text: string }[] }[] = [],
   oauthToken?: string,
-  supabaseClient?: any
+  supabaseClient?: any,
+  aiMemory?: string
 ): Promise<string> {
   const systemPrompt = `
     Você é o "Gemini Brain", a mente analítica por trás do G-Finance (plataforma de controle financeiro premium do Guilherme, CTO & Fundador).
     Sua persona é direta, elegante, altamente profissional e orientada a dados. Evite introduções longas ou termos exageradamente alegres.
     
+    ---
+    MEMÓRIA PERSISTENTE GLOBAL (Contexto e aprendizados de conversas anteriores):
+    ${aiMemory || 'Nenhuma memória de longo prazo consolidada ainda. Este é o início de um novo relacionamento ou aprendizado.'}
+    ---
+
     Abaixo estão os dados financeiros ATUAIS do Guilherme recuperados em tempo real do banco de dados (Supabase):
     
     ---
