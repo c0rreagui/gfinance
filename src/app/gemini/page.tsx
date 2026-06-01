@@ -209,34 +209,10 @@ export default function GeminiBrainPage() {
     fetchSessionMessages(sid);
   };
 
-  // Iniciar nova conversa (POST /api/ai/sessions)
-  const handleNewConversation = async () => {
-    setChatLoading(true);
-    setChatError('');
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token;
-      const response = await fetch('/api/ai/sessions', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-        },
-        body: JSON.stringify({ title: 'Nova Conversa' })
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setChatSessions(prev => [data.session, ...prev]);
-        setActiveSessionId(data.session.id);
-        setChatMessages([]);
-      } else {
-        setChatError('Erro ao instanciar nova conversa.');
-      }
-    } catch {
-      setChatError('Falha de conexão.');
-    } finally {
-      setChatLoading(false);
-    }
+  // Iniciar nova conversa (localmente na interface, persistindo apenas no primeiro envio)
+  const handleNewConversation = () => {
+    setActiveSessionId(null);
+    setChatMessages([]);
   };
 
   // Excluir conversa permanentemente

@@ -251,48 +251,11 @@ export function AiChatHub() {
     }
   };
 
-  // Instanciar nova sessão limpa
-  const handleNewSession = async () => {
-    setLoading(true);
-    setErrorMsg('');
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token;
-      if (!token) return;
-
-      const response = await fetch('/api/ai/sessions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ title: 'Nova Conversa' })
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setActiveSessionId(data.session.id);
-        setMessages([]);
-        setShowHistoryDropdown(false);
-
-        // Recarrega lista de sessões
-        const listResponse = await fetch('/api/ai/sessions', {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
-        if (listResponse.ok) {
-          const listData = await listResponse.json();
-          setChatSessions(listData.sessions || []);
-        }
-      } else {
-        setErrorMsg('Erro ao iniciar nova conversa.');
-      }
-    } catch {
-      setErrorMsg('Falha de conexão.');
-    } finally {
-      setLoading(false);
-    }
+  // Instanciar nova sessão limpa (localmente na interface, persistindo apenas no primeiro envio)
+  const handleNewSession = () => {
+    setActiveSessionId(null);
+    setMessages([]);
+    setShowHistoryDropdown(false);
   };
 
   const handleSubmit = (e: React.FormEvent) => {

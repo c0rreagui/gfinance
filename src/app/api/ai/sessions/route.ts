@@ -35,10 +35,10 @@ export async function GET(req: Request): Promise<NextResponse> {
       );
     }
 
-    // Listar sessões ordenadas pela atualização mais recente
+    // Listar apenas sessões ativas (que contêm mensagens) ordenadas pela atualização mais recente
     const { data: chatSessions, error: listError } = await supabase
       .from('chat_sessions')
-      .select('id, title, created_at, updated_at')
+      .select('id, title, created_at, updated_at, chat_messages!inner(id)')
       .eq('user_id', user.id)
       .order('updated_at', { ascending: false });
 
