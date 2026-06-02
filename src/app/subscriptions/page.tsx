@@ -17,7 +17,11 @@ import {
   BookOpen,
   Dumbbell,
   AlertCircle,
-  ChevronRight
+  ChevronRight,
+  Plus,
+  Trash2,
+  X,
+  Check
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
@@ -33,17 +37,25 @@ interface Reminder {
   frequency?: string;
   category_icon?: string;
   brand_color?: string;
+  card_id?: string | null;
+}
+
+interface DBCreditCard {
+  id: string;
+  card_name: string;
+  last_four: string;
+  color_theme: string;
 }
 
 const serviceIcons: Record<string, any> = {
-  netflix: Tv,
-  spotify: Music,
-  icloud: Cloud,
-  vpn: Shield,
-  xbox: Gamepad2,
-  kindle: BookOpen,
-  smartfit: Dumbbell,
-  chatgpt: Zap,
+  Tv,
+  Music,
+  Cloud,
+  Shield,
+  Gamepad2,
+  BookOpen,
+  Dumbbell,
+  Zap,
 };
 
 const serviceGradients = [
@@ -57,14 +69,32 @@ const serviceGradients = [
   { color: 'from-violet-500/10 to-violet-900/5', borderColor: 'border-violet-500/20' },
 ];
 
+const cardBadgeColors: { [key: string]: string } = {
+  emerald: 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400',
+  indigo: 'bg-indigo-500/10 border-indigo-500/20 text-indigo-400',
+  rose: 'bg-rose-500/10 border-rose-500/20 text-rose-400',
+  amber: 'bg-amber-500/10 border-amber-500/20 text-amber-400',
+  crimson: 'bg-red-500/10 border-red-500/20 text-red-400',
+};
+
 function resolveSubscription(rem: Reminder, index: number) {
   const titleLower = rem.title.toLowerCase();
   let Icon = Repeat;
   
-  if (rem.category_icon && serviceIcons[rem.category_icon.toLowerCase()]) {
-    Icon = serviceIcons[rem.category_icon.toLowerCase()];
+  if (rem.category_icon && serviceIcons[rem.category_icon]) {
+    Icon = serviceIcons[rem.category_icon];
   } else {
-    for (const [key, iconVal] of Object.entries(serviceIcons)) {
+    const serviceIconsLower: Record<string, any> = {
+      netflix: Tv,
+      spotify: Music,
+      icloud: Cloud,
+      vpn: Shield,
+      xbox: Gamepad2,
+      kindle: BookOpen,
+      smartfit: Dumbbell,
+      chatgpt: Zap,
+    };
+    for (const [key, iconVal] of Object.entries(serviceIconsLower)) {
       if (titleLower.includes(key)) {
         Icon = iconVal;
         break;
@@ -101,10 +131,12 @@ function resolveSubscription(rem: Reminder, index: number) {
     price: Math.abs(rem.amount || 0),
     frequency: rem.frequency || 'Mensal',
     status: rem.paid ? 'pausada' : 'ativa',
+    rawPaid: rem.paid,
     day,
     icon: Icon,
     color,
     borderColor,
+    card_id: rem.card_id
   };
 }
 
@@ -113,32 +145,54 @@ const weekDays = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'];
 
 export default function Subscriptions() {
   const [reminders, setReminders] = useState<Reminder[]>([]);
+  const [creditCards, setCreditCards] = useState<DBCreditCard[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Form states for creating subscription
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [subTitle, setSubTitle] = useState('');
+  const [subPrice, setSubPrice] = useState('');
+  const [subDueDay, setSubDueDay] = useState('10');
+  const [subIcon, setSubIcon] = useState('Tv');
+  const [subColor, setSubColor] = useState('indigo');
+  const [subCardId, setSubCardId] = useState('');
+  const [modalError, setModalError] = useState('');
+  const [modalSuccess, setModalSuccess] = useState('');
+
+  const fetchAllData = async () => {
+    try {
+      setLoading(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // 1. Fetch recurring reminders (Subscriptions)
+      const { data, error } = await supabase
+        .from('reminders')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('is_recurring', true)
+        .lt('amount', 0)
+        .order('due_date', { ascending: true });
+
+      if (error) throw error;
+      setReminders(data || []);
+
+      // 2. Fetch credit cards
+      const { data: cardsData } = await supabase
+        .from('credit_cards')
+        .select('id, card_name, last_four, color_theme')
+        .eq('user_id', user.id);
+      setCreditCards(cardsData || []);
+
+    } catch (err) {
+      console.error('Error fetching subscription page data:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const fetchReminders = async () => {
-      try {
-        setLoading(true);
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
-
-        const { data, error } = await supabase
-          .from('reminders')
-          .select('*')
-          .eq('user_id', user.id)
-          .eq('is_recurring', true)
-          .lt('amount', 0)
-          .order('due_date', { ascending: true });
-
-        if (error) throw error;
-        setReminders(data || []);
-      } catch (err) {
-        console.error('Error fetching reminders:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchReminders();
+    fetchAllData();
   }, []);
 
   const displaySubs = useMemo(() => {
@@ -158,22 +212,151 @@ export default function Subscriptions() {
   // Calendar charge days
   const chargeDays = new Set(displaySubs.filter(s => s.status === 'ativa').map(s => s.day));
 
+  // Toggle paid status (Pause/Resume subscription)
+  const handleToggleStatus = async (id: string, currentRawPaid: boolean) => {
+    playHapticClick();
+    try {
+      const { error } = await supabase
+        .from('reminders')
+        .update({ paid: !currentRawPaid })
+        .eq('id', id);
+
+      if (error) throw error;
+      await fetchAllData();
+    } catch (e) {
+      console.error('Error toggling status:', e);
+      alert('Erro ao alterar status da assinatura.');
+    }
+  };
+
+  // Delete subscription
+  const handleDeleteSub = async (id: string, name: string) => {
+    playHapticClick();
+    if (!window.confirm(`Excluir definitivamente a assinatura "${name}"?`)) return;
+
+    try {
+      const { error } = await supabase
+        .from('reminders')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      await fetchAllData();
+    } catch (e) {
+      console.error('Error deleting subscription:', e);
+      alert('Erro ao excluir assinatura.');
+    }
+  };
+
+  // Create Novo Lembrete Recorrente / Assinatura
+  const handleCreateSub = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setModalError('');
+    setModalSuccess('');
+
+    if (!subTitle || !subPrice || !subDueDay) {
+      setModalError('Preencha os campos obrigatórios.');
+      return;
+    }
+
+    const priceNum = parseFloat(subPrice);
+    const dayNum = parseInt(subDueDay, 10);
+
+    if (isNaN(priceNum) || priceNum <= 0) {
+      setModalError('O preço deve ser positivo.');
+      return;
+    }
+    if (isNaN(dayNum) || dayNum < 1 || dayNum > 31) {
+      setModalError('O dia de cobrança deve ser entre 1 e 31.');
+      return;
+    }
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const today = new Date();
+      const dueDate = new Date(today.getFullYear(), today.getMonth(), dayNum, 12, 0, 0);
+
+      const { error } = await supabase
+        .from('reminders')
+        .insert({
+          user_id: user.id,
+          title: subTitle,
+          amount: -priceNum, // negative for expense
+          due_date: dueDate.toISOString(),
+          urgency: 'low',
+          paid: false,
+          is_recurring: true,
+          frequency: 'Mensal',
+          category_icon: subIcon,
+          brand_color: subColor,
+          card_id: subCardId || null
+        });
+
+      if (error) throw error;
+
+      setModalSuccess('Assinatura registrada com sucesso!');
+      setSubTitle('');
+      setSubPrice('');
+      setSubDueDay('10');
+      setSubIcon('Tv');
+      setSubColor('indigo');
+      setSubCardId('');
+
+      setTimeout(() => {
+        setIsModalOpen(false);
+        setModalSuccess('');
+        fetchAllData();
+      }, 1000);
+
+    } catch (err: any) {
+      setModalError(err.message || 'Erro ao registrar assinatura.');
+    }
+  };
+
+  const playHapticClick = () => {
+    try {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContextClass) return;
+      const ctx = new AudioContextClass();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(1100, ctx.currentTime);
+      gain.gain.setValueAtTime(0.04, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.04);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.04);
+    } catch {}
+  };
+
   return (
     <div className="flex-1 overflow-y-auto p-8 bg-slate-950 text-slate-100 h-full no-scrollbar relative">
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(16,185,129,0.06),rgba(255,255,255,0))] pointer-events-none z-0"></div>
 
       <div className="max-w-6xl mx-auto space-y-8 relative z-10 animate-in">
         {/* Header */}
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 bg-emerald-500 rounded-xl flex items-center justify-center text-white shadow-lg shadow-emerald-500/20">
-            <Repeat className="w-5 h-5" />
+        <div className="flex justify-between items-center border-b border-white/5 pb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 bg-emerald-500 rounded-xl flex items-center justify-center text-white shadow-lg shadow-emerald-500/20">
+              <Repeat className="w-5 h-5" />
+            </div>
+            <div>
+              <h1 className="text-lg font-black tracking-tight uppercase">Assinaturas & Recorrências</h1>
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+                Gerenciamento de despesas fixas mensais
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-lg font-black tracking-tight uppercase">Assinaturas & Recorrências</h1>
-            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
-              Gerenciamento de despesas fixas mensais
-            </p>
-          </div>
+          <button 
+            onClick={() => { playHapticClick(); setIsModalOpen(true); }}
+            className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-xl shadow-emerald-500/10 cursor-pointer flex items-center gap-1.5 animate-in"
+          >
+            <Plus className="w-3.5 h-3.5" /> Nova Assinatura
+          </button>
         </div>
 
         {/* Loading */}
@@ -182,7 +365,7 @@ export default function Subscriptions() {
             <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-emerald-500"></div>
           </div>
         ) : displaySubs.length === 0 ? (
-          /* Real Empty State */
+          /* Real Empty State with CTA */
           <div className="glass bg-slate-900/40 rounded-[32px] border border-white/5 p-16 flex flex-col items-center justify-center text-center space-y-6">
             <div className="w-16 h-16 bg-slate-800/60 rounded-3xl flex items-center justify-center border border-white/5">
               <Repeat className="w-8 h-8 text-slate-600 stroke-[1.5]" />
@@ -190,9 +373,15 @@ export default function Subscriptions() {
             <div className="space-y-2 max-w-md">
               <p className="text-sm font-black uppercase tracking-wider text-slate-300">Nenhuma assinatura rastreada</p>
               <p className="text-[11px] text-slate-500 leading-relaxed">
-                Nenhuma assinatura ou cobrança fixa mensal ativa no momento. Você pode gerenciar e adicionar suas assinaturas através do Gemini AI Brain informando suas recorrências no chat!
+                Nenhuma assinatura ou cobrança fixa mensal ativa no momento. Cadastre suas assinaturas para projetá-las automaticamente no fluxo de faturas e calendário.
               </p>
             </div>
+            <button
+              onClick={() => { playHapticClick(); setIsModalOpen(true); }}
+              className="px-5 py-3 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-black rounded-xl uppercase tracking-widest shadow-xl shadow-emerald-500/20 transition-all cursor-pointer flex items-center gap-1.5"
+            >
+              <Plus className="w-4 h-4" /> Cadastrar Minha Primeira Assinatura
+            </button>
           </div>
         ) : (
           <>
@@ -254,43 +443,62 @@ export default function Subscriptions() {
                 {displaySubs.map((sub) => {
                   const Icon = sub.icon;
                   const isActive = sub.status === 'ativa';
+                  const linkedCard = creditCards.find(c => c.id === sub.card_id);
+
                   return (
                     <div
                       key={sub.id}
-                      className={`glass bg-gradient-to-br ${sub.color} rounded-[24px] border ${sub.borderColor} p-6 hover:scale-[1.02] transition-all duration-300 cursor-pointer group relative overflow-hidden`}
+                      className={`glass bg-gradient-to-br ${sub.color} rounded-[24px] border ${sub.borderColor} p-6 hover:scale-[1.01] transition-all duration-300 group relative overflow-hidden`}
                     >
                       {/* Subtle glow */}
                       <div className="absolute top-0 right-0 w-24 h-24 bg-white/[0.02] rounded-full blur-2xl group-hover:bg-white/[0.04] transition-all"></div>
 
-                      <div className="relative z-10">
-                        <div className="flex items-start justify-between mb-5">
+                      <div className="relative z-10 space-y-4">
+                        <div className="flex items-start justify-between">
                           <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 bg-slate-800/60 rounded-2xl flex items-center justify-center border border-white/5">
-                              <Icon className="w-5 h-5 text-slate-300" />
+                            <div className="w-10 h-10 bg-slate-800/60 rounded-2xl flex items-center justify-center border border-white/5 text-slate-300">
+                              <Icon className="w-5 h-5" />
                             </div>
                             <div>
                               <p className="text-sm font-black text-slate-100">{sub.name}</p>
-                              <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">{sub.frequency}</p>
+                              <div className="flex items-center gap-1.5 mt-0.5">
+                                <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">{sub.frequency}</p>
+                                {linkedCard && (
+                                  <span className={`px-1 rounded text-[7px] font-black uppercase tracking-wider border ${cardBadgeColors[linkedCard.color_theme] || cardBadgeColors.emerald}`}>
+                                    💳 {linkedCard.card_name}
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           </div>
-                          <span
-                            className={`px-2.5 py-1 text-[8px] font-black rounded-lg uppercase tracking-widest flex items-center gap-1 ${
-                              isActive
-                                ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400'
-                                : 'bg-slate-500/10 border border-slate-500/20 text-slate-500'
-                            }`}
-                          >
-                            {isActive ? <Play className="w-2.5 h-2.5" /> : <Pause className="w-2.5 h-2.5" />}
-                            {sub.status}
-                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => handleToggleStatus(sub.id, sub.rawPaid)}
+                              className={`w-6 h-6 rounded-lg flex items-center justify-center border transition-all cursor-pointer ${
+                                isActive
+                                  ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20'
+                                  : 'bg-slate-800 border-slate-700 text-slate-500 hover:bg-slate-700'
+                              }`}
+                              title={isActive ? 'Pausar Assinatura' : 'Reativar Assinatura'}
+                            >
+                              {isActive ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3 fill-current" />}
+                            </button>
+                            <button
+                              onClick={() => handleDeleteSub(sub.id, sub.name)}
+                              className="w-6 h-6 rounded-lg bg-red-500/10 hover:bg-red-500/25 border border-red-500/20 text-red-400 flex items-center justify-center cursor-pointer transition-colors opacity-0 group-hover:opacity-100"
+                              title="Excluir Assinatura"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </div>
                         </div>
 
-                        <div className="flex items-end justify-between">
+                        <div className="flex items-end justify-between border-t border-white/5 pt-3">
                           <p className="text-lg font-black text-slate-200">
                             {sub.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                           </p>
-                          <p className="text-[9px] text-slate-500 font-bold">
-                            Dia {sub.day}
+                          <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">
+                            Vence dia {sub.day}
                           </p>
                         </div>
                       </div>
@@ -307,7 +515,7 @@ export default function Subscriptions() {
                   <Calendar className="w-4 h-4 text-emerald-400" />
                   <h2 className="text-sm font-black uppercase tracking-wider">Calendário de Cobranças</h2>
                 </div>
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest font-mono">
                   {new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
                 </span>
               </div>
@@ -368,6 +576,151 @@ export default function Subscriptions() {
           </>
         )}
       </div>
+
+      {/* Drawer: Nova Assinatura */}
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex justify-end animate-in fade-in duration-200">
+          <div className="w-full max-w-md bg-slate-900 border-l border-white/10 h-full p-8 flex flex-col justify-between shadow-2xl animate-in slide-in-from-right duration-300">
+            <div>
+              <div className="flex justify-between items-center mb-8">
+                <div>
+                  <h2 className="text-sm font-black uppercase tracking-wider">Nova Assinatura</h2>
+                  <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mt-0.5">Registre uma nova assinatura ou despesa recorrente mensal</p>
+                </div>
+                <button
+                  onClick={() => setIsModalOpen(false)}
+                  className="w-8 h-8 rounded-lg bg-slate-950 hover:bg-slate-800 border border-white/5 flex items-center justify-center text-slate-400 hover:text-white transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {modalError && (
+                <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{modalError}</span>
+                </div>
+              )}
+
+              {modalSuccess && (
+                <div className="mb-6 p-4 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center gap-2">
+                  <Check className="w-4 h-4 shrink-0" />
+                  <span>{modalSuccess}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleCreateSub} className="space-y-4">
+                <div>
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Nome do Serviço / Recorrência</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ex: Netflix, Spotify, Academia"
+                    value={subTitle}
+                    onChange={(e) => setSubTitle(e.target.value)}
+                    className="w-full px-4 py-3 bg-slate-950 border border-white/5 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500/20 text-white"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Preço Mensal (R$)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      required
+                      placeholder="Ex: 55.90"
+                      value={subPrice}
+                      onChange={(e) => setSubPrice(e.target.value)}
+                      className="w-full px-4 py-3 bg-slate-950 border border-white/5 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500/20 text-white font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Dia de Cobrança</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="31"
+                      required
+                      placeholder="Ex: 10"
+                      value={subDueDay}
+                      onChange={(e) => setSubDueDay(e.target.value)}
+                      className="w-full px-4 py-3 bg-slate-950 border border-white/5 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500/20 text-white font-mono text-center"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Categoria / Ícone</label>
+                    <select
+                      value={subIcon}
+                      onChange={(e) => setSubIcon(e.target.value)}
+                      className="w-full px-4 py-3 bg-slate-950 border border-white/5 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500/20 text-white"
+                    >
+                      <option value="Tv">Streaming de Vídeo (Tv)</option>
+                      <option value="Music">Streaming de Áudio (Música)</option>
+                      <option value="Cloud">Armazenamento Nuvem (Cloud)</option>
+                      <option value="Shield">Segurança/VPN (Shield)</option>
+                      <option value="Gamepad2">Jogos / Consoles (Gamepad)</option>
+                      <option value="BookOpen">Leitura / Notícias (Livro)</option>
+                      <option value="Dumbbell">Bem-Estar / Esportes (Haltere)</option>
+                      <option value="Zap">Tecnologia / SaaS (Raio)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Variação de Cor</label>
+                    <select
+                      value={subColor}
+                      onChange={(e) => setSubColor(e.target.value)}
+                      className="w-full px-4 py-3 bg-slate-950 border border-white/5 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500/20 text-white"
+                    >
+                      <option value="red">Vermelho Sunset</option>
+                      <option value="green">Verde Mint</option>
+                      <option value="blue">Azul Cyber</option>
+                      <option value="indigo">Índigo Royal</option>
+                      <option value="emerald">Esmeralda Pro</option>
+                      <option value="amber">Ouro Gold</option>
+                      <option value="orange">Laranja Fire</option>
+                      <option value="violet">Roxo Neon</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Cobrado no Cartão</label>
+                  <select
+                    value={subCardId}
+                    onChange={(e) => setSubCardId(e.target.value)}
+                    className="w-full px-4 py-3 bg-slate-950 border border-white/5 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500/20 text-white"
+                  >
+                    <option value="">Nenhum (Débito em Conta/Boleto)</option>
+                    {creditCards.map(c => (
+                      <option key={c.id} value={c.id}>{c.card_name} (•••• {c.last_four})</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="pt-6 border-t border-white/5 flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setIsModalOpen(false)}
+                    className="flex-1 py-3.5 border border-white/5 hover:bg-white/5 text-slate-300 text-[10px] font-black rounded-xl uppercase tracking-widest transition-all cursor-pointer text-center"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 py-3.5 bg-emerald-500 hover:bg-emerald-600 text-white text-[10px] font-black rounded-xl uppercase tracking-widest shadow-lg shadow-emerald-500/25 transition-all cursor-pointer text-center"
+                  >
+                    Registrar Assinatura
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

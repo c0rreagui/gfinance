@@ -7,6 +7,12 @@ import {
   PiggyBank,
   Gem,
   ArrowUpRight,
+  Plus,
+  Trash2,
+  Edit2,
+  X,
+  Check,
+  AlertCircle
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
@@ -28,6 +34,16 @@ const PALETTE = [
   '#14b8a6', // teal
   '#f43f5e', // rose
   '#3b82f6', // blue
+];
+
+const COLORS = [
+  { name: 'emerald', hex: '#10b981', label: 'Esmeralda' },
+  { name: 'indigo', hex: '#6366f1', label: 'Índigo' },
+  { name: 'rose', hex: '#f43f5e', label: 'Rose' },
+  { name: 'amber', hex: '#f59e0b', label: 'Âmbar' },
+  { name: 'violet', hex: '#8b5cf6', label: 'Violeta' },
+  { name: 'teal', hex: '#14b8a6', label: 'Teal' },
+  { name: 'blue', hex: '#3b82f6', label: 'Azul' },
 ];
 
 function resolveColor(color: string | undefined, index: number): string {
@@ -142,28 +158,166 @@ export default function WealthPage() {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const fetchGoals = async () => {
-      try {
-        setLoading(true);
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
+  // Drawer / Modal states
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [editGoalId, setEditGoalId] = useState<string | null>(null);
+  
+  // Form states
+  const [goalName, setGoalName] = useState('');
+  const [goalTarget, setGoalTarget] = useState('');
+  const [goalCurrent, setGoalCurrent] = useState('');
+  const [goalColor, setGoalColor] = useState('emerald');
+  const [drawerError, setDrawerError] = useState('');
+  const [drawerSuccess, setDrawerSuccess] = useState('');
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
 
-        const { data, error } = await supabase
+  const fetchGoals = async () => {
+    try {
+      setLoading(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data, error } = await supabase
+        .from('goals')
+        .select('*')
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+      setGoals(data || []);
+    } catch (err) {
+      console.error('Error fetching goals:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchGoals();
+
+    // Check for ?open=true in URL parameter
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('open') === 'true') {
+        setIsCreateOpen(true);
+      }
+    }
+  }, []);
+
+  const handleOpenEdit = (goal: Goal) => {
+    setEditGoalId(goal.id);
+    setGoalName(goal.name);
+    setGoalTarget(goal.target_amount.toString());
+    setGoalCurrent(goal.current_amount.toString());
+    setGoalColor(goal.color || 'emerald');
+    setIsCreateOpen(true);
+  };
+
+  const handleOpenCreate = () => {
+    setEditGoalId(null);
+    setGoalName('');
+    setGoalTarget('');
+    setGoalCurrent('');
+    setGoalColor('emerald');
+    setIsCreateOpen(true);
+  };
+
+  const handleDeleteGoal = async (id: string, name: string) => {
+    if (!window.confirm(`Excluir definitivamente a meta de investimento "${name}"?`)) return;
+    try {
+      const { error } = await supabase
+        .from('goals')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      await fetchGoals();
+    } catch (err) {
+      console.error('Error deleting goal:', err);
+      alert('Erro ao excluir meta de investimento.');
+    }
+  };
+
+  const handleSaveGoal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setDrawerError('');
+    setDrawerSuccess('');
+    setSaveStatus('saving');
+
+    if (!goalName || !goalTarget) {
+      setDrawerError('Preencha os campos obrigatórios.');
+      setSaveStatus('error');
+      return;
+    }
+
+    const targetAmt = parseFloat(goalTarget);
+    const currentAmt = parseFloat(goalCurrent || '0');
+
+    if (isNaN(targetAmt) || targetAmt <= 0) {
+      setDrawerError('O valor alvo deve ser um número positivo.');
+      setSaveStatus('error');
+      return;
+    }
+
+    if (isNaN(currentAmt) || currentAmt < 0) {
+      setDrawerError('O valor investido deve ser maior ou igual a zero.');
+      setSaveStatus('error');
+      return;
+    }
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Usuário não autenticado.');
+
+      if (editGoalId) {
+        // Edit mode
+        const { error } = await supabase
           .from('goals')
-          .select('*')
+          .update({
+            name: goalName,
+            target_amount: targetAmt,
+            current_amount: currentAmt,
+            color: goalColor
+          })
+          .eq('id', editGoalId)
           .eq('user_id', user.id);
 
         if (error) throw error;
-        setGoals(data || []);
-      } catch (err) {
-        console.error('Error fetching goals:', err);
-      } finally {
-        setLoading(false);
+        setDrawerSuccess('Meta atualizada com sucesso!');
+      } else {
+        // Create mode
+        const { error } = await supabase
+          .from('goals')
+          .insert({
+            user_id: user.id,
+            name: goalName,
+            target_amount: targetAmt,
+            current_amount: currentAmt,
+            color: goalColor
+          });
+
+        if (error) throw error;
+        setDrawerSuccess('Meta de investimento criada com sucesso!');
       }
-    };
-    fetchGoals();
-  }, []);
+
+      setSaveStatus('success');
+
+      setTimeout(() => {
+        setIsCreateOpen(false);
+        setEditGoalId(null);
+        setGoalName('');
+        setGoalTarget('');
+        setGoalCurrent('');
+        setGoalColor('emerald');
+        setDrawerSuccess('');
+        setSaveStatus('idle');
+        fetchGoals();
+      }, 1000);
+
+    } catch (err: any) {
+      setDrawerError(err.message || 'Erro ao registrar meta.');
+      setSaveStatus('error');
+    }
+  };
 
   // ── Derived Stats ──
   const totalInvested = useMemo(
@@ -205,16 +359,25 @@ export default function WealthPage() {
 
       <div className="max-w-6xl mx-auto space-y-8 relative z-10 animate-in">
         {/* ───── Header ───── */}
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 bg-emerald-500 rounded-xl flex items-center justify-center text-white shadow-lg shadow-emerald-500/20">
-            <Target className="w-5 h-5" />
+        <div className="flex justify-between items-center pb-4 border-b border-white/5">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 bg-emerald-500 rounded-xl flex items-center justify-center text-white shadow-lg shadow-emerald-500/20">
+              <Target className="w-5 h-5" />
+            </div>
+            <div>
+              <h1 className="text-lg font-black tracking-tight uppercase">Investimentos & Patrimônio</h1>
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+                Acompanhamento de metas e crescimento patrimonial
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-lg font-black tracking-tight uppercase">Investimentos & Patrimônio</h1>
-            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
-              Acompanhamento de metas e crescimento patrimonial
-            </p>
-          </div>
+          <button
+            onClick={handleOpenCreate}
+            className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-xl shadow-emerald-500/10 cursor-pointer flex items-center gap-1.5"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Nova Meta
+          </button>
         </div>
 
         {/* ───── Patrimônio Total + Donut ───── */}
@@ -273,18 +436,27 @@ export default function WealthPage() {
             <div className="w-16 h-16 bg-emerald-500/10 rounded-2xl flex items-center justify-center">
               <Target className="w-8 h-8 text-emerald-400 stroke-[1.5]" />
             </div>
-            <div className="space-y-2 max-w-sm">
-              <p className="text-sm font-black uppercase tracking-widest text-slate-300">
-                Nenhuma meta de investimento ativa
-              </p>
-              <p className="text-[11px] text-slate-500 leading-relaxed">
-                Defina seus objetivos de crescimento patrimonial nos Ajustes para começar a acompanhar seu progresso.
-              </p>
+            <div className="space-y-4 max-w-sm flex flex-col items-center">
+              <div className="space-y-1">
+                <p className="text-sm font-black uppercase tracking-widest text-slate-300">
+                  Nenhuma meta de investimento ativa
+                </p>
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  Cadastre seus objetivos de investimento para acompanhar o seu progresso patrimonial.
+                </p>
+              </div>
+              <button
+                onClick={handleOpenCreate}
+                className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-xl shadow-emerald-500/10 cursor-pointer flex items-center gap-1.5"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Criar Primeira Meta
+              </button>
             </div>
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-in">
               {goals.map((goal, idx) => {
                 const percentage = Math.min(
                   Math.round((goal.current_amount / goal.target_amount) * 100),
@@ -296,10 +468,28 @@ export default function WealthPage() {
                 return (
                   <div
                     key={goal.id}
-                    className="glass bg-slate-900/40 rounded-[32px] border border-white/5 p-8 space-y-6 hover:border-white/10 transition-colors"
+                    className="glass bg-slate-900/40 rounded-[32px] border border-white/5 p-8 space-y-6 hover:border-white/10 transition-colors relative group"
                   >
+                    {/* Card Actions (Edit, Delete) */}
+                    <div className="absolute right-6 top-6 flex items-center gap-2">
+                      <button
+                        onClick={() => handleOpenEdit(goal)}
+                        className="w-7 h-7 bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 rounded-lg flex items-center justify-center cursor-pointer transition-colors opacity-0 group-hover:opacity-100"
+                        title="Editar Meta"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteGoal(goal.id, goal.name)}
+                        className="w-7 h-7 bg-red-500/10 hover:bg-red-500/25 border border-red-500/20 text-red-400 rounded-lg flex items-center justify-center cursor-pointer transition-colors opacity-0 group-hover:opacity-100"
+                        title="Excluir Meta"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
                     {/* Card header */}
-                    <div className="flex justify-between items-start">
+                    <div className="flex justify-between items-start pr-16">
                       <div className="flex items-center gap-3">
                         <div
                           className="w-8 h-8 rounded-full flex items-center justify-center"
@@ -406,6 +596,126 @@ export default function WealthPage() {
           </>
         )}
       </div>
+
+      {/* Slide Drawer: Nova / Editar Meta */}
+      {isCreateOpen && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex justify-end animate-in fade-in duration-200">
+          <div className="w-full max-w-md bg-slate-900 border-l border-white/10 h-full p-8 flex flex-col justify-between shadow-2xl animate-in slide-in-from-right duration-300">
+            <div>
+              <div className="flex justify-between items-center mb-8">
+                <div>
+                  <h2 className="text-sm font-black uppercase tracking-wider">
+                    {editGoalId ? 'Editar Meta de Investimento' : 'Nova Meta de Investimento'}
+                  </h2>
+                  <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mt-0.5">
+                    Estipule objetivos de acúmulo patrimonial
+                  </p>
+                </div>
+                <button
+                  onClick={() => setIsCreateOpen(false)}
+                  className="w-8 h-8 rounded-lg bg-slate-950 hover:bg-slate-800 border border-white/5 flex items-center justify-center text-slate-400 hover:text-white transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {drawerError && (
+                <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{drawerError}</span>
+                </div>
+              )}
+
+              {drawerSuccess && (
+                <div className="mb-6 p-4 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center gap-2">
+                  <Check className="w-4 h-4 shrink-0" />
+                  <span>{drawerSuccess}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleSaveGoal} className="space-y-6">
+                <div>
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Nome do Objetivo</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ex: Reserva de Emergência, Viagem Europa"
+                    value={goalName}
+                    onChange={(e) => setGoalName(e.target.value)}
+                    className="w-full px-4 py-3.5 bg-slate-950 border border-white/5 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500/20 text-white"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Valor Alvo (R$)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      required
+                      placeholder="Ex: 50000.00"
+                      value={goalTarget}
+                      onChange={(e) => setGoalTarget(e.target.value)}
+                      className="w-full px-4 py-3.5 bg-slate-950 border border-white/5 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500/20 text-white font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Valor Já Investido (R$)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="Ex: 15000.00"
+                      value={goalCurrent}
+                      onChange={(e) => setGoalCurrent(e.target.value)}
+                      className="w-full px-4 py-3.5 bg-slate-950 border border-white/5 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500/20 text-white font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-3">Escolha uma Cor / Tema</label>
+                  <div className="flex flex-wrap gap-3">
+                    {COLORS.map((c) => (
+                      <button
+                        key={c.name}
+                        type="button"
+                        onClick={() => setGoalColor(c.name)}
+                        className={`w-8 h-8 rounded-full border-2 hover:scale-110 transition-all cursor-pointer relative`}
+                        style={{ backgroundColor: `${c.hex}20`, borderColor: goalColor === c.name ? c.hex : 'rgba(255,255,255,0.05)' }}
+                        title={c.label}
+                      >
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: c.hex }} />
+                        </div>
+                        {goalColor === c.name && (
+                          <div className="absolute -inset-1 rounded-full border border-white/30" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="pt-8 border-t border-white/5 flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setIsCreateOpen(false)}
+                    className="flex-1 py-4 border border-white/5 hover:bg-white/5 text-slate-300 text-[10px] font-black rounded-xl uppercase tracking-widest transition-all cursor-pointer text-center"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={saveStatus === 'saving'}
+                    className="flex-1 py-4 bg-emerald-500 hover:bg-emerald-600 text-white text-[10px] font-black rounded-xl uppercase tracking-widest shadow-lg shadow-emerald-500/25 transition-all cursor-pointer text-center"
+                  >
+                    {saveStatus === 'saving' ? 'Salvando...' : editGoalId ? 'Atualizar Meta' : 'Criar Meta'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

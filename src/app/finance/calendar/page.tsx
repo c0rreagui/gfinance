@@ -437,10 +437,19 @@ export default function FinancialCalendar() {
           const txDate = new Date(tx.date);
           return txDate >= startDate && txDate <= endDate;
         });
+        
+        // Sum unpaid reminders linked to this card in this cycle
+        const cycleRems = reminders.filter((rem) => {
+          if (rem.card_id !== card.id || rem.paid) return false;
+          const remDate = new Date(rem.due_date);
+          return remDate >= startDate && remDate <= endDate;
+        });
+
         const isCurrentMonth = year === new Date().getFullYear() && month === new Date().getMonth();
         const invoiceTotal = (isCurrentMonth && card.manual_invoice_amount !== null && card.manual_invoice_amount !== undefined)
           ? Number(card.manual_invoice_amount)
-          : cycleTxs.reduce((sum, tx) => sum + Math.abs(tx.amount), 0);
+          : cycleTxs.reduce((sum, tx) => sum + Math.abs(tx.amount), 0) +
+            cycleRems.reduce((sum, rem) => sum + Math.abs(rem.amount), 0);
 
         if (map[closingDay]) {
           map[closingDay].push({
@@ -472,10 +481,19 @@ export default function FinancialCalendar() {
           const txDate = new Date(tx.date);
           return txDate >= startDate && txDate <= endDate;
         });
+
+        // Sum unpaid reminders linked to this card in this cycle
+        const cycleRems = reminders.filter((rem) => {
+          if (rem.card_id !== card.id || rem.paid) return false;
+          const remDate = new Date(rem.due_date);
+          return remDate >= startDate && remDate <= endDate;
+        });
+
         const isCurrentMonth = year === new Date().getFullYear() && month === new Date().getMonth();
         const invoiceTotal = (isCurrentMonth && card.manual_invoice_amount !== null && card.manual_invoice_amount !== undefined)
           ? Number(card.manual_invoice_amount)
-          : cycleTxs.reduce((sum, tx) => sum + Math.abs(tx.amount), 0);
+          : cycleTxs.reduce((sum, tx) => sum + Math.abs(tx.amount), 0) +
+            cycleRems.reduce((sum, rem) => sum + Math.abs(rem.amount), 0);
 
         if (map[dueDay]) {
           map[dueDay].push({

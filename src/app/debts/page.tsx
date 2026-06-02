@@ -171,7 +171,17 @@ export default function DebtsPage() {
 
   useEffect(() => {
     fetchAllData();
-  }, []);
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('open') === 'true') {
+        if (activeTab === 'bills') {
+          setIsBillOpen(true);
+        } else {
+          setIsInstOpen(true);
+        }
+      }
+    }
+  }, [activeTab]);
 
   // Filtered Debts/Bills for Tab 1: Unpaid and NOT linked to an installment
   const activeBills = useMemo(() => {

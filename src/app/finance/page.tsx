@@ -287,6 +287,40 @@ export default function FinanceDashboard() {
           </button>
         </div>
 
+        {/* Quick Actions */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+          <Link 
+            href="/transactions?open=true"
+            className="flex items-center justify-between p-5 bg-white/60 dark:bg-slate-800/60 hover:bg-emerald-500/10 hover:border-emerald-500/20 transition-all rounded-[24px] border border-white/50 dark:border-white/5 shadow-sm text-xs font-black uppercase tracking-widest text-slate-800 dark:text-slate-200 group"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-500 dark:text-emerald-400 flex items-center justify-center text-sm font-black transition-colors group-hover:bg-emerald-500 group-hover:text-white">+</div>
+              <span>Novo Lançamento</span>
+            </div>
+            <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+          </Link>
+          <Link 
+            href="/debts?open=true"
+            className="flex items-center justify-between p-5 bg-white/60 dark:bg-slate-800/60 hover:bg-amber-500/10 hover:border-amber-500/20 transition-all rounded-[24px] border border-white/50 dark:border-white/5 shadow-sm text-xs font-black uppercase tracking-widest text-slate-800 dark:text-slate-200 group"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-500 dark:text-amber-400 flex items-center justify-center text-sm font-black transition-colors group-hover:bg-amber-500 group-hover:text-white">+</div>
+              <span>Novo Boleto / Dívida</span>
+            </div>
+            <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+          </Link>
+          <Link 
+            href="/wealth?open=true"
+            className="flex items-center justify-between p-5 bg-white/60 dark:bg-slate-800/60 hover:bg-indigo-500/10 hover:border-indigo-500/20 transition-all rounded-[24px] border border-white/50 dark:border-white/5 shadow-sm text-xs font-black uppercase tracking-widest text-slate-800 dark:text-slate-200 group"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-500 dark:text-indigo-400 flex items-center justify-center text-sm font-black transition-colors group-hover:bg-indigo-500 group-hover:text-white">+</div>
+              <span>Nova Meta de Acúmulo</span>
+            </div>
+            <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+          </Link>
+        </div>
+
         {/* Stat Cards Grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           {stats.map((stat, i) => {

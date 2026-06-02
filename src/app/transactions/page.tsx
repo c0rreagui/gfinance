@@ -15,7 +15,8 @@ import {
   TrendingDown,
   TrendingUp,
   Wallet,
-  AlertCircle
+  AlertCircle,
+  Trash2
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
@@ -55,6 +56,15 @@ export default function Transactions() {
   const [modalError, setModalError] = useState('');
   const [creditCards, setCreditCards] = useState<any[]>([]);
   const [selectedCardId, setSelectedCardId] = useState<string>('');
+  
+  // Installment purchase options
+  const [isInstallment, setIsInstallment] = useState(false);
+  const [totalInstallments, setTotalInstallments] = useState('12');
+  const [paidInstallments, setPaidInstallments] = useState('0');
+  const [firstDueDate, setFirstDueDate] = useState(() => {
+    const today = new Date();
+    return today.toISOString().substring(0, 10);
+  });
 
   const fetchCreditCards = async () => {
     try {
@@ -94,6 +104,14 @@ export default function Transactions() {
     fetchTransactions();
     fetchCreditCards();
 
+    // Check for ?open=true query param
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('open') === 'true') {
+        setIsModalOpen(true);
+      }
+    }
+
     // Subscribe to real-time changes
     const channel = supabase
       .channel('schema-db-changes')
@@ -116,8 +134,6 @@ export default function Transactions() {
     if (!description || !amount) return;
     setModalError('');
 
-    const numericAmount = parseFloat(amount) * (type === 'expense' ? -1 : 1);
-
     try {
       // Find a mock user ID for testing if not signed in, or let RLS handle it
       const { data: { user } } = await supabase.auth.getUser();
@@ -127,6 +143,91 @@ export default function Transactions() {
         setModalError('Você precisa estar autenticado para realizar esta ação.');
         return;
       }
+
+      if (type === 'expense' && category === 'Cartão' && isInstallment) {
+        // Create installment purchase logic
+        const totalAmt = parseFloat(amount);
+        const totalInsts = parseInt(totalInstallments, 10);
+        const paidInsts = parseInt(paidInstallments, 10);
+
+        if (isNaN(totalAmt) || totalAmt <= 0) {
+          setModalError('O valor total deve ser positivo.');
+          return;
+        }
+        if (isNaN(totalInsts) || totalInsts <= 0) {
+          setModalError('O número de parcelas deve ser maior que 0.');
+          return;
+        }
+        if (isNaN(paidInsts) || paidInsts < 0 || paidInsts > totalInsts) {
+          setModalError('Parcelas pagas inválidas (deve estar entre 0 e o total).');
+          return;
+        }
+
+        const installmentAmt = Number((totalAmt / totalInsts).toFixed(2));
+        const firstDate = new Date(firstDueDate);
+
+        // 1. Create installment record
+        const { data: installment, error: instErr } = await supabase
+          .from('installments')
+          .insert({
+            user_id: userId,
+            card_id: selectedCardId || null,
+            description,
+            total_amount: totalAmt,
+            total_installments: totalInsts,
+            paid_installments: paidInsts,
+            installment_amount: installmentAmt,
+            first_due_date: firstDate.toISOString()
+          })
+          .select()
+          .single();
+
+        if (instErr) throw instErr;
+        if (!installment) throw new Error('Falha ao obter registro de parcelamento.');
+
+        // 2. Loop and generate reminders for each installment
+        const remindersToInsert = [];
+        for (let i = 1; i <= totalInsts; i++) {
+          const dueDate = new Date(firstDate);
+          dueDate.setMonth(dueDate.getMonth() + (i - 1));
+
+          // Create transaction directly if already paid, or create reminder
+          const isPaid = i <= paidInsts;
+
+          remindersToInsert.push({
+            user_id: userId,
+            card_id: selectedCardId || null,
+            installment_id: installment.id,
+            title: `${description} (${i}/${totalInsts})`,
+            amount: -installmentAmt, // negative for expense
+            due_date: dueDate.toISOString(),
+            paid: isPaid,
+            urgency: 'medium',
+            is_recurring: false,
+            category_icon: 'CreditCard',
+            brand_color: 'amber'
+          });
+        }
+
+        const { error: remErr } = await supabase
+          .from('reminders')
+          .insert(remindersToInsert);
+
+        if (remErr) throw remErr;
+
+        // Reset Form & Close Modal
+        setDescription('');
+        setAmount('');
+        setCategory('Lazer');
+        setIcon('Tv');
+        setIsInstallment(false);
+        setModalError('');
+        setIsModalOpen(false);
+        fetchTransactions();
+        return;
+      }
+
+      const numericAmount = parseFloat(amount) * (type === 'expense' ? -1 : 1);
 
       const { error } = await supabase.from('transactions').insert({
         user_id: userId,
@@ -150,6 +251,22 @@ export default function Transactions() {
       fetchTransactions();
     } catch (err: any) {
       setModalError(err.message || 'Erro ao cadastrar transação.');
+    }
+  };
+
+  const handleDeleteTransaction = async (id: string, desc: string) => {
+    if (!window.confirm(`Excluir definitivamente a transação "${desc}"?`)) return;
+    try {
+      const { error } = await supabase
+        .from('transactions')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      fetchTransactions();
+    } catch (e) {
+      console.error('Error deleting transaction:', e);
+      alert('Erro ao excluir transação.');
     }
   };
 
@@ -205,6 +322,7 @@ export default function Transactions() {
                       <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Descrição</th>
                       <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Categoria</th>
                       <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Valor</th>
+                      <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Ações</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-white/5">
@@ -235,6 +353,17 @@ export default function Transactions() {
                             <span className={isIncome ? 'text-emerald-500' : ''}>
                               {tx.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                             </span>
+                          </td>
+                          <td className="px-8 py-5 text-right">
+                            <div className="flex items-center justify-end">
+                              <button
+                                onClick={() => handleDeleteTransaction(tx.id, tx.description)}
+                                className="w-7 h-7 bg-red-500/10 hover:bg-red-500/25 border border-red-500/20 text-red-400 rounded-lg flex items-center justify-center cursor-pointer transition-colors opacity-0 group-hover:opacity-100"
+                                title="Excluir Transação"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -344,19 +473,79 @@ export default function Transactions() {
               </div>
 
               {category === 'Cartão' && creditCards.length > 0 && (
-                <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Associar ao Cartão</label>
-                  <select
-                    value={selectedCardId}
-                    onChange={(e) => setSelectedCardId(e.target.value)}
-                    className="w-full px-4 py-3.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/5 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:text-white"
-                  >
-                    {creditCards.map((card) => (
-                      <option key={card.id} value={card.id}>
-                        {card.card_name} (•••• {card.last_four})
-                      </option>
-                    ))}
-                  </select>
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Associar ao Cartão</label>
+                    <select
+                      value={selectedCardId}
+                      onChange={(e) => setSelectedCardId(e.target.value)}
+                      className="w-full px-4 py-3.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/5 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:text-white"
+                    >
+                      {creditCards.map((card) => (
+                        <option key={card.id} value={card.id}>
+                          {card.card_name} (•••• {card.last_four})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {type === 'expense' && (
+                    <div className="flex items-center gap-2 py-1">
+                      <input 
+                        type="checkbox" 
+                        id="isInstallment" 
+                        checked={isInstallment}
+                        onChange={(e) => setIsInstallment(e.target.checked)}
+                        className="rounded border-slate-300 text-emerald-500 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
+                      />
+                      <label htmlFor="isInstallment" className="text-xs font-bold text-slate-400 dark:text-slate-300 cursor-pointer select-none">
+                        Esta compra é parcelada?
+                      </label>
+                    </div>
+                  )}
+
+                  {type === 'expense' && isInstallment && (
+                    <div className="p-4 bg-slate-100 dark:bg-slate-900/60 border border-slate-200 dark:border-white/5 rounded-2xl space-y-4 animate-in fade-in duration-200">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1.5">Total de Parcelas</label>
+                          <input 
+                            type="number" 
+                            min="1"
+                            value={totalInstallments}
+                            onChange={(e) => setTotalInstallments(e.target.value)}
+                            className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-white/5 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500/20 dark:text-white font-mono text-center"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1.5">Parcelas Pagas</label>
+                          <input 
+                            type="number" 
+                            min="0"
+                            value={paidInstallments}
+                            onChange={(e) => setPaidInstallments(e.target.value)}
+                            className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-white/5 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500/20 dark:text-white font-mono text-center"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1.5">Primeiro Vencimento</label>
+                        <input 
+                          type="date" 
+                          value={firstDueDate}
+                          onChange={(e) => setFirstDueDate(e.target.value)}
+                          className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-white/5 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500/20 dark:text-white font-mono"
+                        />
+                      </div>
+                      {amount && totalInstallments && (
+                        <div className="text-[9px] text-slate-500 font-bold uppercase tracking-wider font-mono">
+                          Valor da Parcela: <span className="text-slate-700 dark:text-slate-200 font-black">
+                            {((parseFloat(amount) || 0) / (parseInt(totalInstallments, 10) || 1)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
