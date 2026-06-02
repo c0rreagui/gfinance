@@ -30,7 +30,7 @@ Este trace audita a arquitetura de sincronização, o fluxo de criptografia pont
 |:---:| :--- | :--- | :--- |:---:| :--- | :--- |
 | **1** | First-Time | Acessa a rota `/integrations` e visualiza o badge "Ingestão Ativa", a URL do Webhook do SMS e uma lista de logs de operações vazia com um elegante estado zerado. | Renderiza o shell da página. Exibe logs em skeleton por ~200ms. Carrega o estado de logs reais com sucesso a partir da tabela `itau_sync_logs` no Supabase. | `=` | Verified | Nenhuma fricção inicial. Design premium e responsivo. |
 | **2** | Ambos | Clica no botão de copiar a URL do webhook. A URL é salva no clipboard e o botão exibe um estado animado de sucesso em verde ("Copiado"). | Executa `navigator.clipboard.writeText(webhookUrl)`. Altera o estado local `copied` para `true` por 2 segundos. Se falhar (ex: HTTP local), falha silenciosamente. | `=` | Verified | Em navegadores mobile não-HTTPS, a API de Clipboard do browser pode falhar sem dar feedback de erro visual. |
-| **3** | First-Time | Envia um payload HTTP POST de SMS de teste a partir do Atalhos (iOS) para o endpoint `/sms-webhook`. A interface reflete imediatamente a chegada do payload. | A Edge Function recebe e valida o JSON com `texto_sms`. Ela retorna HTTP 200, mas **não persiste a transação** nem notifica a interface web do usuário em tempo real. | `!=` | Verified | **[BLOCKER]** Quebra de expectativa. O usuário cria o Atalho, executa o teste, vê o sucesso no celular, mas a página web permanece estática sem atualizar os logs. |
+| **3** | Ambos | Envia um payload HTTP POST de SMS de teste a partir do Atalhos (iOS) para o endpoint `/sms-webhook`. A interface reflete a chegada da transação em tempo real. | A Edge Function recebe e valida o SMS (JSON ou texto puro) e o user_id (header ou query params), processa os regex de parser, deduplica via SHA-256 e persiste no Supabase. | `=` | Verified | Nenhuma fricção. Os logs registram o sucesso e o saldo é recalculado instantaneamente. |
 | **4** | Ambos | Arraste e solte (Drag & Drop) de extrato PDF Itaú sobre a zona de drop. A borda brilha em laranja e ativa o estado de arquivo selecionado de imediato. | O evento `onDrop` intercepta o arquivo, extrai a extensão e valida se é `pdf`, `ofx` ou `csv`. Mostra o card com nome, tamanho e botão de remoção rápida. | `=` | Verified | Feedback de validação robusto. |
 | **5** | Steady-State | Clica em "Processar Extrato". A interface exibe animação progressiva. O backend realiza o parser regex estático do PDF e insere os dados no banco de dados. | Dispara requisição multipart/form-data. O servidor tenta o parser estático de PDF. Se retornar 0 registros, redireciona o buffer transparentemente para o Gemini AI. | `~` | Verified | O processamento do Gemini leva de 3 a 5 segundos adicionais, gerando ansiedade se o spinner da UI parecer estático sem barra de progresso. |
 | **6** | Steady-State | Executa a sincronização direta de conta bancária clicando em atualizar. O sistema faz o handshake mTLS seguro no gateway do Itaú e importa lançamentos reais. | O endpoint `/api/itau/sync` verifica se `ITAU_CERT_PEM` está configurado. Se ausente, executa o **Simulador de Sandbox dinâmico** silenciosamente sem avisar a UI. | `!=` | Verified | **[BLOCKER]** Ilusão de Conexão. O usuário clica em sincronizar acreditando estar sincronizando com uma conta real, mas está vendo transações geradas via sandbox. |
@@ -72,21 +72,23 @@ Este trace audita a arquitetura de sincronização, o fluxo de criptografia pont
 ---
 
 ### Step 3: SMS Webhook Delivery Payload (iOS Shortcuts Execution)
-- **Input:** O aplicativo Atalhos (iOS Shortcuts) dispara uma chamada `POST` contendo o JSON `{ "texto_sms": "Itaucard: compra aprovada no cartao final 1234 de R$ 45,90 em Uber" }` para a Edge Function do Supabase.
+- **Input:** O aplicativo Atalhos (iOS Shortcuts) dispara uma chamada `POST` contendo o SMS estruturado ou em texto puro para `/sms-webhook` passando o `user_id` na URL do webhook.
 - **System:**
   - O servidor Deno na Edge Function intercepta a chamada, valida o método `POST` e o cabeçalho CORS.
-  - Realiza o parseamento e checagem de integridade com o seguinte script no Deno Runtime:
-    ```typescript
-    const body = await req.json();
-    const { texto_sms } = body;
-    if (!texto_sms || typeof texto_sms !== "string") {
-      return new Response(JSON.stringify({ error: "Bad Request" }), { status: 400 });
-    }
-    ```
-  - Imprime o conteúdo bruto do SMS no console de debug do Deno.
-- **Output:** Resposta HTTP 200 contendo o JSON de sucesso com metadados do texto recebido. **Nenhuma alteração é visível no dashboard web do usuário, pois a Edge Function não salva o payload no banco de dados nem emite webhooks de volta para o cliente.**
-- **Side Effects:** Processamento de ciclo de CPU no Deno runtime da edge function.
-- **Backstage:** Deno garbage collector liberando os buffers do corpo do request após retorno de 200.
+  - Autentica o usuário via JWT Authorization Header ou extrai o `user_id` diretamente dos query parameters do webhook.
+  - Extrai o corpo do SMS: se o Content-Type for `application/json`, tenta ler `texto_sms`. Caso contrário, lê o corpo bruto como texto simples (fallback resiliente).
+  - Realiza o parseamento no helper `parseSms(texto)` usando 4 regex dedicadas:
+    1. Pix Recebido (Itaú)
+    2. Compra aprovada no Cartão (Itaúcard/genérico)
+    3. Pix Enviado / Transferência (Itaú)
+    4. Compra aprovada genérica
+  - Gera um hash identificador único `SHA-256` em Deno (via `crypto.subtle.digest`) para deduplicação.
+  - Tenta persistir a transação em `public.transactions`. Em caso de erro de duplicidade (código de erro Postgres `23505`), descarta de forma segura.
+  - Recalcula e sincroniza imediatamente as linhas de saldo correspondentes em `public.balances`.
+  - Registra a operação com sucesso ou falha na tabela `itau_sync_logs` para auditoria do usuário.
+- **Output:** Resposta HTTP 200 contendo o status (`inserted` ou `duplicate`) e a transação parseada. O extrato e os saldos no dashboard refletem a alteração imediatamente.
+- **Side Effects:** Escrita e atualização no Supabase (`transactions`, `balances`, `itau_sync_logs`).
+- **Backstage:** Execução em Deno Runtime com tratamento de erros robusto e isolamento de RLS via chave de serviço para processamento offline.
 
 ---
 
@@ -131,40 +133,18 @@ Este trace audita a arquitetura de sincronização, o fluxo de criptografia pont
 
 ## 👻 Phantom Flows Detectados
 
-Não existem rotas mortas expostas fora do menu de navegação sob `/integrations`. O backend e o frontend estão conectados diretamente, porém há lacunas arquiteturais de lógica "fantasma":
-- **Deno Webhook Isolado (Mock Incompleto):** A Edge Function `sms-webhook` recebe dados corretos de SMS e valida o payload, mas **não persiste as transações no banco de dados** nem as processa de verdade. O fluxo de ponta a ponta está interrompido neste ponto (código morto funcional).
-- **Hardcoded Webhook URL:** A URL do webhook exibida no frontend está fixa no código client-side (`line 46`), em vez de ser resolvida dinamicamente através de variáveis de ambiente.
+- **[/api/ai/test/route.ts](file:///d:/APPS%20-%20ANTIGRAVITY/G-Finance/src/app/api/ai/test/route.ts):** Rota fantasma de testes exposta no diretório de produção `/api`. Este arquivo contém um endpoint mockup exposto publicamente que ignora validações de sessão e deve ser deletado imediatamente para evitar vazamento de informações e consumo desnecessário de cotas em ambiente de produção.
+- **Dynamic Webhook Link:** A URL do webhook exibida na tela de integrações é dinâmica e já inclui a query parameter `?user_id=UUID` do usuário conectado, eliminando a complexidade de configuração manual.
 
 ---
 
 ## ⚡ Recomendações e Plano de Correção
 
-Para consolidar a página de ingestão de dados em um patamar de resiliência *World-Class*, propomos as seguintes intervenções arquiteturais:
 
-### 1. Refatoração Completa do Gateway de Captura SMS (Persistência Real)
-- **Gargalo:** A Edge Function de SMS recebe e valida os dados, mas não faz nada com eles além de exibir no console de debug. O usuário configura o atalho do iOS e o fluxo morre.
-- **Solução:** Integrar o cliente Supabase de serviço (com chaves de bypass RLS adequadas) dentro do arquivo `supabase/functions/sms-webhook/index.ts`. Utilizar o Gemini AI (via API Key integrada) para realizar o parser semântico imediato do texto do SMS, extrair data, descrição e valor e salvar diretamente na tabela `transactions`, acionando em seguida a atualização de saldos.
-- **Código Proposto:**
-  ```typescript
-  // Trecho sugerido dentro de supabase/functions/sms-webhook/index.ts
-  import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-  // Extrair semanticamente data, valor e descrição do SMS usando Gemini AI
-  // E realizar a inserção na base
-  const { data, error } = await supabase.from('transactions').insert({
-    user_id: targetUserId,
-    description: parsedDesc,
-    amount: parsedAmount,
-    category: inferedCategory,
-    source_type: 'sms',
-    source_hash: crypto.subtle.digest(...)
-  });
-  ```
-- **Custo:** **L** (Envolve integrar IA na Edge Function, segurança de chaves de serviço e testes do fluxo end-to-end, ~8h)
+### 1. Refatoração Completa do Gateway de Captura SMS (Persistência Real) — [RESOLVIDO]
+- **Gargalo:** Anteriormente a Edge Function apenas validava mas não persistia as transações nem atualizava o saldo.
+- **Solução Aplicada:** Integrada a biblioteca `@supabase/supabase-js` com chave de serviço no Deno da Edge Function. Adicionado parseamento resiliente de plain text e URL query params, deduplicação por hash SHA-256 e recálculo dinâmico de saldos.
+- **Estado:** 100% Funcional e implantado.
 
 ---
 

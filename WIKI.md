@@ -2,7 +2,7 @@
 
 Este documento é a fonte de verdade para desenvolvimento do **G-Finance** (anteriormente G-Hub), o sistema unificado de wealth management pessoal de Guilherme Corrêa. Mantido automaticamente pelo Antigravity Agent.
 
-> **Última atualização:** 01 de junho de 2026
+> **Última atualização:** 02 de junho de 2026
 
 ---
 
@@ -22,13 +22,15 @@ O **G-Finance** é o módulo de controle patrimonial do ecossistema G-Hub. Integ
 
 ## 🗺️ Roteamento Completo
 
+### Rotas de Interface (Frontend)
+
 | Rota | Página | Status de Correlação de Dados |
 |------|--------|-------------------------------|
 | `/` | Portal G-Hub (seletor de app) | — |
 | `/auth` | Login (Google OAuth + PIN) | Supabase Auth |
-| `/finance` | Visão Geral (Dashboard) | ✅ Dinâmico via `balances`, `transactions`, `reminders`, `goals` |
-| `/finance/calendar` | Calendário Financeiro | ✅ Dinâmico via `transactions` + `reminders` |
-| `/transactions` | Extrato de Transações | ✅ Dinâmico, Real-time subscription |
+| `/finance` | Visão Geral (Dashboard) | ✅ Dinâmico (reconcilia saldos ao montar via `/api/finance/reconcile`, ignora transações futuras) |
+| `/finance/calendar` | Calendário Financeiro | ✅ Dinâmico (calcula cash flow diário, Quick-Pay aciona trigger de transação automática) |
+| `/transactions` | Extrato de Transações | ✅ Dinâmico (real-time subscription, exclui transações futuras no extrato geral) |
 | `/cards` | Meus Cartões | ✅ Dinâmico via `credit_cards` + `transactions` (categoria "Cartão") |
 | `/debts` | Controle de Dívidas | ✅ Dinâmico via `reminders` (`paid=false`) |
 | `/subscriptions` | Assinaturas & Recorrências | ✅ Dinâmico via `reminders` (`is_recurring=true`) |
@@ -36,9 +38,18 @@ O **G-Finance** é o módulo de controle patrimonial do ecossistema G-Hub. Integ
 | `/analytics` | Relatórios & Analytics | ✅ Dinâmico, agrega todas as `transactions` do usuário |
 | `/crypto` | Portfolio Cripto | ⚠️ Parcialmente dinâmico (balances via `crypto_wallets`, preços via CoinGecko live API) |
 | `/gemini` | Gemini AI Brain (fullscreen) | ✅ Dinâmico, sessões persistidas via `/api/ai/sessions` |
-| `/integrations` | Fontes de Dados | 🔍 Ver nota abaixo |
+| `/integrations` | Fontes de Dados | ✅ Dinâmico (Webhook de captura SMS ativo e logs persistentes em tempo real) |
 | `/settings` | Ajustes | ✅ Dinâmico via `profiles`, `reconcile` em save |
 | `/tasks` | G-Work — Kanban de Tarefas | ✅ Dinâmico via `tasks`, `tasks_projects`, `transcriptions` |
+
+### Rotas de API e Integrações (Backend)
+
+| Rota / Endpoint | Tipo | Função / Status |
+|-----------------|------|-----------------|
+| `/api/finance/reconcile` | POST | Força o recálculo dos saldos `total`, `income` e `expense` para o usuário ativo (ignora transações futuras). |
+| `/api/finance/calendar/export` | GET | Retorna um arquivo `.ics` RFC 5545 com os lançamentos de lembretes e assinaturas para sincronização externa. |
+| `/functions/v1/sms-webhook` | POST | Supabase Edge Function que processa mensagens de transações Itaú/genéricas via iOS Shortcuts. |
+
 
 ---
 
@@ -48,17 +59,31 @@ Todas as tabelas possuem Row-Level Security (RLS) ativo: `USING (auth.uid() = us
 
 ### Tabelas Financeiras Core
 
-| Tabela | Chave Principal | Função |
-|--------|-----------------|--------|
-| `public.profiles` | `id = auth.uid()` | Perfil do usuário, saldo inicial (`initial_balance`), limite de cartão (`card_limit`), avatar, PIN |
-| `public.transactions` | `UUID` | Todas as movimentações financeiras. Negativo = despesa, positivo = receita |
-| `public.reminders` | `UUID` | Pagamentos futuros (dívidas e assinaturas). Usa `is_recurring`, `paid`, `urgency`, `frequency`, `category_icon`, `brand_color` |
-| `public.goals` | `UUID` | Metas de investimento/patrimônio com `target_amount` e `current_amount` |
-| `public.balances` | `UUID` | Cache recalculado pelo `reconcileBalances`. Types: `total`, `income`, `expense` |
-| `public.credit_cards` | `UUID` | Metadados do cartão: `card_name`, `last_four`, `expiration_date`, `card_limit`, `spline_url` |
-| `public.crypto_wallets` | `UUID` | Endereço da carteira crypto, provider e saldos de BTC/ETH/SOL |
-| `public.chat_sessions` | `UUID` | Sessões de conversa com o Gemini Brain |
-| `public.chat_messages` | `UUID` | Mensagens persistidas por sessão |
+| Tabela | Chave Principal | Função / Alterações Recentes |
+|--------|-----------------|------------------------------|
+| `public.profiles` | `id = auth.uid()` | Perfil do usuário, saldo inicial (`initial_balance`), limite de cartão (`card_limit`), avatar, PIN. |
+| `public.transactions` | `UUID` | Todas as movimentações financeiras. Negativo = despesa, positivo = receita. Contém `reminder_id` opcional e `source_hash` SHA-256. |
+| `public.reminders` | `UUID` | Pagamentos futuros (dívidas e assinaturas). Usa `is_recurring`, `paid`, `urgency`, `frequency`, `category_icon`, `brand_color`. |
+| `public.goals` | `UUID` | Metas de investimento/patrimônio com `target_amount` e `current_amount`. |
+| `public.balances` | `UUID` | Cache recalculado automaticamente. Tipos: `total`, `income`, `expense`. |
+| `public.credit_cards` | `UUID` | Metadados do cartão: `card_name`, `last_four`, `expiration_date`, `card_limit`, `spline_url`. |
+| `public.crypto_wallets` | `UUID` | Endereço da carteira crypto, provider e saldos de BTC/ETH/SOL. |
+| `public.chat_sessions` | `UUID` | Sessões de conversa com o Gemini Brain. |
+| `public.chat_messages` | `UUID` | Mensagens persistidas por sessão. |
+| `public.itau_sync_logs` | `UUID` | Registros históricos de execuções de sincronização de extratos e webhooks SMS. |
+
+### Automatizações via Banco de Dados (Triggers PostgreSQL)
+
+Para garantir integridade de dados absoluta independente da origem da mutação (Frontend, API, IA ou Webhook), implementamos triggers reativos no Supabase:
+
+1. **Reconciliação Automática de Saldos (`trigger_reconcile_on_transaction` e `trigger_reconcile_on_profile`):**
+   - **Tabelas:** `public.transactions` (AFTER INSERT OR UPDATE OR DELETE) e `public.profiles` (AFTER UPDATE of `initial_balance`).
+   - **Lógica:** Executa a função `public.reconcile_user_balances()`. Busca o `initial_balance` do usuário, soma todas as receitas e subtrai despesas da tabela `transactions` **onde a data seja menor ou igual ao momento atual** (`date <= now()`), excluindo lançamentos agendados para o futuro. Os resultados atualizam dinamicamente a tabela `public.balances`.
+2. **Propagação de Lembretes Pagos (`trigger_reminder_paid_change`):**
+   - **Tabela:** `public.reminders` (AFTER INSERT OR UPDATE OR DELETE).
+   - **Lógica:** Executa `public.handle_reminder_paid_change()`. 
+     - Quando um lembrete muda de estado para `paid = true` (pago), insere automaticamente uma transação espelho em `transactions` com o valor sinalizado correto, vinculada via `reminder_id`.
+     - Se o lembrete volta para `paid = false` (não pago) ou é excluído, remove automaticamente a transação correspondente da base, mantendo o balanço íntegro.
 
 ### Tabelas G-Work
 
@@ -108,14 +133,22 @@ Criptografia de PIN via `bcrypt` para armazenamento seguro.
 
 ---
 
-## 📊 Auditoria de Dados por Página (2026-06-01)
+## 📊 Auditoria de Dados por Página (2026-06-02)
 
 ### ✅ Visão Geral (`/finance`)
-- **Dados:** Busca de `balances`, `transactions` (últimas 5), `reminders` (não pagos, próximos 2), `goals` (primeiros 2)
-- **Gráfico:** SVG Bezier gerado dinamicamente a partir das transações reais
-- **Reconciliação:** Disparada ao montar (`reconcileBalances`) para garantir `balances` sempre atualizado
-- **Spline Viewer:** ⚠️ Ainda presente no código (`<spline-viewer>`) — pode causar crash com cenas corrompidas. **Recomendação:** substituir por card CSS 3D.
-- **Hardcode residual:** Card number suffix `4290` no template do cartão visual
+- **Dados:** Busca de `balances`, `transactions` (últimas 5, filtrando transações futuras via `.lte('date', now)`), `reminders` (não pagos, próximos 2), `goals` (primeiros 2).
+- **Gráfico:** SVG Bezier gerado dinamicamente a partir das transações reais e históricas consolidadas.
+- **Reconciliação:** Disparada ao montar via chamada interna para o endpoint POST `/api/finance/reconcile` utilizando o token JWT da sessão, forçando a maturação de saldos agendados.
+- **Spline Viewer:** ⚠️ Cenas 3D presentes. Um card reserva estático foi configurado para evitar layout shift durante o carregamento.
+- **Hardcode residual:** Card number suffix `4290` no template do cartão visual.
+
+### ✅ Calendário Financeiro (`/finance/calendar`)
+- **Dados:** Consulta completa de `transactions` e `reminders` sem filtros temporais para exibição de fluxo de caixa futuro.
+- **Projeção de Fluxo:** Calcula o saldo inicial retroativo até o primeiro dia do mês e projeta o saldo resultante dia a dia na grade.
+- **Modo Privacidade:** Oculta todos os valores por padrão com efeito blur, permitindo revelação temporária ao mover o mouse segurando a tecla `Ctrl`.
+- **iCal Subscription:** Endpoint `/api/finance/calendar/export` expõe os eventos formatados para sincronização no iOS ou Google Calendar.
+- **Quick-Pay:** Permite pagar lembretes com um clique via interface, disparando os triggers de criação de transação correspondentes no banco.
+- **Drag-and-Drop:** Permite arrastar lembretes na grade para atualizar suas datas de vencimento diretamente no banco.
 
 ### ✅ Gemini Brain (`/gemini` e componente `AiChatHub`)
 - **Dados:** Sessões e mensagens 100% via Supabase. Context com transações reais injetadas no system prompt via API Route.
@@ -168,8 +201,11 @@ Criptografia de PIN via `bcrypt` para armazenamento seguro.
 - **Sparklines:** Gerados deterministicamente por seed, não refletem dados históricos reais.
 - **Ação requerida:** Criar fluxo de onboarding para usuário inserir seus saldos reais / conectar exchange API.
 
-### 🔍 Fontes de Dados (`/integrations`)
-- Precisa de revisão de código específica. Não auditado neste ciclo.
+### ✅ Fontes de Dados (`/integrations`)
+- **Dados:** Histórico de logs de sincronização lidos diretamente da tabela `public.itau_sync_logs`.
+- **Webhook SMS:** URL dinâmica contendo o `user_id` do usuário conectado para fácil setup no Atalhos do iOS.
+- **Edge Function SMS Parser:** Recebe payloads JSON ou texto simples de SMS, identifica o tipo (Pix Recebido, Compra aprovada no cartão Itaúcard/genérica, Pix Enviado), gera hash de deduplicação SHA-256 e persiste na base.
+- **Processamento de Extratos:** Upload de arquivos PDF/OFX/CSV com parser regex estruturado e fallback automático para processador semântico de IA da API Gemini.
 
 ### ✅ Ajustes (`/settings`)
 - **Dados:** `profiles` table — nome, avatar, PIN, `initial_balance`
@@ -219,14 +255,13 @@ GEMINI_API_KEY=<salvo no gerenciador — não commitar>
 
 | Prioridade | Item |
 |------------|------|
-| 🔴 CRÍTICO | Substituir `<spline-viewer>` no dashboard por CSS 3D Card (eliminar crash potencial) |
-| 🔴 CRÍTICO | Crypto: remover valores placeholder do auto-provision. Criar onboarding real de saldo cripto |
-| 🟡 ALTO | Auditar `/integrations` (Fontes de Dados) — não auditado neste ciclo |
-| 🟡 ALTO | Analytics: adicionar filtro por período (mês/ano) para granularidade |
-| 🟢 MÉDIO | Transações: acionar `reconcileBalances()` após cada insert/delete para manter `balances` sincronizado |
-| 🟢 MÉDIO | Cards: remover prefixo `4290 8812 3456` hardcoded — usar apenas máscara genérica com `last_four` |
-| 🟢 BAIXO | Crypto: implementar integração com Binance/Coinbase API para balanços reais |
+| 🔴 CRÍTICO | Substituir `<spline-viewer>` no dashboard por CSS 3D Card (eliminar crash potencial). |
+| 🔴 CRÍTICO | Crypto: remover valores placeholder do auto-provision. Criar onboarding real de saldo cripto. |
+| 🟡 ALTO | Analytics: adicionar filtro por período (mês/ano) para granularidade. |
+| 🟢 MÉDIO | Cards: remover prefixo `4290 8812 3456` hardcoded — usar apenas máscara genérica com `last_four`. |
+| 🟢 BAIXO | Crypto: implementar integração com Binance/Coinbase API para balanços reais. |
+| 🟢 BAIXO | Calendário: adicionar suporte a gestos no mobile para revelação de valores em privacidade (Tap-to-reveal). |
 
 ---
 
-*Wiki gerada e mantida pelo Antigravity Agent • Auditoria: 01/06/2026*
+*Wiki gerada e mantida pelo Antigravity Agent • Auditoria: 02/06/2026*
