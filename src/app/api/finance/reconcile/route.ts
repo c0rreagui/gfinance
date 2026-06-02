@@ -37,7 +37,7 @@ export async function POST(request: Request) {
       balances: result.data 
     }, { status: 200 });
 
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Erro na rota de reconciliação de saldos:', err);
     return NextResponse.json({ error: 'Erro interno do servidor.' }, { status: 500 });
   }

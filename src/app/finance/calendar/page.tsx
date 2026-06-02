@@ -564,8 +564,21 @@ export default function FinancialCalendar() {
 
   if (loading && transactions.length === 0) {
     return (
-      <div className="flex-1 flex justify-center items-center h-full bg-slate-950">
-        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-emerald-500"></div>
+      <div className="flex-1 overflow-hidden flex bg-slate-950 text-slate-100 h-full relative">
+        <main className="flex-1 overflow-y-auto p-8 no-scrollbar relative z-10 flex flex-col h-full animate-pulse pointer-events-none select-none">
+          <div className="max-w-6xl mx-auto space-y-6 w-full flex-1 flex flex-col">
+            {/* Header skeleton */}
+            <div className="flex justify-between items-center h-12 bg-white/5 border border-white/5 rounded-2xl"></div>
+            {/* KPIs banner skeleton */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="h-20 bg-white/5 border border-white/5 rounded-[24px]"></div>
+              <div className="h-20 bg-white/5 border border-white/5 rounded-[24px]"></div>
+              <div className="h-20 bg-white/5 border border-white/5 rounded-[24px]"></div>
+            </div>
+            {/* Grid skeleton */}
+            <div className="flex-1 bg-white/5 border border-white/5 rounded-[32px] p-6 h-[480px]"></div>
+          </div>
+        </main>
       </div>
     );
   }

@@ -3,8 +3,6 @@
 import React, { useState, useEffect } from 'react';
 import { 
   CreditCard, 
-  Eye, 
-  EyeOff, 
   TrendingUp, 
   ChevronRight, 
   ShieldCheck, 
@@ -24,7 +22,6 @@ interface CardTransaction {
 }
 
 export default function CardsPage() {
-  const [showCardNumber, setShowCardNumber] = useState(false);
   const [cardLimit, setCardLimit] = useState(25000);
   const [usedLimit, setUsedLimit] = useState(0);
   const [cardTransactions, setCardTransactions] = useState<CardTransaction[]>([]);
@@ -204,14 +201,8 @@ export default function CardsPage() {
                 <div className="space-y-1">
                   <div className="flex items-center gap-3">
                     <p className="font-mono text-lg tracking-[0.25em] text-white">
-                      {showCardNumber ? `4290 8812 3456 ${lastFour}` : `•••• •••• •••• ${lastFour}`}
+                      •••• •••• •••• {lastFour}
                     </p>
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); setShowCardNumber(!showCardNumber); }}
-                      className="text-slate-400 hover:text-white transition-colors cursor-pointer"
-                    >
-                      {showCardNumber ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
                   </div>
                   <div className="flex gap-6 mt-4">
                     <div>

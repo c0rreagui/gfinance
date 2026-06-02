@@ -18,6 +18,7 @@ import {
 import { TiltCard } from '@/components/TiltCard';
 import { supabase } from '@/lib/supabase';
 import { AiChatHub } from '@/app/components/AiChatHub';
+import { User } from '@supabase/supabase-js';
 import { reconcileBalances } from '@/lib/reconcile';
 
 // Lucide Icon mapping dictionary helper
@@ -69,8 +70,9 @@ interface Goal {
 export default function FinanceDashboard() {
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [cardLastFour, setCardLastFour] = useState<string>('4290');
 
   // Dynamic dashboard states
   const [stats, setStats] = useState<Stat[]>([]);
@@ -126,7 +128,7 @@ export default function FinanceDashboard() {
         .eq('user_id', userId);
       
       if (dbBalances && dbBalances.length > 0) {
-        const formattedStats = dbBalances.map((b: any) => ({
+        const formattedStats = dbBalances.map((b: { id: string; label: string; amount: number; trend: string; icon: string; type: string }) => ({
           id: b.id,
           label: b.label,
           value: b.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
@@ -174,6 +176,16 @@ export default function FinanceDashboard() {
         .limit(2);
       
       setGoals(dbGoals || []);
+
+      // 5. Fetch Credit Card Last Four
+      const { data: dbCards } = await supabase
+        .from('credit_cards')
+        .select('last_four')
+        .eq('user_id', userId)
+        .limit(1);
+      if (dbCards && dbCards.length > 0 && dbCards[0].last_four) {
+        setCardLastFour(dbCards[0].last_four);
+      }
 
     } catch (err) {
       console.error('Error fetching dashboard records:', err);
@@ -234,9 +246,29 @@ export default function FinanceDashboard() {
 
   if (loading) {
     return (
-      <div className="flex-1 flex justify-center items-center h-full">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-emerald-500"></div>
-      </div>
+      <main className="flex-1 overflow-y-auto p-8 no-scrollbar relative h-full bg-slate-950">
+        <div className="max-w-6xl mx-auto space-y-8 animate-pulse pointer-events-none select-none">
+          {/* Welcome Skeleton */}
+          <div className="h-24 bg-white/5 border border-white/5 rounded-[32px]"></div>
+          {/* Stats Grid Skeleton */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="h-32 bg-white/5 border border-white/5 rounded-[24px]"></div>
+            <div className="h-32 bg-white/5 border border-white/5 rounded-[24px]"></div>
+            <div className="h-32 bg-white/5 border border-white/5 rounded-[24px]"></div>
+          </div>
+          {/* Content Grid Skeleton */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div className="lg:col-span-2 space-y-8">
+              <div className="h-64 bg-white/5 border border-white/5 rounded-[32px]"></div>
+              <div className="h-64 bg-white/5 border border-white/5 rounded-[32px]"></div>
+            </div>
+            <div className="space-y-8">
+              <div className="h-56 bg-white/5 border border-white/5 rounded-[32px]"></div>
+              <div className="h-56 bg-white/5 border border-white/5 rounded-[32px]"></div>
+            </div>
+          </div>
+        </div>
+      </main>
     );
   }
 
@@ -438,7 +470,7 @@ export default function FinanceDashboard() {
                 </div>
                 {/* Card number */}
                 <div>
-                  <p className="font-mono text-base tracking-[0.2em] text-white/90">•••• •••• •••• 4290</p>
+                  <p className="font-mono text-base tracking-[0.2em] text-white/90">•••• •••• •••• {cardLastFour}</p>
                   <div className="flex gap-4 mt-3">
                     <div>
                       <p className="text-[7px] text-slate-600 font-bold uppercase tracking-widest">Validade</p>

@@ -7,18 +7,21 @@
  * para garantir integridade absoluta dos dados na central de comando.
  */
 
+import { SupabaseClient } from '@supabase/supabase-js';
+
 export async function reconcileBalances(
-  supabaseClient: any,
+  supabaseClient: SupabaseClient,
   userId: string
 ): Promise<{ success: boolean; error?: string; data?: { total: number; income: number; expense: number } }> {
   try {
     console.info(`[Reconcile] Iniciando reconciliação de saldos para o usuário: ${userId}`);
 
-    // 1. Buscar todas as transações do usuário no banco
+    // 1. Buscar todas as transações do usuário no banco (excluindo transações futuras)
     const { data: transactions, error: txError } = await supabaseClient
       .from('transactions')
       .select('amount')
-      .eq('user_id', userId);
+      .eq('user_id', userId)
+      .lte('date', new Date().toISOString());
 
     if (txError) {
       throw new Error(`Falha ao buscar transações: ${txError.message}`);
@@ -65,7 +68,7 @@ export async function reconcileBalances(
       throw new Error(`Falha ao verificar linhas de saldo existentes: ${fetchBalError.message}`);
     }
 
-    const findExisting = (t: string) => existingBalances?.find((b: any) => b.type === t);
+    const findExisting = (t: string) => existingBalances?.find((b: { id: string; type: string }) => b.type === t);
 
     const totalRow = findExisting('total');
     const incomeRow = findExisting('income');
@@ -154,11 +157,12 @@ export async function reconcileBalances(
       data: { total, income, expense }
     };
 
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('[Reconcile] Falha na conciliação dos saldos:', err);
+    const errMsg = err instanceof Error ? err.message : 'Erro de reconciliação desconhecido.';
     return { 
       success: false, 
-      error: err.message || 'Erro de reconciliação desconhecido.' 
+      error: errMsg
     };
   }
 }
