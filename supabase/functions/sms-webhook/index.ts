@@ -20,17 +20,52 @@ async function buildSourceHash(userId: string, date: string, description: string
   return hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
+function parseSmsDate(text: string): string {
+  // Regex to match dd/mm/yyyy and optionally time (e.g. 12h19 or 12:19 or 12h19m)
+  // Ex: "02/06/2026 as 12h19"
+  // Ex: "28/05/2026 17:50"
+  const dateWithTimeRegex = /(\d{2})\/(\d{2})\/(\d{4})\s*(?:as|às|at)?\s*(\d{2})h?[:m]?(\d{2})?/i;
+  const match = text.match(dateWithTimeRegex);
+  if (match) {
+    const [_, day, month, year, hour, minute] = match;
+    const formattedMonth = month.padStart(2, '0');
+    const formattedDay = day.padStart(2, '0');
+    const formattedHour = (hour || '12').padStart(2, '0');
+    const formattedMinute = (minute || '00').padStart(2, '0');
+    return `${year}-${formattedMonth}-${formattedDay}T${formattedHour}:${formattedMinute}:00-03:00`;
+  }
+
+  // Fallback 1: Try dd/mm (without year)
+  const dateShortRegex = /(\d{2})\/(\d{2})\s*(?:as|às|at)?\s*(\d{2})h?[:m]?(\d{2})?/i;
+  const shortMatch = text.match(dateShortRegex);
+  if (shortMatch) {
+    const [_, day, month, hour, minute] = shortMatch;
+    const year = new Date().getFullYear();
+    const formattedMonth = month.padStart(2, '0');
+    const formattedDay = day.padStart(2, '0');
+    const formattedHour = (hour || '12').padStart(2, '0');
+    const formattedMinute = (minute || '00').padStart(2, '0');
+    return `${year}-${formattedMonth}-${formattedDay}T${formattedHour}:${formattedMinute}:00-03:00`;
+  }
+
+  return new Date().toISOString();
+}
+
 function parseSms(texto: string): { amount: number; description: string; date: string; category: string; icon: string } | null {
   const text = texto.trim();
   let amount = 0;
   let description = "Transação SMS";
   let category = "Outros";
   let icon = "Circle";
+  let parsed = false;
 
-  // Regex 1: Itaú Pix Recebido
+  // Extract date dynamically if present in the text
+  const txDate = parseSmsDate(text);
+
+  // Pattern 1: Itaú Pix Recebido
   // Ex: "Itau: Pix recebido de JOAO SILVA em 28/05/2026 de R$ 1.500,00"
   // Ex: "Itau: Pix recebido de JOAO SILVA R$ 1.500,00"
-  const pixRecRegex = /pix\s+recebido\s+de\s+(.+?)\s+(?:em\s+\d{2}\/\d{2}\/\d{4}\s+)?(?:de\s+)?r\$\s*([\d.,]+)/i;
+  const pixRecRegex = /pix\s+recebido\s+de\s+(.+?)\s+(?:em\s+\d{2}\/\d{2}\/\d{4}\s+)?(?:de\s+)?(?:r\$|rs)\s*([\d.,]+)/i;
   const pixRecMatch = text.match(pixRecRegex);
   if (pixRecMatch) {
     const rawVal = pixRecMatch[2].replace(/\./g, "").replace(",", ".");
@@ -38,28 +73,45 @@ function parseSms(texto: string): { amount: number; description: string; date: s
     description = `Pix Recebido: ${pixRecMatch[1].trim()}`;
     category = "Transferência";
     icon = "ArrowLeftRight";
+    parsed = true;
   }
 
-  // Regex 2: Compra aprovada no Cartão
-  // Ex: "Itaucard: compra aprovada no MASTER BLACK final 1234 em 28/05 as 17:50 R$ 259,90 no STRIPE."
-  // Ex: "Itaucard: compra aprovada no cartao final 1234 de R$ 45,90 em Uber"
-  if (amount === 0) {
-    const cardRegex = /(?:compra aprovada no|compra aprovada).*?r\$\s*([\d.,]+)\s+(?:no|em|na|nos|nas)\s+(.+?)(?:\.|$)/i;
-    const cardMatch = text.match(cardRegex);
-    if (cardMatch) {
-      const rawVal = cardMatch[1].replace(/\./g, "").replace(",", ".");
+  // Pattern 2: Itaú Card SMS (Hyphen-separated, establishment before amount)
+  // Ex: "Compra aprovada no ITAU MULT MC PLAT final 4215 - TIM*11962341464 - RS 34,85 em 02/06/2026 as 12h19."
+  if (!parsed) {
+    const cardHyphenRegex = /(?:compra aprovada no|compra aprovada).*?-\s*(.+?)\s+-\s+(?:r\$|rs)\s*([\d.,]+)/i;
+    const cardHyphenMatch = text.match(cardHyphenRegex);
+    if (cardHyphenMatch) {
+      const rawVal = cardHyphenMatch[2].replace(/\./g, "").replace(",", ".");
       amount = -parseFloat(rawVal);
-      description = cardMatch[2].trim();
+      description = cardHyphenMatch[1].trim();
       category = "Cartão";
       icon = "CreditCard";
+      parsed = true;
     }
   }
 
-  // Regex 3: Pix Enviado / Transferência Realizada
+  // Pattern 3: Compra aprovada no Cartão (Standard amount before establishment)
+  // Ex: "Itaucard: compra aprovada no MASTER BLACK final 1234 em 28/05 as 17:50 R$ 259,90 no STRIPE."
+  // Ex: "Itaucard: compra aprovada no cartao final 1234 de R$ 45,90 em Uber"
+  if (!parsed) {
+    const cardStandardRegex = /(?:compra aprovada no|compra aprovada).*?(?:r\$|rs)\s*([\d.,]+)\s+(?:no|em|na|nos|nas)\s+(.+?)(?:\.|$)/i;
+    const cardStandardMatch = text.match(cardStandardRegex);
+    if (cardStandardMatch) {
+      const rawVal = cardStandardMatch[1].replace(/\./g, "").replace(",", ".");
+      amount = -parseFloat(rawVal);
+      description = cardStandardMatch[2].trim();
+      category = "Cartão";
+      icon = "CreditCard";
+      parsed = true;
+    }
+  }
+
+  // Pattern 4: Pix Enviado / Transferência Realizada
   // Ex: "Itau: transferencia de R$ 100,00 para GUILHERME realizada em 28/05/2026."
   // Ex: "Itau: Pix enviado de R$ 50,00 para Pedro"
-  if (amount === 0) {
-    const pixEnvRegex = /(?:transferencia|pix enviado).*?r\$\s*([\d.,]+)\s+(?:para|em|a)\s+(.+?)(?:\s+realizada|\.|$)/i;
+  if (!parsed) {
+    const pixEnvRegex = /(?:transferencia|pix enviado).*?(?:r\$|rs)\s*([\d.,]+)\s+(?:para|em|a)\s+(.+?)(?:\s+realizada|\.|$)/i;
     const pixEnvMatch = text.match(pixEnvRegex);
     if (pixEnvMatch) {
       const rawVal = pixEnvMatch[1].replace(/\./g, "").replace(",", ".");
@@ -67,24 +119,26 @@ function parseSms(texto: string): { amount: number; description: string; date: s
       description = `Pix enviado: ${pixEnvMatch[2].trim()}`;
       category = "Transferência";
       icon = "ArrowLeftRight";
+      parsed = true;
     }
   }
 
-  // Regex 4: Compra aprovada genérica com valor e local
+  // Pattern 5: Compra aprovada genérica com valor e local (Fallback)
   // Ex: "Compra aprovada em 28/05 R$ 45,60 no estabelecimento UBER"
-  // Ex: "Compra aprovada R$ 10,00 em Spotify"
-  if (amount === 0) {
-    const genericRegex = /(?:r\$\s*([\d.,]+)\s+(?:no|em|na|nos|nas)\s+(?:estabelecimento\s+)?(.+?)(?:\.|$))/i;
+  // Ex: "Compra aprovada RS 10,00 em Spotify"
+  if (!parsed) {
+    const genericRegex = /(?:(?:r\$|rs)\s*([\d.,]+)\s+(?:no|em|na|nos|nas)\s+(?:estabelecimento\s+)?(.+?)(?:\.|$))/i;
     const genericMatch = text.match(genericRegex);
     if (genericMatch) {
       const rawVal = genericMatch[1].replace(/\./g, "").replace(",", ".");
       amount = -parseFloat(rawVal);
       description = genericMatch[2].trim();
+      parsed = true;
     }
   }
 
-  if (amount === 0) {
-    return null; // Could not parse amount
+  if (amount === 0 || !parsed) {
+    return null; // Could not parse amount or match patterns
   }
 
   // Infer category based on description keywords
@@ -112,7 +166,7 @@ function parseSms(texto: string): { amount: number; description: string; date: s
   return {
     amount,
     description,
-    date: new Date().toISOString(),
+    date: txDate,
     category,
     icon
   };
