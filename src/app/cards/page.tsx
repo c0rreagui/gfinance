@@ -34,6 +34,19 @@ interface DBCreditCard {
   created_at?: string;
 }
 
+interface DBInstallment {
+  id: string;
+  user_id: string;
+  card_id: string | null;
+  description: string;
+  total_amount: number;
+  total_installments: number;
+  paid_installments: number;
+  installment_amount: number;
+  first_due_date: string;
+  created_at?: string;
+}
+
 interface CardTransaction {
   id: string;
   date: string;
@@ -110,12 +123,60 @@ const themes = {
   }
 };
 
+const getCardBillingCycle = (card: DBCreditCard) => {
+  const closingDay = card.closing_day;
+  const dueDay = card.due_day;
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth();
+
+  let cycleMonth = currentMonth;
+  let cycleYear = currentYear;
+  if (now.getDate() > closingDay) {
+    cycleMonth = currentMonth + 1;
+    if (cycleMonth > 11) {
+      cycleMonth = 0;
+      cycleYear = currentYear + 1;
+    }
+  }
+
+  let startYear = cycleYear;
+  let startMonth = cycleMonth;
+  let endYear = cycleYear;
+  let endMonth = cycleMonth;
+
+  if (dueDay > closingDay) {
+    startMonth = cycleMonth - 1;
+    if (startMonth < 0) {
+      startMonth = 11;
+      startYear = cycleYear - 1;
+    }
+  } else {
+    startMonth = cycleMonth - 2;
+    endMonth = cycleMonth - 1;
+    if (startMonth < 0) {
+      startMonth = startMonth + 12;
+      startYear = cycleYear - 1;
+    }
+    if (endMonth < 0) {
+      endMonth = 11;
+      endYear = cycleYear - 1;
+    }
+  }
+
+  const startDate = new Date(Date.UTC(startYear, startMonth, closingDay + 1, 0, 0, 0, 0));
+  const endDate = new Date(Date.UTC(endYear, endMonth, closingDay, 23, 59, 59, 999));
+
+  return { startDate, endDate };
+};
+
 export default function CardsPage() {
   const [cards, setCards] = useState<DBCreditCard[]>([]);
   const [activeIndex, setActiveIndex] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [cardTransactions, setCardTransactions] = useState<CardTransaction[]>([]);
   const [usedLimit, setUsedLimit] = useState(0);
+  const [currentInvoice, setCurrentInvoice] = useState(0);
 
   // Form states for active card inline updates
   const [editName, setEditName] = useState('');
@@ -139,6 +200,20 @@ export default function CardsPage() {
   const [newTheme, setNewTheme] = useState<string>('emerald');
   const [newError, setNewError] = useState('');
   const [newSuccess, setNewSuccess] = useState('');
+
+  // Right Column Tab state
+  const [rightTab, setRightTab] = useState<'transactions' | 'installments'>('transactions');
+  const [installments, setInstallments] = useState<DBInstallment[]>([]);
+  
+  // Create installment states (Drawer modal)
+  const [isInstallmentOpen, setIsInstallmentOpen] = useState(false);
+  const [instDescription, setInstDescription] = useState('');
+  const [instTotalAmount, setInstTotalAmount] = useState('');
+  const [instTotalInstallments, setInstTotalInstallments] = useState('10');
+  const [instPaidInstallments, setInstPaidInstallments] = useState('0');
+  const [instFirstDueDate, setInstFirstDueDate] = useState('');
+  const [instError, setInstError] = useState('');
+  const [instSuccess, setInstSuccess] = useState('');
 
   // Profile metadata
   const [ownerName, setOwnerName] = useState('Guilherme C. S. P.');
@@ -220,6 +295,74 @@ export default function CardsPage() {
     fetchCardData();
   }, []);
 
+  const loadCardData = async (card: DBCreditCard) => {
+    if (!card) return;
+    try {
+      const { startDate, endDate } = getCardBillingCycle(card);
+
+      // 1. Fetch last 10 transactions
+      const { data: recentTxs } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('card_id', card.id)
+        .order('date', { ascending: false })
+        .limit(10);
+      setCardTransactions(recentTxs || []);
+
+      // 2. Fetch all installments
+      const { data: insts } = await supabase
+        .from('installments')
+        .select('*')
+        .eq('card_id', card.id)
+        .order('created_at', { ascending: false });
+      const activeInsts = insts || [];
+      setInstallments(activeInsts);
+
+      // 3. Fetch cycle transactions
+      const { data: cycleTxs } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('card_id', card.id)
+        .gte('date', startDate.toISOString())
+        .lte('date', endDate.toISOString());
+      const txsInCycle = cycleTxs || [];
+
+      // 4. Fetch cycle unpaid reminders
+      const { data: cycleRems } = await supabase
+        .from('reminders')
+        .select('*')
+        .eq('card_id', card.id)
+        .eq('paid', false)
+        .gte('due_date', startDate.toISOString())
+        .lte('due_date', endDate.toISOString());
+      const remsInCycle = cycleRems || [];
+
+      // 5. Calculate Fatura Atual (Current Invoice)
+      if (card.manual_invoice_amount !== null && card.manual_invoice_amount !== undefined) {
+        setCurrentInvoice(Number(card.manual_invoice_amount));
+      } else {
+        const txsSum = txsInCycle.reduce((acc, t) => acc + Math.abs(t.amount), 0);
+        const remsSum = remsInCycle.reduce((acc, r) => acc + Math.abs(r.amount), 0);
+        setCurrentInvoice(txsSum + remsSum);
+      }
+
+      // 6. Calculate usedLimit (Outstanding Debt Consuming Limit)
+      const oneOffTxsSum = txsInCycle
+        .filter(t => !t.installment_id)
+        .reduce((acc, t) => acc + Math.abs(t.amount), 0);
+      
+      const remainingInstsSum = activeInsts.reduce((acc, inst) => {
+        const paidAmt = inst.paid_installments * inst.installment_amount;
+        return acc + Math.max(0, inst.total_amount - paidAmt);
+      }, 0);
+
+      setUsedLimit(oneOffTxsSum + remainingInstsSum);
+
+    } catch (e) {
+      console.error('Error loading card data details:', e);
+    }
+  };
+
   // Update inline form fields when activeCard changes
   useEffect(() => {
     if (activeCard) {
@@ -235,40 +378,7 @@ export default function CardsPage() {
         setMemberSince('2026');
       }
 
-      // Fetch transactions for this card
-      const fetchTransactionsForCard = async () => {
-        try {
-          const { data: txs } = await supabase
-            .from('transactions')
-            .select('*')
-            .eq('card_id', activeCard.id)
-            .order('date', { ascending: false })
-            .limit(10);
-          
-          setCardTransactions(txs || []);
-
-          // Calculate used limit
-          if (activeCard.manual_invoice_amount !== null && activeCard.manual_invoice_amount !== undefined) {
-            setUsedLimit(Number(activeCard.manual_invoice_amount));
-          } else {
-            const { data: allTxs } = await supabase
-              .from('transactions')
-              .select('amount')
-              .eq('card_id', activeCard.id);
-
-            if (allTxs) {
-              const sum = allTxs.reduce((acc, t) => acc + Math.abs(t.amount), 0);
-              setUsedLimit(sum);
-            } else {
-              setUsedLimit(0);
-            }
-          }
-        } catch (e) {
-          console.error('Error fetching card transactions:', e);
-        }
-      };
-
-      fetchTransactionsForCard();
+      loadCardData(activeCard);
     }
   }, [activeCard]);
 
@@ -300,27 +410,8 @@ export default function CardsPage() {
     updatedCards[activeIndex].manual_invoice_amount = newInvoiceVal;
     setCards(updatedCards);
 
-    // Recalculate usedLimit immediately
-    if (newInvoiceVal !== null) {
-      setUsedLimit(newInvoiceVal);
-    } else {
-      // Recalculate from transactions
-      try {
-        const { data: allTxs } = await supabase
-          .from('transactions')
-          .select('amount')
-          .eq('card_id', activeCard.id);
-
-        if (allTxs) {
-          const sum = allTxs.reduce((acc, t) => acc + Math.abs(t.amount), 0);
-          setUsedLimit(sum);
-        } else {
-          setUsedLimit(0);
-        }
-      } catch (e) {
-        console.error('Error recalculating limit:', e);
-      }
-    }
+    // Reload card data with updated manual value
+    await loadCardData(updatedCards[activeIndex]);
 
     try {
       await supabase
@@ -486,7 +577,134 @@ export default function CardsPage() {
       setActiveIndex(nextIdx);
       fetchCardData();
     } catch (err: any) {
-      alert(err.message || 'Erro ao deletar cartão.');
+      console.error('Error deleting card:', err);
+      alert(err.message || 'Erro ao excluir cartão.');
+    }
+  };
+  
+  // Create installment purchase handler
+  const handleCreateInstallment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setInstError('');
+    setInstSuccess('');
+
+    if (!activeCard) return;
+    if (!instDescription || !instTotalAmount || !instTotalInstallments || !instPaidInstallments || !instFirstDueDate) {
+      setInstError('Preencha todos os campos obrigatórios.');
+      return;
+    }
+
+    const totalAmt = parseFloat(instTotalAmount);
+    const totalInsts = parseInt(instTotalInstallments, 10);
+    const paidInsts = parseInt(instPaidInstallments, 10);
+
+    if (isNaN(totalAmt) || totalAmt <= 0) {
+      setInstError('O valor total deve ser positivo.');
+      return;
+    }
+    if (isNaN(totalInsts) || totalInsts <= 0) {
+      setInstError('O número de parcelas deve ser maior que 0.');
+      return;
+    }
+    if (isNaN(paidInsts) || paidInsts < 0 || paidInsts > totalInsts) {
+      setInstError('Parcelas pagas inválidas (deve ser entre 0 e o total).');
+      return;
+    }
+
+    const installmentAmt = Number((totalAmt / totalInsts).toFixed(2));
+    const firstDate = new Date(instFirstDueDate);
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // 1. Create installment record
+      const { data: installment, error: instErr } = await supabase
+        .from('installments')
+        .insert({
+          user_id: user.id,
+          card_id: activeCard.id,
+          description: instDescription,
+          total_amount: totalAmt,
+          total_installments: totalInsts,
+          paid_installments: paidInsts,
+          installment_amount: installmentAmt,
+          first_due_date: firstDate.toISOString()
+        })
+        .select()
+        .single();
+
+      if (instErr) throw instErr;
+      if (!installment) throw new Error('Falha ao obter registro de parcelamento.');
+
+      // 2. Loop and generate reminders for each installment
+      const remindersToInsert = [];
+      for (let i = 1; i <= totalInsts; i++) {
+        const dueDate = new Date(firstDate);
+        dueDate.setMonth(dueDate.getMonth() + (i - 1));
+
+        // Create transaction directly if already paid, or create reminder
+        const isPaid = i <= paidInsts;
+
+        remindersToInsert.push({
+          user_id: user.id,
+          card_id: activeCard.id,
+          installment_id: installment.id,
+          title: `${instDescription} (${i}/${totalInsts})`,
+          amount: -installmentAmt, // negative for expense
+          due_date: dueDate.toISOString(),
+          paid: isPaid,
+          urgency: 'medium',
+          is_recurring: false,
+          category_icon: 'CreditCard',
+          brand_color: 'amber'
+        });
+      }
+
+      const { error: remErr } = await supabase
+        .from('reminders')
+        .insert(remindersToInsert);
+
+      if (remErr) throw remErr;
+
+      setInstSuccess('Compra parcelada registrada com sucesso!');
+      
+      // Clear form
+      setInstDescription('');
+      setInstTotalAmount('');
+      setInstTotalInstallments('10');
+      setInstPaidInstallments('0');
+      setInstFirstDueDate('');
+
+      // Reload
+      setTimeout(async () => {
+        setIsInstallmentOpen(false);
+        setInstSuccess('');
+        loadCardData(activeCard);
+      }, 1000);
+
+    } catch (err: any) {
+      setInstError(err.message || 'Erro ao registrar compra parcelada.');
+    }
+  };
+
+  // Delete installment handler
+  const handleDeleteInstallment = async (installmentId: string, desc: string) => {
+    if (!activeCard) return;
+    if (!window.confirm(`Excluir definitivamente o parcelamento "${desc}"? Isso removerá todas as parcelas não pagas vinculadas.`)) return;
+
+    try {
+      const { error } = await supabase
+        .from('installments')
+        .delete()
+        .eq('id', installmentId);
+
+      if (error) throw error;
+
+      loadCardData(activeCard);
+
+    } catch (err: any) {
+      alert(err.message || 'Erro ao deletar parcelamento.');
     }
   };
 
@@ -653,7 +871,7 @@ export default function CardsPage() {
                   <div>
                     <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Fatura Acumulada</p>
                     <p className="text-lg font-black mt-1 text-slate-200">
-                      {usedLimit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                      {currentInvoice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                     </p>
                   </div>
                   <div>
@@ -900,53 +1118,157 @@ export default function CardsPage() {
                 </div>
               </div>
 
-              {/* Recent Purchases List */}
-              <div className="glass bg-slate-900/40 rounded-[32px] border border-white/5 p-8 flex flex-col overflow-hidden min-h-[300px]">
-                <div className="flex justify-between items-center mb-6 shrink-0">
-                  <div>
-                    <h2 className="text-sm font-black uppercase tracking-wider">Últimos Lançamentos</h2>
-                    <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mt-0.5">Filtrado pelo cartão selecionado</p>
+              {/* Tabbed Purchases & Installments Panel */}
+              <div className="glass bg-slate-900/40 rounded-[32px] border border-white/5 p-8 flex flex-col overflow-hidden min-h-[400px]">
+                {/* Tabs Header */}
+                <div className="flex justify-between items-center mb-6 shrink-0 border-b border-white/5 pb-4">
+                  <div className="flex gap-4">
+                    <button
+                      onClick={() => setRightTab('transactions')}
+                      className={`text-xs font-black uppercase tracking-widest transition-colors cursor-pointer pb-2 -mb-4.5 border-b-2 ${
+                        rightTab === 'transactions' ? 'text-emerald-400 border-emerald-500' : 'text-slate-500 border-transparent hover:text-slate-300'
+                      }`}
+                    >
+                      Lançamentos Recentes
+                    </button>
+                    <button
+                      onClick={() => setRightTab('installments')}
+                      className={`text-xs font-black uppercase tracking-widest transition-colors cursor-pointer pb-2 -mb-4.5 border-b-2 ${
+                        rightTab === 'installments' ? 'text-emerald-400 border-emerald-500' : 'text-slate-500 border-transparent hover:text-slate-300'
+                      }`}
+                    >
+                      Compras Parceladas
+                    </button>
                   </div>
-                </div>
-
-                <div className="flex-1 overflow-y-auto no-scrollbar space-y-4 max-h-[320px] pr-1">
-                  {cardTransactions.length === 0 ? (
-                    <div className="text-center py-16 text-slate-500 space-y-4 flex flex-col items-center justify-center">
-                      <AlertCircle className="w-10 h-10 text-slate-700 stroke-[1.5]" />
-                      <p className="text-[10px] font-black uppercase tracking-widest">Nenhuma compra</p>
-                      <p className="text-[9px] text-slate-500 max-w-[200px] leading-relaxed">
-                        Despesas na categoria "Cartão" associadas a este cartão aparecerão aqui.
-                      </p>
-                    </div>
-                  ) : (
-                    cardTransactions.map((tx) => (
-                      <div 
-                        key={tx.id} 
-                        className="flex justify-between items-center p-3.5 bg-slate-950/40 border border-white/5 rounded-2xl hover:border-white/10 transition-colors"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-slate-900 border border-white/5 flex items-center justify-center text-slate-400 text-xs">
-                            💳
-                          </div>
-                          <div>
-                            <p className="text-xs font-black text-slate-200">{tx.description}</p>
-                            <p className="text-[8px] text-slate-500 font-bold uppercase tracking-widest mt-0.5">
-                              {new Date(tx.date).toLocaleDateString('pt-BR')}
-                            </p>
-                          </div>
-                        </div>
-                        <p className="text-xs font-black text-slate-200 text-right">
-                          {-Math.abs(tx.amount).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                        </p>
-                      </div>
-                    ))
+                  {rightTab === 'installments' && (
+                    <button
+                      onClick={() => setIsInstallmentOpen(true)}
+                      className="px-2.5 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/25 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all cursor-pointer"
+                    >
+                      + Novo Parcelamento
+                    </button>
                   )}
                 </div>
 
+                {/* Tab Contents */}
+                {rightTab === 'transactions' ? (
+                  <div className="flex-1 overflow-y-auto no-scrollbar space-y-4 max-h-[320px] pr-1">
+                    {cardTransactions.length === 0 ? (
+                      <div className="text-center py-16 text-slate-500 space-y-4 flex flex-col items-center justify-center">
+                        <AlertCircle className="w-10 h-10 text-slate-700 stroke-[1.5]" />
+                        <p className="text-[10px] font-black uppercase tracking-widest">Nenhuma compra</p>
+                        <p className="text-[9px] text-slate-500 max-w-[200px] leading-relaxed">
+                          Despesas na categoria "Cartão" associadas a este cartão aparecerão aqui.
+                        </p>
+                      </div>
+                    ) : (
+                      cardTransactions.map((tx) => (
+                        <div 
+                          key={tx.id} 
+                          className="flex justify-between items-center p-3.5 bg-slate-950/40 border border-white/5 rounded-2xl hover:border-white/10 transition-colors"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-full bg-slate-900 border border-white/5 flex items-center justify-center text-slate-400 text-xs">
+                              💳
+                            </div>
+                            <div>
+                              <p className="text-xs font-black text-slate-200">{tx.description}</p>
+                              <p className="text-[8px] text-slate-500 font-bold uppercase tracking-widest mt-0.5">
+                                {new Date(tx.date).toLocaleDateString('pt-BR')}
+                              </p>
+                            </div>
+                          </div>
+                          <p className="text-xs font-black text-slate-200 text-right">
+                            {-Math.abs(tx.amount).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          </p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex-1 overflow-y-auto no-scrollbar space-y-4 max-h-[320px] pr-1">
+                    {installments.length === 0 ? (
+                      <div className="text-center py-16 text-slate-500 space-y-4 flex flex-col items-center justify-center">
+                        <AlertCircle className="w-10 h-10 text-slate-700 stroke-[1.5]" />
+                        <p className="text-[10px] font-black uppercase tracking-widest">Nenhum parcelamento</p>
+                        <p className="text-[9px] text-slate-500 max-w-[200px] leading-relaxed">
+                          Registre suas compras parceladas para acompanhar o progresso de pagamentos aqui.
+                        </p>
+                      </div>
+                    ) : (
+                      installments.map((inst) => {
+                        const amountPaid = inst.paid_installments * inst.installment_amount;
+                        const amountRemaining = Math.max(0, inst.total_amount - amountPaid);
+                        const percentagePaid = inst.total_installments > 0 
+                          ? Math.round((inst.paid_installments / inst.total_installments) * 100) 
+                          : 0;
+
+                        return (
+                          <div 
+                            key={inst.id} 
+                            className="p-5 bg-slate-950/40 border border-white/5 rounded-2xl space-y-3 relative group hover:border-white/10 transition-colors"
+                          >
+                            {/* Header */}
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <p className="text-xs font-black text-slate-200">{inst.description}</p>
+                                <p className="text-[8px] text-slate-500 font-bold uppercase tracking-widest mt-0.5">
+                                  {inst.paid_installments} de {inst.total_installments} parcelas pagas ({percentagePaid}%)
+                                </p>
+                              </div>
+                              <button
+                                onClick={() => handleDeleteInstallment(inst.id, inst.description)}
+                                className="px-2 py-1 bg-red-500/10 hover:bg-red-500/25 border border-red-500/20 text-red-400 text-[8px] font-bold rounded transition-colors opacity-0 group-hover:opacity-100 cursor-pointer"
+                                title="Excluir parcelamento"
+                              >
+                                Excluir
+                              </button>
+                            </div>
+
+                            {/* Progress bar */}
+                            <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden border border-white/5">
+                              <div 
+                                className="bg-emerald-500 h-full rounded-full transition-all duration-300"
+                                style={{ width: `${Math.min(100, percentagePaid)}%` }}
+                              ></div>
+                            </div>
+
+                            {/* Amount details */}
+                            <div className="grid grid-cols-3 gap-2 text-[9px] font-bold text-slate-500 uppercase tracking-wider pt-2 border-t border-white/5">
+                              <div>
+                                <span>Pago:</span>
+                                <p className="text-slate-300 font-black font-mono mt-0.5">
+                                  {amountPaid.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                </p>
+                              </div>
+                              <div>
+                                <span>Restante:</span>
+                                <p className={`${activeTheme.accentText} font-black font-mono mt-0.5`}>
+                                  {amountRemaining.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                </p>
+                              </div>
+                              <div className="text-right">
+                                <span>Total:</span>
+                                <p className="text-slate-200 font-black font-mono mt-0.5">
+                                  {inst.total_amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
+
+                {/* Footer Total */}
                 <div className="border-t border-white/5 pt-6 mt-6 shrink-0 flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-slate-400">
-                  <span>Total Faturado</span>
+                  <span>{rightTab === 'transactions' ? 'Total Faturado' : 'Total em Parcelamentos'}</span>
                   <span className="text-slate-100 font-black text-sm">
-                    {usedLimit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                    {rightTab === 'transactions' 
+                      ? currentInvoice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                      : installments.reduce((sum, inst) => sum + inst.total_amount, 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                    }
                   </span>
                 </div>
               </div>
@@ -964,7 +1286,7 @@ export default function CardsPage() {
               <div className="flex justify-between items-center mb-8">
                 <div>
                   <h2 className="text-sm font-black uppercase tracking-wider">Novo Cartão</h2>
-                  <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mt-0.5">Adicione um novo cartão de crédito à sua carteira</p>
+                  <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mt-0.5">Adicione um new cartão de crédito à sua carteira</p>
                 </div>
                 <button
                   onClick={() => setIsCreateOpen(false)}
@@ -1096,6 +1418,133 @@ export default function CardsPage() {
                     className="flex-1 py-3.5 bg-emerald-500 hover:bg-emerald-600 text-white text-[10px] font-black rounded-xl uppercase tracking-widest shadow-lg shadow-emerald-500/25 transition-all cursor-pointer text-center"
                   >
                     Cadastrar
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Drawer for creating an installment purchase */}
+      {isInstallmentOpen && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex justify-end animate-in fade-in duration-200">
+          <div className="w-full max-w-md bg-slate-900 border-l border-white/10 h-full p-8 flex flex-col justify-between shadow-2xl animate-in slide-in-from-right duration-300">
+            <div>
+              <div className="flex justify-between items-center mb-8">
+                <div>
+                  <h2 className="text-sm font-black uppercase tracking-wider">Novo Parcelamento</h2>
+                  <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mt-0.5">Registre uma compra parcelada vinculada a este cartão</p>
+                </div>
+                <button
+                  onClick={() => setIsInstallmentOpen(false)}
+                  className="w-8 h-8 rounded-lg bg-slate-950 hover:bg-slate-800 border border-white/5 flex items-center justify-center text-slate-400 hover:text-white transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {instError && (
+                <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{instError}</span>
+                </div>
+              )}
+
+              {instSuccess && (
+                <div className="mb-6 p-4 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center gap-2">
+                  <Check className="w-4 h-4 shrink-0" />
+                  <span>{instSuccess}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleCreateInstallment} className="space-y-4">
+                <div>
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Descrição / Produto</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ex: Notebook, Smartphone"
+                    value={instDescription}
+                    onChange={(e) => setInstDescription(e.target.value)}
+                    className="w-full px-4 py-3 bg-slate-950 border border-white/5 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500/20 text-white"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Valor Total da Compra (R$)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      required
+                      placeholder="Ex: 1200.00"
+                      value={instTotalAmount}
+                      onChange={(e) => setInstTotalAmount(e.target.value)}
+                      className="w-full px-4 py-3 bg-slate-950 border border-white/5 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500/20 text-white font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Primeiro Vencimento</label>
+                    <input
+                      type="date"
+                      required
+                      value={instFirstDueDate}
+                      onChange={(e) => setInstFirstDueDate(e.target.value)}
+                      className="w-full px-4 py-3 bg-slate-950 border border-white/5 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500/20 text-white font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Total de Parcelas</label>
+                    <input
+                      type="number"
+                      min={1}
+                      required
+                      placeholder="Ex: 10"
+                      value={instTotalInstallments}
+                      onChange={(e) => setInstTotalInstallments(e.target.value)}
+                      className="w-full px-4 py-3 bg-slate-950 border border-white/5 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500/20 text-white text-center font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Parcelas Já Pagas</label>
+                    <input
+                      type="number"
+                      min={0}
+                      required
+                      placeholder="Ex: 5"
+                      value={instPaidInstallments}
+                      onChange={(e) => setInstPaidInstallments(e.target.value)}
+                      className="w-full px-4 py-3 bg-slate-950 border border-white/5 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500/20 text-white text-center font-mono"
+                    />
+                  </div>
+                </div>
+
+                {instTotalAmount && instTotalInstallments && (
+                  <div className="p-4 bg-slate-950/60 border border-white/5 rounded-xl text-[10px] text-slate-400 font-bold uppercase tracking-widest space-y-1">
+                    <p>Valor por Parcela:</p>
+                    <p className="text-sm font-black text-white font-mono">
+                      {((parseFloat(instTotalAmount) || 0) / (parseInt(instTotalInstallments, 10) || 1)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                    </p>
+                  </div>
+                )}
+
+                <div className="pt-6 border-t border-white/5 flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setIsInstallmentOpen(false)}
+                    className="flex-1 py-3.5 border border-white/5 hover:bg-white/5 text-slate-300 text-[10px] font-black rounded-xl uppercase tracking-widest transition-all cursor-pointer text-center"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 py-3.5 bg-emerald-500 hover:bg-emerald-600 text-white text-[10px] font-black rounded-xl uppercase tracking-widest shadow-lg shadow-emerald-500/25 transition-all cursor-pointer text-center"
+                  >
+                    Registrar
                   </button>
                 </div>
               </form>
