@@ -160,27 +160,19 @@ function TasksPageContent() {
 
   const fetchData = async (userId: string) => {
     try {
-      // 1. Fetch Projects
-      const { data: dbProjects } = await supabase
-        .from('tasks_projects')
-        .select('*')
-        .eq('user_id', userId);
+      // Parallel fetch of all task-related datasets to eliminate waterfall latency
+      const [
+        { data: dbProjects },
+        { data: dbTasks },
+        { data: dbTranscriptions }
+      ] = await Promise.all([
+        supabase.from('tasks_projects').select('*').eq('user_id', userId),
+        supabase.from('tasks').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
+        supabase.from('transcriptions').select('*').eq('user_id', userId).order('transcribed_at', { ascending: false })
+      ]);
+      
       setProjects(dbProjects || []);
-
-      // 2. Fetch Tasks
-      const { data: dbTasks } = await supabase
-        .from('tasks')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false });
       setTasks(dbTasks || []);
-
-      // 3. Fetch Transcriptions
-      const { data: dbTranscriptions } = await supabase
-        .from('transcriptions')
-        .select('*')
-        .eq('user_id', userId)
-        .order('transcribed_at', { ascending: false });
       setTranscriptions(dbTranscriptions || []);
 
       // Automatically select the first transcription for the AI command hub

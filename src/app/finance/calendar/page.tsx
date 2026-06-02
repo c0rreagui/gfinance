@@ -138,30 +138,19 @@ export default function FinancialCalendar() {
 
       setUserId(user.id);
 
-      // 1. Fetch user initial balance from profiles
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('initial_balance')
-        .eq('id', user.id)
-        .single();
+      // Parallel fetch of all calendar datasets to eliminate waterfall latency
+      const [
+        { data: profile },
+        { data: txs },
+        { data: rems }
+      ] = await Promise.all([
+        supabase.from('profiles').select('initial_balance').eq('id', user.id).single(),
+        supabase.from('transactions').select('*').eq('user_id', user.id).order('date', { ascending: true }),
+        supabase.from('reminders').select('*').eq('user_id', user.id)
+      ]);
       
       setInitialBalance(Number(profile?.initial_balance) || 0);
-
-      // 2. Fetch all transactions for the user
-      const { data: txs } = await supabase
-        .from('transactions')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('date', { ascending: true });
-
       setTransactions(txs || []);
-
-      // 3. Fetch reminders (both recurring and unpaid one-offs)
-      const { data: rems } = await supabase
-        .from('reminders')
-        .select('*')
-        .eq('user_id', user.id);
-
       setReminders(rems || []);
 
     } catch (err) {

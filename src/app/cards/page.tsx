@@ -91,23 +91,18 @@ export default function CardsPage() {
         }
       }
 
-      // 3. Buscar lançamentos de cartão de crédito no Supabase
-      const { data, error } = await supabase
-        .from('transactions')
-        .select('*')
-        .eq('category', 'Cartão')
-        .order('date', { ascending: false })
-        .limit(10);
+      // Parallel fetch of card-related transactions to avoid waterfall latency
+      const [
+        { data, error },
+        { data: allTxs }
+      ] = await Promise.all([
+        supabase.from('transactions').select('*').eq('category', 'Cartão').order('date', { ascending: false }).limit(10),
+        supabase.from('transactions').select('amount').eq('category', 'Cartão')
+      ]);
 
       if (error) throw error;
       setCardTransactions(data || []);
       
-      // Calcular valor de despesa total na categoria Cartão
-      const { data: allTxs } = await supabase
-        .from('transactions')
-        .select('amount')
-        .eq('category', 'Cartão');
-
       if (allTxs) {
         const sum = allTxs.reduce((acc, t) => acc + Math.abs(t.amount), 0);
         setUsedLimit(sum);

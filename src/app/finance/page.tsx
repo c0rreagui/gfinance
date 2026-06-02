@@ -121,11 +121,20 @@ export default function FinanceDashboard() {
         }
       }
 
-      // 1. Fetch Balances
-      const { data: dbBalances } = await supabase
-        .from('balances')
-        .select('*')
-        .eq('user_id', userId);
+      // Parallel fetch of all dashboard datasets to eliminate waterfall latency
+      const [
+        { data: dbBalances },
+        { data: dbTransactions },
+        { data: dbReminders },
+        { data: dbGoals },
+        { data: dbCards }
+      ] = await Promise.all([
+        supabase.from('balances').select('*').eq('user_id', userId),
+        supabase.from('transactions').select('*').eq('user_id', userId).lte('date', new Date().toISOString()).order('date', { ascending: false }).limit(5),
+        supabase.from('reminders').select('*').eq('user_id', userId).eq('paid', false).order('due_date', { ascending: true }).limit(2),
+        supabase.from('goals').select('*').eq('user_id', userId).limit(2),
+        supabase.from('credit_cards').select('last_four').eq('user_id', userId).limit(1)
+      ]);
       
       if (dbBalances && dbBalances.length > 0) {
         const formattedStats = dbBalances.map((b: { id: string; label: string; amount: number; trend: string; icon: string; type: string }) => ({
@@ -138,51 +147,17 @@ export default function FinanceDashboard() {
         }));
         setStats(formattedStats);
       } else {
-        // Initialize default empty stats for new user
         setStats([
           { id: '1', label: 'Saldo Total', value: 'R$ 0,00', trend: '+0%', icon: 'Wallet', color: 'emerald' },
           { id: '2', label: 'Receitas', value: 'R$ 0,00', trend: '+0%', icon: 'ArrowUpCircle', color: 'emerald' },
           { id: '3', label: 'Despesas', value: 'R$ 0,00', trend: '-0%', icon: 'ArrowDownCircle', color: 'orange' }
         ]);
       }
-
-      // 2. Fetch Transactions (excluding future-dated transactions)
-      const { data: dbTransactions } = await supabase
-        .from('transactions')
-        .select('*')
-        .eq('user_id', userId)
-        .lte('date', new Date().toISOString())
-        .order('date', { ascending: false })
-        .limit(5);
-      
+ 
       setTransactions(dbTransactions || []);
-
-      // 3. Fetch Reminders
-      const { data: dbReminders } = await supabase
-        .from('reminders')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('paid', false)
-        .order('due_date', { ascending: true })
-        .limit(2);
-      
       setReminders(dbReminders || []);
-
-      // 4. Fetch Goals
-      const { data: dbGoals } = await supabase
-        .from('goals')
-        .select('*')
-        .eq('user_id', userId)
-        .limit(2);
-      
       setGoals(dbGoals || []);
 
-      // 5. Fetch Credit Card Last Four
-      const { data: dbCards } = await supabase
-        .from('credit_cards')
-        .select('last_four')
-        .eq('user_id', userId)
-        .limit(1);
       if (dbCards && dbCards.length > 0 && dbCards[0].last_four) {
         setCardLastFour(dbCards[0].last_four);
       }
