@@ -151,7 +151,14 @@ export default function DebtsPage() {
         .select('*')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
-      setInstallments(instData || []);
+      const parsedInsts = (instData || []).map(i => ({
+        ...i,
+        total_amount: typeof i.total_amount === 'string' ? parseFloat(i.total_amount) : (i.total_amount || 0),
+        installment_amount: typeof i.installment_amount === 'string' ? parseFloat(i.installment_amount) : (i.installment_amount || 0),
+        paid_installments: Number(i.paid_installments || 0),
+        total_installments: Number(i.total_installments || 0)
+      }));
+      setInstallments(parsedInsts);
 
       // 3. Fetch Reminders (Expenses only: amount < 0)
       const { data: remData } = await supabase
@@ -160,7 +167,11 @@ export default function DebtsPage() {
         .eq('user_id', user.id)
         .lt('amount', 0)
         .order('due_date', { ascending: true });
-      setReminders(remData || []);
+      const parsedRems = (remData || []).map(r => ({
+        ...r,
+        amount: typeof r.amount === 'string' ? parseFloat(r.amount) : (r.amount || 0)
+      }));
+      setReminders(parsedRems);
 
     } catch (e) {
       console.error('Error fetching data for debts page:', e);

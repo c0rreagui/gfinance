@@ -175,7 +175,11 @@ export default function Subscriptions() {
         .order('due_date', { ascending: true });
 
       if (error) throw error;
-      setReminders(data || []);
+      const parsedData = (data || []).map(r => ({
+        ...r,
+        amount: typeof r.amount === 'string' ? parseFloat(r.amount) : (r.amount || 0)
+      }));
+      setReminders(parsedData);
 
       // 2. Fetch credit cards
       const { data: cardsData } = await supabase

@@ -273,7 +273,13 @@ export default function CardsPage() {
         }
       }
 
-      const fetchedCards = dbCards || [];
+      const fetchedCards = (dbCards || []).map(c => ({
+        ...c,
+        card_limit: typeof c.card_limit === 'string' ? parseFloat(c.card_limit) : (c.card_limit || 0),
+        manual_invoice_amount: c.manual_invoice_amount !== null && c.manual_invoice_amount !== undefined 
+          ? (typeof c.manual_invoice_amount === 'string' ? parseFloat(c.manual_invoice_amount) : c.manual_invoice_amount)
+          : null
+      }));
       setCards(fetchedCards);
 
       // Select proper card index
@@ -295,6 +301,34 @@ export default function CardsPage() {
     fetchCardData();
   }, []);
 
+  useEffect(() => {
+    if (!activeCard) return;
+
+    // Subscribe to schema changes to keep card metrics synced in real-time
+    const channel = supabase
+      .channel('cards-realtime-sync')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'transactions' },
+        () => { loadCardData(activeCard); }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'installments' },
+        () => { fetchCardData(activeCard.id); }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'reminders' },
+        () => { loadCardData(activeCard); }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [activeCard?.id]);
+
   const loadCardData = async (card: DBCreditCard) => {
     if (!card) return;
     try {
@@ -307,7 +341,11 @@ export default function CardsPage() {
         .eq('card_id', card.id)
         .order('date', { ascending: false })
         .limit(10);
-      setCardTransactions(recentTxs || []);
+      const parsedRecent = (recentTxs || []).map(t => ({
+        ...t,
+        amount: typeof t.amount === 'string' ? parseFloat(t.amount) : (t.amount || 0)
+      }));
+      setCardTransactions(parsedRecent);
 
       // 2. Fetch all installments
       const { data: insts } = await supabase
@@ -315,8 +353,14 @@ export default function CardsPage() {
         .select('*')
         .eq('card_id', card.id)
         .order('created_at', { ascending: false });
-      const activeInsts = insts || [];
-      setInstallments(activeInsts);
+      const parsedInsts = (insts || []).map(i => ({
+        ...i,
+        total_amount: typeof i.total_amount === 'string' ? parseFloat(i.total_amount) : (i.total_amount || 0),
+        installment_amount: typeof i.installment_amount === 'string' ? parseFloat(i.installment_amount) : (i.installment_amount || 0),
+        paid_installments: Number(i.paid_installments || 0),
+        total_installments: Number(i.total_installments || 0)
+      }));
+      setInstallments(parsedInsts);
 
       // 3. Fetch cycle transactions
       const { data: cycleTxs } = await supabase
@@ -325,7 +369,10 @@ export default function CardsPage() {
         .eq('card_id', card.id)
         .gte('date', startDate.toISOString())
         .lte('date', endDate.toISOString());
-      const txsInCycle = cycleTxs || [];
+      const parsedCycleTxs = (cycleTxs || []).map(t => ({
+        ...t,
+        amount: typeof t.amount === 'string' ? parseFloat(t.amount) : (t.amount || 0)
+      }));
 
       // 4. Fetch cycle unpaid reminders
       const { data: cycleRems } = await supabase
@@ -335,23 +382,26 @@ export default function CardsPage() {
         .eq('paid', false)
         .gte('due_date', startDate.toISOString())
         .lte('due_date', endDate.toISOString());
-      const remsInCycle = cycleRems || [];
+      const parsedCycleRems = (cycleRems || []).map(r => ({
+        ...r,
+        amount: typeof r.amount === 'string' ? parseFloat(r.amount) : (r.amount || 0)
+      }));
 
       // 5. Calculate Fatura Atual (Current Invoice)
       if (card.manual_invoice_amount !== null && card.manual_invoice_amount !== undefined) {
         setCurrentInvoice(Number(card.manual_invoice_amount));
       } else {
-        const txsSum = txsInCycle.reduce((acc, t) => acc + Math.abs(t.amount), 0);
-        const remsSum = remsInCycle.reduce((acc, r) => acc + Math.abs(r.amount), 0);
+        const txsSum = parsedCycleTxs.reduce((acc, t) => acc + Math.abs(t.amount), 0);
+        const remsSum = parsedCycleRems.reduce((acc, r) => acc + Math.abs(r.amount), 0);
         setCurrentInvoice(txsSum + remsSum);
       }
 
       // 6. Calculate usedLimit (Outstanding Debt Consuming Limit)
-      const oneOffTxsSum = txsInCycle
+      const oneOffTxsSum = parsedCycleTxs
         .filter(t => !t.installment_id)
         .reduce((acc, t) => acc + Math.abs(t.amount), 0);
       
-      const remainingInstsSum = activeInsts.reduce((acc, inst) => {
+      const remainingInstsSum = parsedInsts.reduce((acc, inst) => {
         const paidAmt = inst.paid_installments * inst.installment_amount;
         return acc + Math.max(0, inst.total_amount - paidAmt);
       }, 0);
