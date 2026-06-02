@@ -265,3 +265,16 @@ GEMINI_API_KEY=<salvo no gerenciador — não commitar>
 ---
 
 *Wiki gerada e mantida pelo Antigravity Agent • Auditoria: 02/06/2026*
+
+---
+
+## 📓 Histórico de Validações (Audit Logs)
+
+### 🗓️ 02 de Junho de 2026 — /hm-DeEnQaUxVallPloy Pipeline
+- **Veredicto:** BASELINE-READY
+- **Findings CRITICO/ALTO:**
+  - `[ALTO] Rota de Teste Exposta`: `/api/ai/test/route.ts` expõe diagnósticos sem autenticação obrigatória. Ação: Deletar ou restringir rota.
+  - `[ALTO] Tipo Any no Código`: Uso extenso de `any` em `reconcile.ts` e `page.tsx` quebrando strict checks. Ação: Tipagem estrita.
+- **UX/UI Highlights:** Substituir spinners de carregamento inicial por shimmer skeletons. Implementar suporte mobile para privacidade no Calendário.
+- **Status de Deploy:** Aprovado para Vercel/Supabase.
+
