@@ -30,6 +30,7 @@ interface Transaction {
   category: string;
   amount: number;
   icon: string;
+  reminder_id?: string | null;
 }
 
 interface Reminder {
@@ -231,19 +232,18 @@ export default function FinancialCalendar() {
 
   const monthName = currentDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
 
-  // 1. Calculate historical starting balance prior to the 1st of the current month
-  const firstDayOfMonth = new Date(year, month, 1);
-
+  // 1. Calculate historical starting balance prior to the 1st of the current month (in UTC to match database timestamps)
   const startBalancePriorToMonth = useMemo(() => {
     let bal = initialBalance;
+    const firstDayOfMonthUTC = new Date(Date.UTC(year, month, 1));
     transactions.forEach((tx) => {
       const txDate = new Date(tx.date);
-      if (txDate < firstDayOfMonth) {
+      if (txDate < firstDayOfMonthUTC) {
         bal += tx.amount;
       }
     });
     return bal;
-  }, [transactions, initialBalance, firstDayOfMonth]);
+  }, [transactions, initialBalance, year, month]);
 
   // 2. Map all transactions and replicated reminders to specific days in the current month
   const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -285,13 +285,15 @@ export default function FinancialCalendar() {
       map[d] = [];
     }
 
-    // A. Add transactions that fall into this month
+    // A. Add transactions that fall into this month (using UTC values to avoid timezone shift)
     transactions.forEach((tx) => {
       const txDate = new Date(tx.date);
-      if (txDate.getFullYear() === year && txDate.getMonth() === month) {
-        const d = txDate.getDate();
-        if (map[d]) {
-          map[d].push({
+      const txYear = txDate.getUTCFullYear();
+      const txMonth = txDate.getUTCMonth();
+      const txDay = txDate.getUTCDate();
+      if (txYear === year && txMonth === month) {
+        if (map[txDay]) {
+          map[txDay].push({
             id: tx.id,
             type: 'transaction',
             title: tx.description,
@@ -334,6 +336,13 @@ export default function FinancialCalendar() {
           dayOfMonth = getLastBusinessDay(year, month);
         }
         
+        // Dynamically check if a transaction exists for this reminder in the active month
+        const isPaidInActiveMonth = transactions.some((tx) => {
+          if (tx.reminder_id !== rem.id) return false;
+          const txDate = new Date(tx.date);
+          return txDate.getUTCFullYear() === year && txDate.getUTCMonth() === month;
+        });
+        
         if (map[dayOfMonth]) {
           map[dayOfMonth].push({
             id: rem.id,
@@ -342,15 +351,17 @@ export default function FinancialCalendar() {
             amount: resolvedAmount,
             category: rem.category_icon ? (isIncomeReminder ? 'Receita Recorrente' : 'Assinatura') : 'Lançamento Fixo',
             icon: rem.category_icon || 'Repeat',
-            paid: rem.paid
+            paid: isPaidInActiveMonth
           });
         }
       } else {
-        // One-off reminder: only draws if it falls exactly in this month/year
-        if (remDate.getFullYear() === year && remDate.getMonth() === month) {
-          const dayOfMonth = remDate.getDate();
-          if (map[dayOfMonth]) {
-            map[dayOfMonth].push({
+        // One-off reminder: only draws if it falls exactly in this month/year (using UTC dates)
+        const remYear = remDate.getUTCFullYear();
+        const remMonth = remDate.getUTCMonth();
+        const remDay = remDate.getUTCDate();
+        if (remYear === year && remMonth === month) {
+          if (map[remDay]) {
+            map[remDay].push({
               id: rem.id,
               type: 'reminder',
               title: rem.title,
@@ -430,16 +441,77 @@ export default function FinancialCalendar() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // 9. 1-Click Quick-Pay toggle
-  const handleTogglePaid = async (id: string) => {
+  // 9. 1-Click Quick-Pay toggle (handles recurring reminder instances and one-off toggles)
+  const handleTogglePaid = async (id: string, isRecurringReminder?: boolean, calculatedDate?: Date) => {
     playHapticClick();
-    try {
-      const { error } = await supabase
-        .from('reminders')
-        .update({ paid: true })
-        .eq('id', id);
+    
+    const rem = reminders.find(r => r.id === id);
+    if (!rem) return;
 
-      if (error) throw error;
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      if (isRecurringReminder && calculatedDate) {
+        const isIncomeReminder = rem.amount > 0 && (
+          rem.category_icon === 'ArrowDownLeft' ||
+          rem.category_icon === 'Wallet' ||
+          rem.title.toLowerCase().includes('salário') ||
+          rem.title.toLowerCase().includes('receita') ||
+          rem.title.toLowerCase().includes('rendimento')
+        );
+        const resolvedAmount = rem.amount < 0 
+          ? rem.amount 
+          : isIncomeReminder 
+          ? rem.amount 
+          : -rem.amount;
+
+        const category = rem.category_icon 
+          ? (isIncomeReminder ? 'Salário' : (rem.category_icon === 'Tv' ? 'Assinaturas' : 'Outros')) 
+          : 'Outros';
+
+        const yearVal = calculatedDate.getFullYear();
+        const monthVal = calculatedDate.getMonth();
+        const startOfMonth = new Date(Date.UTC(yearVal, monthVal, 1, 0, 0, 0)).toISOString();
+        const endOfMonth = new Date(Date.UTC(yearVal, monthVal + 1, 0, 23, 59, 59)).toISOString();
+
+        const { data: existingTx } = await supabase
+          .from('transactions')
+          .select('id')
+          .eq('reminder_id', rem.id)
+          .gte('date', startOfMonth)
+          .lte('date', endOfMonth)
+          .limit(1);
+
+        if (existingTx && existingTx.length > 0) {
+          // Delete the transaction for this month (mark as unpaid)
+          await supabase
+            .from('transactions')
+            .delete()
+            .eq('id', existingTx[0].id);
+        } else {
+          // Create a transaction for this calculated business day
+          const formattedDate = new Date(Date.UTC(yearVal, monthVal, calculatedDate.getDate(), 12, 0, 0));
+          await supabase.from('transactions').insert({
+            user_id: user.id,
+            description: rem.title,
+            category: category,
+            amount: resolvedAmount,
+            icon: rem.category_icon || 'Repeat',
+            date: formattedDate.toISOString(),
+            reminder_id: rem.id,
+            source_type: 'manual'
+          });
+        }
+      } else {
+        // One-off reminder logic
+        const { error } = await supabase
+          .from('reminders')
+          .update({ paid: !rem.paid })
+          .eq('id', id);
+
+        if (error) throw error;
+      }
 
       await fetchCalendarData();
     } catch (err) {
@@ -982,13 +1054,17 @@ export default function FinancialCalendar() {
                           {/* 9. 1-Click Quick-Pay Checkbox */}
                           {showCheckbox && (
                             <button
-                              onClick={() => !ev.paid && handleTogglePaid(ev.id)}
+                              onClick={() => {
+                                const isRecurring = ev.type === 'subscription' || (reminders.find(r => r.id === ev.id)?.is_recurring);
+                                const calculatedDate = selectedDay ? new Date(year, month, selectedDay, 12, 0, 0) : new Date();
+                                handleTogglePaid(ev.id, isRecurring, calculatedDate);
+                              }}
                               className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 transition-colors ${
                                 ev.paid 
                                   ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-400' 
                                   : 'border-slate-600 hover:border-emerald-500 cursor-pointer'
                               }`}
-                              title={ev.paid ? 'Confirmado' : 'Marcar como Pago'}
+                              title={ev.paid ? 'Confirmado - Clique para desfazer' : 'Marcar como Pago'}
                             >
                               {ev.paid ? (
                                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
