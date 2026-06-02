@@ -13,7 +13,8 @@ import {
   Zap, 
   Activity,
   ChevronRight,
-  Sparkles
+  Sparkles,
+  Filter
 } from 'lucide-react';
 import { TiltCard } from '@/components/TiltCard';
 import { supabase } from '@/lib/supabase';
@@ -80,10 +81,52 @@ export default function FinanceDashboard() {
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
 
+  // Ignored range states
+  const [ignoredRange, setIgnoredRange] = useState<{ startDate: string; endDate: string } | null>(null);
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [filterStart, setFilterStart] = useState('');
+  const [filterEnd, setFilterEnd] = useState('');
+
+  useEffect(() => {
+    const rangeStr = localStorage.getItem('gfinance_ignored_period');
+    if (rangeStr) {
+      try {
+        const range = JSON.parse(rangeStr);
+        setIgnoredRange(range);
+        setFilterStart(range.startDate || '');
+        setFilterEnd(range.endDate || '');
+      } catch {}
+    }
+
+    const handleStorageChange = () => {
+      const updated = localStorage.getItem('gfinance_ignored_period');
+      if (updated) {
+        try {
+          const range = JSON.parse(updated);
+          setIgnoredRange(range);
+          setFilterStart(range.startDate || '');
+          setFilterEnd(range.endDate || '');
+        } catch {}
+      } else {
+        setIgnoredRange(null);
+        setFilterStart('');
+        setFilterEnd('');
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
   useEffect(() => {
     setMounted(true);
     checkUser();
   }, []);
+
+  useEffect(() => {
+    if (user) {
+      fetchDashboardData(user.id);
+    }
+  }, [ignoredRange, user?.id]);
 
   const checkUser = async () => {
     try {
@@ -121,6 +164,30 @@ export default function FinanceDashboard() {
         }
       }
 
+      // Fetch ignored transactions in parallel if ignoredRange is set
+      let ignoredIncome = 0;
+      let ignoredExpense = 0;
+
+      if (ignoredRange) {
+        const { data: ignoredTxs } = await supabase
+          .from('transactions')
+          .select('amount')
+          .eq('user_id', userId)
+          .gte('date', ignoredRange.startDate + 'T00:00:00Z')
+          .lte('date', ignoredRange.endDate + 'T23:59:59Z');
+
+        if (ignoredTxs) {
+          ignoredTxs.forEach(tx => {
+            const val = Number(tx.amount);
+            if (val > 0) {
+              ignoredIncome += val;
+            } else {
+              ignoredExpense += Math.abs(val);
+            }
+          });
+        }
+      }
+
       // Parallel fetch of all dashboard datasets to eliminate waterfall latency
       const [
         { data: dbBalances },
@@ -130,21 +197,33 @@ export default function FinanceDashboard() {
         { data: dbCards }
       ] = await Promise.all([
         supabase.from('balances').select('*').eq('user_id', userId),
-        supabase.from('transactions').select('*').eq('user_id', userId).lte('date', new Date().toISOString()).order('date', { ascending: false }).limit(5),
-        supabase.from('reminders').select('*').eq('user_id', userId).eq('paid', false).lt('amount', 0).order('due_date', { ascending: true }).limit(2),
+        supabase.from('transactions').select('*').eq('user_id', userId).lte('date', new Date().toISOString()).order('date', { ascending: false }).limit(ignoredRange ? 35 : 5),
+        supabase.from('reminders').select('*').eq('user_id', userId).eq('paid', false).lt('amount', 0).order('due_date', { ascending: true }).limit(10),
         supabase.from('goals').select('*').eq('user_id', userId).limit(2),
         supabase.from('credit_cards').select('last_four').eq('user_id', userId).limit(1)
       ]);
       
       if (dbBalances && dbBalances.length > 0) {
-        const formattedStats = dbBalances.map((b: { id: string; label: string; amount: any; trend: string; icon: string; type: string }) => ({
-          id: b.id,
-          label: b.label,
-          value: (typeof b.amount === 'string' ? parseFloat(b.amount) : (b.amount || 0)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
-          trend: b.trend || '+0%',
-          icon: b.icon || 'Wallet',
-          color: b.type === 'expense' ? 'orange' : 'emerald'
-        }));
+        const formattedStats = dbBalances.map((b: { id: string; label: string; amount: any; trend: string; icon: string; type: string }) => {
+          let amt = typeof b.amount === 'string' ? parseFloat(b.amount) : (b.amount || 0);
+          if (ignoredRange) {
+            if (b.type === 'income') {
+              amt = Math.max(0, amt - ignoredIncome);
+            } else if (b.type === 'expense') {
+              amt = Math.max(0, amt - ignoredExpense);
+            } else if (b.type === 'total') {
+              amt = amt - ignoredIncome + ignoredExpense;
+            }
+          }
+          return {
+            id: b.id,
+            label: b.label,
+            value: amt.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
+            trend: b.trend || '+0%',
+            icon: b.icon || 'Wallet',
+            color: b.type === 'expense' ? 'orange' : 'emerald'
+          };
+        });
         setStats(formattedStats);
       } else {
         setStats([
@@ -154,11 +233,37 @@ export default function FinanceDashboard() {
         ]);
       }
  
-      setTransactions((dbTransactions || []).map(t => ({
+      let filteredTxs = dbTransactions || [];
+      if (ignoredRange) {
+        const start = new Date(ignoredRange.startDate + 'T00:00:00Z');
+        const end = new Date(ignoredRange.endDate + 'T23:59:59Z');
+        filteredTxs = filteredTxs.filter(t => {
+          const tDate = new Date(t.date);
+          return !(tDate >= start && tDate <= end);
+        });
+      }
+
+      setTransactions(filteredTxs.slice(0, 5).map(t => ({
         ...t,
         amount: typeof t.amount === 'string' ? parseFloat(t.amount) : (t.amount || 0)
       })));
-      setReminders((dbReminders || []).map(r => ({
+
+      let filteredRems = dbReminders || [];
+      if (ignoredRange) {
+        const start = new Date(ignoredRange.startDate);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(ignoredRange.endDate);
+        end.setHours(23, 59, 59, 999);
+        
+        filteredRems = filteredRems.filter(r => {
+          if (!r.due_date) return true;
+          const due = new Date(r.due_date);
+          due.setHours(12, 0, 0, 0);
+          return !(due >= start && due <= end);
+        });
+      }
+
+      setReminders(filteredRems.slice(0, 2).map(r => ({
         ...r,
         amount: typeof r.amount === 'string' ? parseFloat(r.amount) : (r.amount || 0)
       })));
@@ -285,12 +390,94 @@ export default function FinanceDashboard() {
               <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mt-1">Conta Premium Vinculada ao Supabase</p>
             </div>
           </div>
-          <button 
-            onClick={handleLogout}
-            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-[10px] font-black rounded-xl uppercase tracking-widest transition-all cursor-pointer self-stretch sm:self-auto text-center"
-          >
-            Sair
-          </button>
+          <div className="flex items-center gap-3 self-stretch sm:self-auto justify-end relative">
+            {/* Ignored Range Filter Popover */}
+            <div className="relative">
+              <button
+                onClick={() => setIsFilterOpen(!isFilterOpen)}
+                className={`flex items-center gap-2 px-3 py-2 border rounded-xl transition-all text-[10px] font-black uppercase tracking-widest cursor-pointer shadow-lg shadow-black/20 ${
+                  ignoredRange
+                    ? 'bg-amber-500/10 border-amber-500/20 text-amber-400 hover:bg-amber-500/20'
+                    : 'bg-slate-900 border-white/5 text-slate-300 hover:bg-slate-800 hover:border-white/10 hover:text-white'
+                }`}
+                title="Ocultar lembretes pendentes por período"
+              >
+                <Filter className="w-3.5 h-3.5" />
+                <span>{ignoredRange ? 'Período Oculto' : 'Ignorar Período'}</span>
+              </button>
+
+              {isFilterOpen && (
+                <>
+                  <div className="fixed inset-0 z-45 cursor-default" onClick={() => setIsFilterOpen(false)} />
+                  <div className="absolute right-0 mt-2 w-72 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-2xl p-5 shadow-2xl backdrop-blur-md z-50 space-y-4 text-left">
+                    <div className="space-y-1">
+                      <h3 className="text-[10px] font-black uppercase tracking-wider text-slate-800 dark:text-slate-200">Filtro de Contas Passadas</h3>
+                      <p className="text-[9px] text-slate-500 font-medium leading-relaxed">
+                        Selecione um intervalo de datas para ignorar e ocultar contas e assinaturas pendentes do passado.
+                      </p>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest block mb-1">Data Início</label>
+                        <input 
+                          type="date" 
+                          value={filterStart}
+                          onChange={(e) => setFilterStart(e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-white/5 rounded-lg text-[10px] text-slate-850 dark:text-white focus:outline-none focus:ring-1 focus:ring-emerald-500/20 font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest block mb-1">Data Fim</label>
+                        <input 
+                          type="date" 
+                          value={filterEnd}
+                          onChange={(e) => setFilterEnd(e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-white/5 rounded-lg text-[10px] text-slate-850 dark:text-white focus:outline-none focus:ring-1 focus:ring-emerald-500/20 font-mono"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        onClick={() => {
+                          if (!filterStart || !filterEnd) return;
+                          const range = { startDate: filterStart, endDate: filterEnd };
+                          localStorage.setItem('gfinance_ignored_period', JSON.stringify(range));
+                          setIgnoredRange(range);
+                          setIsFilterOpen(false);
+                          window.dispatchEvent(new Event('storage'));
+                        }}
+                        className="flex-1 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 text-[9px] font-black rounded-lg uppercase tracking-widest transition-all cursor-pointer text-center border-0"
+                      >
+                        Aplicar
+                      </button>
+                      <button
+                        onClick={() => {
+                          localStorage.removeItem('gfinance_ignored_period');
+                          setIgnoredRange(null);
+                          setFilterStart('');
+                          setFilterEnd('');
+                          setIsFilterOpen(false);
+                          window.dispatchEvent(new Event('storage'));
+                        }}
+                        className="flex-1 py-2 bg-slate-200 dark:bg-slate-800 hover:bg-slate-350 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-[9px] font-black rounded-lg uppercase tracking-widest transition-all cursor-pointer text-center border-0"
+                      >
+                        Limpar
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <button 
+              onClick={handleLogout}
+              className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-[10px] font-black rounded-xl uppercase tracking-widest transition-all cursor-pointer text-center border-0"
+            >
+              Sair
+            </button>
+          </div>
         </div>
 
         {/* Quick Actions */}

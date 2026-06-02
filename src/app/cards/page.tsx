@@ -204,6 +204,29 @@ export default function CardsPage() {
   // Right Column Tab state
   const [rightTab, setRightTab] = useState<'transactions' | 'installments'>('transactions');
   const [installments, setInstallments] = useState<DBInstallment[]>([]);
+  const [ignoredRange, setIgnoredRange] = useState<{ startDate: string; endDate: string } | null>(null);
+
+  useEffect(() => {
+    const rangeStr = localStorage.getItem('gfinance_ignored_period');
+    if (rangeStr) {
+      try {
+        setIgnoredRange(JSON.parse(rangeStr));
+      } catch {}
+    }
+
+    const handleStorageChange = () => {
+      const updated = localStorage.getItem('gfinance_ignored_period');
+      if (updated) {
+        try {
+          setIgnoredRange(JSON.parse(updated));
+        } catch {}
+      } else {
+        setIgnoredRange(null);
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
   
   // Create installment states (Drawer modal)
   const [isInstallmentOpen, setIsInstallmentOpen] = useState(false);
@@ -340,12 +363,21 @@ export default function CardsPage() {
         .select('*')
         .eq('card_id', card.id)
         .order('date', { ascending: false })
-        .limit(10);
-      const parsedRecent = (recentTxs || []).map(t => ({
+        .limit(ignoredRange ? 35 : 10);
+      let parsedRecent = (recentTxs || []).map(t => ({
         ...t,
         amount: typeof t.amount === 'string' ? parseFloat(t.amount) : (t.amount || 0)
       }));
-      setCardTransactions(parsedRecent);
+
+      if (ignoredRange) {
+        const start = new Date(ignoredRange.startDate + 'T00:00:00Z');
+        const end = new Date(ignoredRange.endDate + 'T23:59:59Z');
+        parsedRecent = parsedRecent.filter(t => {
+          const tDate = new Date(t.date);
+          return !(tDate >= start && tDate <= end);
+        });
+      }
+      setCardTransactions(parsedRecent.slice(0, 10));
 
       // 2. Fetch all installments
       const { data: insts } = await supabase
@@ -369,10 +401,19 @@ export default function CardsPage() {
         .eq('card_id', card.id)
         .gte('date', startDate.toISOString())
         .lte('date', endDate.toISOString());
-      const parsedCycleTxs = (cycleTxs || []).map(t => ({
+      let parsedCycleTxs = (cycleTxs || []).map(t => ({
         ...t,
         amount: typeof t.amount === 'string' ? parseFloat(t.amount) : (t.amount || 0)
       }));
+
+      if (ignoredRange) {
+        const start = new Date(ignoredRange.startDate + 'T00:00:00Z');
+        const end = new Date(ignoredRange.endDate + 'T23:59:59Z');
+        parsedCycleTxs = parsedCycleTxs.filter(t => {
+          const tDate = new Date(t.date);
+          return !(tDate >= start && tDate <= end);
+        });
+      }
 
       // 4. Fetch cycle unpaid reminders
       const { data: cycleRems } = await supabase
@@ -382,10 +423,20 @@ export default function CardsPage() {
         .eq('paid', false)
         .gte('due_date', startDate.toISOString())
         .lte('due_date', endDate.toISOString());
-      const parsedCycleRems = (cycleRems || []).map(r => ({
+      let parsedCycleRems = (cycleRems || []).map(r => ({
         ...r,
         amount: typeof r.amount === 'string' ? parseFloat(r.amount) : (r.amount || 0)
       }));
+
+      if (ignoredRange) {
+        const start = new Date(ignoredRange.startDate + 'T00:00:00Z');
+        const end = new Date(ignoredRange.endDate + 'T23:59:59Z');
+        parsedCycleRems = parsedCycleRems.filter(r => {
+          const due = new Date(r.due_date);
+          due.setUTCHours(12, 0, 0, 0);
+          return !(due >= start && due <= end);
+        });
+      }
 
       // 5. Calculate Fatura Atual (Current Invoice)
       if (card.manual_invoice_amount !== null && card.manual_invoice_amount !== undefined) {
@@ -401,9 +452,26 @@ export default function CardsPage() {
         .filter(t => !t.installment_id)
         .reduce((acc, t) => acc + Math.abs(t.amount), 0);
       
-      const remainingInstsSum = parsedInsts.reduce((acc, inst) => {
-        const paidAmt = inst.paid_installments * inst.installment_amount;
-        return acc + Math.max(0, inst.total_amount - paidAmt);
+      // Fetch all reminders for this card to compute ignored installments
+      const { data: cardRems } = await supabase
+        .from('reminders')
+        .select('*')
+        .eq('card_id', card.id);
+      const parsedCardRems = (cardRems || []).map(r => ({
+        ...r,
+        amount: typeof r.amount === 'string' ? parseFloat(r.amount) : (r.amount || 0)
+      }));
+
+      const remainingInstsSum = parsedCardRems.reduce((acc, r) => {
+        if (!r.installment_id || r.paid) return acc;
+        if (ignoredRange) {
+          const due = new Date(r.due_date);
+          due.setUTCHours(12, 0, 0, 0);
+          const start = new Date(ignoredRange.startDate + 'T00:00:00Z');
+          const end = new Date(ignoredRange.endDate + 'T23:59:59Z');
+          if (due >= start && due <= end) return acc;
+        }
+        return acc + Math.abs(r.amount);
       }, 0);
 
       setUsedLimit(oneOffTxsSum + remainingInstsSum);
@@ -430,7 +498,7 @@ export default function CardsPage() {
 
       loadCardData(activeCard);
     }
-  }, [activeCard]);
+  }, [activeCard, ignoredRange]);
 
   // Handle color theme change directly
   const handleColorThemeChange = async (themeKey: string) => {

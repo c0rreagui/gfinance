@@ -109,6 +109,31 @@ export default function DebtsPage() {
   const [installments, setInstallments] = useState<DBInstallment[]>([]);
   const [creditCards, setCreditCards] = useState<DBCreditCard[]>([]);
 
+  // Ignored range states
+  const [ignoredRange, setIgnoredRange] = useState<{ startDate: string; endDate: string } | null>(null);
+
+  useEffect(() => {
+    const rangeStr = localStorage.getItem('gfinance_ignored_period');
+    if (rangeStr) {
+      try {
+        setIgnoredRange(JSON.parse(rangeStr));
+      } catch {}
+    }
+
+    const handleStorageChange = () => {
+      const updated = localStorage.getItem('gfinance_ignored_period');
+      if (updated) {
+        try {
+          setIgnoredRange(JSON.parse(updated));
+        } catch {}
+      } else {
+        setIgnoredRange(null);
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
   // Drawer modal toggles
   const [isBillOpen, setIsBillOpen] = useState(false);
   const [isInstOpen, setIsInstOpen] = useState(false);
@@ -196,34 +221,68 @@ export default function DebtsPage() {
 
   // Filtered Debts/Bills for Tab 1: Unpaid and NOT linked to an installment
   const activeBills = useMemo(() => {
-    return reminders.filter(r => !r.paid && !r.installment_id);
-  }, [reminders]);
+    return reminders.filter(r => {
+      if (r.paid || r.installment_id) return false;
+      if (ignoredRange) {
+        const due = new Date(r.due_date);
+        due.setUTCHours(12, 0, 0, 0);
+        const start = new Date(ignoredRange.startDate + 'T00:00:00Z');
+        const end = new Date(ignoredRange.endDate + 'T23:59:59Z');
+        if (due >= start && due <= end) return false;
+      }
+      return true;
+    });
+  }, [reminders, ignoredRange]);
 
   // Derived Stats
   const totalDebtAmount = useMemo(() => {
     // 1. Unpaid simple bills
     const unpaidBillsSum = activeBills.reduce((sum, b) => sum + Math.abs(b.amount), 0);
-    // 2. Remaining balance of all installments
-    const remainingInstallmentsSum = installments.reduce((sum, inst) => {
-      const paidAmt = inst.paid_installments * inst.installment_amount;
-      return sum + Math.max(0, inst.total_amount - paidAmt);
+    // 2. Remaining balance of all installments (unpaid installment reminders not in ignoredRange)
+    const remainingInstallmentsSum = reminders.reduce((sum, r) => {
+      if (!r.installment_id || r.paid) return sum;
+      if (ignoredRange) {
+        const due = new Date(r.due_date);
+        due.setUTCHours(12, 0, 0, 0);
+        const start = new Date(ignoredRange.startDate + 'T00:00:00Z');
+        const end = new Date(ignoredRange.endDate + 'T23:59:59Z');
+        if (due >= start && due <= end) return sum;
+      }
+      return sum + Math.abs(r.amount);
     }, 0);
 
     return unpaidBillsSum + remainingInstallmentsSum;
-  }, [activeBills, installments]);
+  }, [activeBills, reminders, ignoredRange]);
 
   const installmentsThisMonth = useMemo(() => {
     const now = new Date();
     // Sum simple bills due this month + installment reminders due this month (unpaid only)
     return reminders.filter(r => {
       if (r.paid) return false;
+      if (ignoredRange) {
+        const due = new Date(r.due_date);
+        due.setUTCHours(12, 0, 0, 0);
+        const start = new Date(ignoredRange.startDate + 'T00:00:00Z');
+        const end = new Date(ignoredRange.endDate + 'T23:59:59Z');
+        if (due >= start && due <= end) return false;
+      }
       const due = new Date(r.due_date);
       return due.getMonth() === now.getMonth() && due.getFullYear() === now.getFullYear();
     }).length;
-  }, [reminders]);
+  }, [reminders, ignoredRange]);
 
   const projectedClearDate = useMemo(() => {
-    const unpaid = reminders.filter(r => !r.paid);
+    const unpaid = reminders.filter(r => {
+      if (r.paid) return false;
+      if (ignoredRange) {
+        const due = new Date(r.due_date);
+        due.setUTCHours(12, 0, 0, 0);
+        const start = new Date(ignoredRange.startDate + 'T00:00:00Z');
+        const end = new Date(ignoredRange.endDate + 'T23:59:59Z');
+        if (due >= start && due <= end) return false;
+      }
+      return true;
+    });
     if (unpaid.length === 0) return '—';
     const latest = unpaid.reduce((max, r) =>
       new Date(r.due_date) > new Date(max.due_date) ? r : max
@@ -232,7 +291,7 @@ export default function DebtsPage() {
       month: 'short',
       year: 'numeric',
     });
-  }, [reminders]);
+  }, [reminders, ignoredRange]);
 
   // Handle reminder paid state toggle
   const handleTogglePaid = async (id: string, currentPaid: boolean) => {
@@ -806,13 +865,44 @@ export default function DebtsPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {installments.map((inst) => {
                     const linkedCard = creditCards.find(c => c.id === inst.card_id);
-                    const amountPaid = inst.paid_installments * inst.installment_amount;
-                    const amountRemaining = Math.max(0, inst.total_amount - amountPaid);
-                    const percentPaid = inst.total_installments > 0
-                      ? Math.round((inst.paid_installments / inst.total_installments) * 100)
+                    
+                    // Filter reminders for this installment
+                    const instReminders = reminders.filter(r => r.installment_id === inst.id);
+                    
+                    // Filter out ignored reminders
+                    const nonIgnoredReminders = instReminders.filter(r => {
+                      if (!ignoredRange) return true;
+                      const due = new Date(r.due_date);
+                      due.setUTCHours(12, 0, 0, 0);
+                      const start = new Date(ignoredRange.startDate + 'T00:00:00Z');
+                      const end = new Date(ignoredRange.endDate + 'T23:59:59Z');
+                      return !(due >= start && due <= end);
+                    });
+
+                    const paidCount = nonIgnoredReminders.filter(r => r.paid).length;
+                    const unpaidCount = nonIgnoredReminders.filter(r => !r.paid).length;
+                    const totalCount = nonIgnoredReminders.length;
+                    
+                    const displayPaidCount = totalCount === 0 ? inst.paid_installments : paidCount;
+                    const displayTotalCount = totalCount === 0 ? inst.total_installments : totalCount;
+                    
+                    const amountPaid = totalCount === 0 
+                      ? inst.paid_installments * inst.installment_amount 
+                      : paidCount * inst.installment_amount;
+                      
+                    const amountRemaining = totalCount === 0 
+                      ? Math.max(0, inst.total_amount - (inst.paid_installments * inst.installment_amount)) 
+                      : unpaidCount * inst.installment_amount;
+                      
+                    const totalAdjustedAmount = amountPaid + amountRemaining;
+                    
+                    const percentPaid = totalAdjustedAmount > 0
+                      ? Math.round((amountPaid / totalAdjustedAmount) * 100)
                       : 0;
                     
-                    const isFullyPaid = inst.paid_installments >= inst.total_installments;
+                    const isFullyPaid = totalCount === 0 
+                      ? inst.paid_installments >= inst.total_installments 
+                      : unpaidCount === 0;
 
                     return (
                       <div
@@ -824,7 +914,7 @@ export default function DebtsPage() {
                             <h3 className="text-xs font-black text-slate-200">{inst.description}</h3>
                             <div className="flex items-center gap-2 mt-1">
                               <span className="text-[8px] text-slate-500 font-bold uppercase tracking-widest">
-                                {inst.paid_installments} de {inst.total_installments} parcelas pagas ({percentPaid}%)
+                                {displayPaidCount} de {displayTotalCount} parcelas pagas ({percentPaid}%)
                               </span>
                               {linkedCard && (
                                 <span className={`px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-wider border ${cardBadgeColors[linkedCard.color_theme] || cardBadgeColors.emerald}`}>
@@ -894,7 +984,7 @@ export default function DebtsPage() {
                           <div className="text-right">
                             <span>Total</span>
                             <p className="text-slate-200 font-black mt-0.5">
-                              {inst.total_amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                              {totalAdjustedAmount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                             </p>
                           </div>
                         </div>
