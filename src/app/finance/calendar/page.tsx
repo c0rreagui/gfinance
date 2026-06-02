@@ -218,8 +218,14 @@ export default function FinancialCalendar() {
       ]);
       
       setInitialBalance(Number(profile?.initial_balance) || 0);
-      setTransactions(txs || []);
-      setReminders(rems || []);
+      setTransactions((txs || []).map(t => ({
+        ...t,
+        amount: typeof t.amount === 'string' ? parseFloat(t.amount) : (t.amount || 0)
+      })));
+      setReminders((rems || []).map(r => ({
+        ...r,
+        amount: typeof r.amount === 'string' ? parseFloat(r.amount) : (r.amount || 0)
+      })));
       setCreditCards(cards || []);
       
       if (cards && cards.length > 0) {
@@ -1294,7 +1300,7 @@ export default function FinancialCalendar() {
                                     </span>
                                   </div>
                                   <span className="text-slate-200 font-mono font-bold">
-                                    {-Math.abs(tx.amount).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                    {(-Math.abs(tx.amount)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                                   </span>
                                 </div>
                               ))}

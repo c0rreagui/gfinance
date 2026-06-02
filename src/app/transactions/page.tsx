@@ -92,7 +92,10 @@ export default function Transactions() {
         .order('date', { ascending: false });
 
       if (error) throw error;
-      setTransactions(data || []);
+      setTransactions((data || []).map(t => ({
+        ...t,
+        amount: typeof t.amount === 'string' ? parseFloat(t.amount) : (t.amount || 0)
+      })));
     } catch (err) {
       console.error('Error fetching transactions:', err);
     } finally {

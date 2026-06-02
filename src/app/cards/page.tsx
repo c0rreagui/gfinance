@@ -1229,7 +1229,7 @@ export default function CardsPage() {
                             </div>
                           </div>
                           <p className="text-xs font-black text-slate-200 text-right">
-                            {-Math.abs(tx.amount).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                            {(-Math.abs(tx.amount)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                           </p>
                         </div>
                       ))

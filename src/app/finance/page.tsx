@@ -137,10 +137,10 @@ export default function FinanceDashboard() {
       ]);
       
       if (dbBalances && dbBalances.length > 0) {
-        const formattedStats = dbBalances.map((b: { id: string; label: string; amount: number; trend: string; icon: string; type: string }) => ({
+        const formattedStats = dbBalances.map((b: { id: string; label: string; amount: any; trend: string; icon: string; type: string }) => ({
           id: b.id,
           label: b.label,
-          value: b.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
+          value: (typeof b.amount === 'string' ? parseFloat(b.amount) : (b.amount || 0)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
           trend: b.trend || '+0%',
           icon: b.icon || 'Wallet',
           color: b.type === 'expense' ? 'orange' : 'emerald'
@@ -154,8 +154,14 @@ export default function FinanceDashboard() {
         ]);
       }
  
-      setTransactions(dbTransactions || []);
-      setReminders(dbReminders || []);
+      setTransactions((dbTransactions || []).map(t => ({
+        ...t,
+        amount: typeof t.amount === 'string' ? parseFloat(t.amount) : (t.amount || 0)
+      })));
+      setReminders((dbReminders || []).map(r => ({
+        ...r,
+        amount: typeof r.amount === 'string' ? parseFloat(r.amount) : (r.amount || 0)
+      })));
       setGoals(dbGoals || []);
 
       if (dbCards && dbCards.length > 0 && dbCards[0].last_four) {
