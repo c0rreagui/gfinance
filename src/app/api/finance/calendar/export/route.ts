@@ -62,7 +62,14 @@ export async function GET(request: Request) {
       // Build recurring event rules for subscriptions
       let rrule = '';
       if (rem.is_recurring) {
-        rrule = 'RRULE:FREQ=MONTHLY;INTERVAL=1';
+        const freq = rem.frequency?.toLowerCase();
+        if (freq === 'primeiro_dia_util') {
+          rrule = 'RRULE:FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=1';
+        } else if (freq === 'ultimo_dia_util') {
+          rrule = 'RRULE:FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1';
+        } else {
+          rrule = 'RRULE:FREQ=MONTHLY;INTERVAL=1';
+        }
       }
 
       const eventStart = formatICSDate(rem.due_date);

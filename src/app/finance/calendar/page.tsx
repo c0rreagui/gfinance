@@ -99,6 +99,30 @@ const getBrandColor = (title: string): string => {
   return '#3b82f6';
 };
 
+// Helper to check if a date is a weekend (Saturday or Sunday)
+const isWeekend = (date: Date): boolean => {
+  const day = date.getDay();
+  return day === 0 || day === 6; // 0 = Sunday, 6 = Saturday
+};
+
+// Helper to get the first business day of a month
+const getFirstBusinessDay = (year: number, month: number): number => {
+  const date = new Date(year, month, 1);
+  while (isWeekend(date)) {
+    date.setDate(date.getDate() + 1);
+  }
+  return date.getDate();
+};
+
+// Helper to get the last business day of a month
+const getLastBusinessDay = (year: number, month: number): number => {
+  const date = new Date(year, month + 1, 0);
+  while (isWeekend(date)) {
+    date.setDate(date.getDate() - 1);
+  }
+  return date.getDate();
+};
+
 export default function FinancialCalendar() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -123,6 +147,7 @@ export default function FinancialCalendar() {
   const [formCategory, setFormCategory] = useState('Outros');
   const [formError, setFormError] = useState('');
   const [isRecurring, setIsRecurring] = useState(false);
+  const [formFrequency, setFormFrequency] = useState('mensal');
   
   // Clipboard state for iCal subscription URL
   const [copied, setCopied] = useState(false);
@@ -299,8 +324,15 @@ export default function FinancialCalendar() {
         : -rem.amount;
 
       if (rem.is_recurring) {
-        // If recurring: replicates on the same day of the current active month
-        const dayOfMonth = remDate.getUTCDate();
+        // If recurring: replicates on the calculated day of the current active month
+        let dayOfMonth = remDate.getUTCDate();
+        const freq = rem.frequency?.toLowerCase();
+        if (freq === 'primeiro_dia_util') {
+          dayOfMonth = getFirstBusinessDay(year, month);
+        } else if (freq === 'ultimo_dia_util') {
+          dayOfMonth = getLastBusinessDay(year, month);
+        }
+        
         if (map[dayOfMonth]) {
           map[dayOfMonth].push({
             id: rem.id,
@@ -497,7 +529,7 @@ export default function FinancialCalendar() {
           urgency: 'medium',
           category_icon: categoryIcon,
           brand_color: getBrandColor(formDesc),
-          frequency: 'mensal'
+          frequency: formFrequency
         });
 
         if (error) throw error;
@@ -526,6 +558,7 @@ export default function FinancialCalendar() {
       setFormAmount('');
       setFormCategory('Outros');
       setIsRecurring(false);
+      setFormFrequency('mensal');
       setIsFormOpen(false);
 
     } catch (err: any) {
@@ -1076,6 +1109,21 @@ export default function FinancialCalendar() {
                       <span className="w-4 h-4 rounded-full bg-white shadow-md transform duration-200" />
                     </button>
                   </div>
+
+                  {isRecurring && (
+                    <div className="space-y-2 p-3.5 bg-slate-950/60 border border-white/5 rounded-xl animate-in fade-in slide-in-from-top-1 duration-200">
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block text-left">Frequência da Recorrência</label>
+                      <select
+                        value={formFrequency}
+                        onChange={(e) => setFormFrequency(e.target.value)}
+                        className="w-full px-4 py-2.5 bg-slate-950 border border-white/5 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500/20 text-white"
+                      >
+                        <option value="mensal">Mesmo Dia do Mês</option>
+                        <option value="primeiro_dia_util">Primeiro Dia Útil</option>
+                        <option value="ultimo_dia_util">Último Dia Útil</option>
+                      </select>
+                    </div>
+                  )}
 
                   <div className="flex gap-2">
                     <button
