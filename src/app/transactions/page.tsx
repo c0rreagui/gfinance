@@ -529,7 +529,7 @@ export default function Transactions() {
                         </div>
                       </div>
                       <div>
-                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1.5">Primeiro Vencimento</label>
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1.5">Data de Aprovação (Compra)</label>
                         <input 
                           type="date" 
                           value={firstDueDate}

@@ -1075,7 +1075,7 @@ export default function DebtsPage() {
                     />
                   </div>
                   <div>
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Primeiro Vencimento</label>
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Data de Aprovação (Compra)</label>
                     <input
                       type="date"
                       required
