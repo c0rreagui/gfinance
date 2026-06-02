@@ -30,6 +30,7 @@ interface DBCreditCard {
   closing_day: number;
   due_day: number;
   color_theme: string;
+  manual_invoice_amount: number | null;
   created_at?: string;
 }
 
@@ -247,16 +248,20 @@ export default function CardsPage() {
           setCardTransactions(txs || []);
 
           // Calculate used limit
-          const { data: allTxs } = await supabase
-            .from('transactions')
-            .select('amount')
-            .eq('card_id', activeCard.id);
-
-          if (allTxs) {
-            const sum = allTxs.reduce((acc, t) => acc + Math.abs(t.amount), 0);
-            setUsedLimit(sum);
+          if (activeCard.manual_invoice_amount !== null && activeCard.manual_invoice_amount !== undefined) {
+            setUsedLimit(Number(activeCard.manual_invoice_amount));
           } else {
-            setUsedLimit(0);
+            const { data: allTxs } = await supabase
+              .from('transactions')
+              .select('amount')
+              .eq('card_id', activeCard.id);
+
+            if (allTxs) {
+              const sum = allTxs.reduce((acc, t) => acc + Math.abs(t.amount), 0);
+              setUsedLimit(sum);
+            } else {
+              setUsedLimit(0);
+            }
           }
         } catch (e) {
           console.error('Error fetching card transactions:', e);
@@ -284,6 +289,46 @@ export default function CardsPage() {
         .eq('id', activeCard.id);
     } catch (e) {
       console.error('Error saving color theme:', e);
+    }
+  };
+
+  // Handle manual invoice override directly
+  const handleInvoiceChange = async (newInvoiceVal: number | null) => {
+    if (!activeCard) return;
+
+    const updatedCards = [...cards];
+    updatedCards[activeIndex].manual_invoice_amount = newInvoiceVal;
+    setCards(updatedCards);
+
+    // Recalculate usedLimit immediately
+    if (newInvoiceVal !== null) {
+      setUsedLimit(newInvoiceVal);
+    } else {
+      // Recalculate from transactions
+      try {
+        const { data: allTxs } = await supabase
+          .from('transactions')
+          .select('amount')
+          .eq('card_id', activeCard.id);
+
+        if (allTxs) {
+          const sum = allTxs.reduce((acc, t) => acc + Math.abs(t.amount), 0);
+          setUsedLimit(sum);
+        } else {
+          setUsedLimit(0);
+        }
+      } catch (e) {
+        console.error('Error recalculating limit:', e);
+      }
+    }
+
+    try {
+      await supabase
+        .from('credit_cards')
+        .update({ manual_invoice_amount: newInvoiceVal })
+        .eq('id', activeCard.id);
+    } catch (e) {
+      console.error('Erro ao salvar fatura manual:', e);
     }
   };
 
@@ -645,8 +690,46 @@ export default function CardsPage() {
                   />
                   <div className="flex justify-between text-[9px] text-slate-500 font-bold">
                     <span>Min: R$ 1.000</span>
-                    <span className={`${activeTheme.accentText} font-black`}>R$ {cardLimit.toLocaleString('pt-BR')}</span>
+                    <span className={`${activeTheme.accentText} font-black`}>Slider: R$ {cardLimit.toLocaleString('pt-BR')}</span>
                     <span>Máx: R$ 100.000</span>
+                  </div>
+                </div>
+
+                {/* manual inputs */}
+                <div className="grid grid-cols-2 gap-4 border-t border-white/5 pt-6">
+                  <div>
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Digite o Limite (R$)</label>
+                    <input
+                      type="number"
+                      value={cardLimit}
+                      onChange={(e) => handleLimitChange(Number(e.target.value))}
+                      className="w-full px-4 py-2.5 bg-slate-950 border border-white/5 rounded-xl text-xs text-white focus:outline-none focus:ring-1 focus:ring-emerald-500/20 font-mono text-center"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Digite a Fatura (Ajuste Manual)</label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        placeholder="Automático (Compras)"
+                        value={activeCard.manual_invoice_amount ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? null : Number(e.target.value);
+                          handleInvoiceChange(val);
+                        }}
+                        className="w-full px-4 py-2.5 bg-slate-950 border border-white/5 rounded-xl text-xs text-white focus:outline-none focus:ring-1 focus:ring-emerald-500/20 font-mono text-center pr-8"
+                      />
+                      {activeCard.manual_invoice_amount !== null && (
+                        <button
+                          type="button"
+                          onClick={() => handleInvoiceChange(null)}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white text-xs cursor-pointer px-1.5 py-0.5"
+                          title="Limpar ajuste manual"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>

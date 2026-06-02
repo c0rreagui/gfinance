@@ -370,6 +370,31 @@ const geminiTools = [
           },
           required: ['goalId']
         }
+      },
+      {
+        name: 'list_user_credit_cards',
+        description: 'Lista os cartões de crédito cadastrados do usuário no G-Finance. Retorna os limites, faturas manuais, dias de vencimento e fechamento.',
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {}
+        }
+      },
+      {
+        name: 'update_user_credit_card',
+        description: 'Atualiza as configurações de um cartão de crédito do usuário. Permite alterar o limite total, o valor da fatura acumulada (ajuste manual), nome do cartão, dias de vencimento/fechamento e cor.',
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            cardId: { type: SchemaType.STRING, description: 'UUID único identificador do cartão de crédito.' },
+            cardName: { type: SchemaType.STRING, description: 'Nome descritivo do cartão (ex: G-Black)' },
+            cardLimit: { type: SchemaType.NUMBER, description: 'Limite máximo total do cartão (ex: 25000)' },
+            manualInvoiceAmount: { type: SchemaType.NUMBER, description: 'Valor de ajuste manual da fatura (Fatura Acumulada). Passe null para voltar ao cálculo automático.' },
+            closingDay: { type: SchemaType.NUMBER, description: 'Dia de fechamento da fatura (1 a 31)' },
+            dueDay: { type: SchemaType.NUMBER, description: 'Dia de vencimento da fatura (1 a 31)' },
+            colorTheme: { type: SchemaType.STRING, description: 'Tema/Cor do cartão. Escolhas válidas: emerald, indigo, rose, amber, crimson' }
+          },
+          required: ['cardId']
+        }
       }
     ]
   }
@@ -742,6 +767,35 @@ export async function generateFinancialResponse(
           if (error) throw error;
           databaseModified = true;
           toolResult = { success: true, deleted: data };
+
+        } else if (name === 'list_user_credit_cards') {
+          const { data, error } = await supabaseClient
+            .from('credit_cards')
+            .select('*')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: true });
+          if (error) throw error;
+          toolResult = { success: true, creditCards: data || [] };
+
+        } else if (name === 'update_user_credit_card') {
+          const { cardId, cardName, cardLimit, manualInvoiceAmount, closingDay, dueDay, colorTheme } = args as any;
+          const updates: any = {};
+          if (cardName !== undefined) updates.card_name = cardName;
+          if (cardLimit !== undefined) updates.card_limit = Number(cardLimit);
+          if (manualInvoiceAmount !== undefined) updates.manual_invoice_amount = manualInvoiceAmount;
+          if (closingDay !== undefined) updates.closing_day = Number(closingDay);
+          if (dueDay !== undefined) updates.due_day = Number(dueDay);
+          if (colorTheme !== undefined) updates.color_theme = colorTheme;
+
+          const { data, error } = await supabaseClient
+            .from('credit_cards')
+            .update(updates)
+            .eq('id', cardId)
+            .eq('user_id', userId)
+            .select('*');
+          if (error) throw error;
+          databaseModified = true;
+          toolResult = { success: true, updated: data?.[0] };
 
         } else {
           throw new Error(`Função de ferramenta desconhecida: ${name}`);

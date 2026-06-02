@@ -430,14 +430,17 @@ export default function FinancialCalendar() {
         
         // Compute billing cycle
         const { startDate, endDate } = getCardBillingCycle(card, cycleYear, cycleMonth);
-        
+
         // Sum transactions linked to this card in this cycle
         const cycleTxs = transactions.filter((tx) => {
           if (tx.card_id !== card.id) return false;
           const txDate = new Date(tx.date);
           return txDate >= startDate && txDate <= endDate;
         });
-        const invoiceTotal = cycleTxs.reduce((sum, tx) => sum + Math.abs(tx.amount), 0);
+        const isCurrentMonth = year === new Date().getFullYear() && month === new Date().getMonth();
+        const invoiceTotal = (isCurrentMonth && card.manual_invoice_amount !== null && card.manual_invoice_amount !== undefined)
+          ? Number(card.manual_invoice_amount)
+          : cycleTxs.reduce((sum, tx) => sum + Math.abs(tx.amount), 0);
 
         if (map[closingDay]) {
           map[closingDay].push({
@@ -469,7 +472,10 @@ export default function FinancialCalendar() {
           const txDate = new Date(tx.date);
           return txDate >= startDate && txDate <= endDate;
         });
-        const invoiceTotal = cycleTxs.reduce((sum, tx) => sum + Math.abs(tx.amount), 0);
+        const isCurrentMonth = year === new Date().getFullYear() && month === new Date().getMonth();
+        const invoiceTotal = (isCurrentMonth && card.manual_invoice_amount !== null && card.manual_invoice_amount !== undefined)
+          ? Number(card.manual_invoice_amount)
+          : cycleTxs.reduce((sum, tx) => sum + Math.abs(tx.amount), 0);
 
         if (map[dueDay]) {
           map[dueDay].push({
