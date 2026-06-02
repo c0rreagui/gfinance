@@ -380,16 +380,59 @@ export default function FinanceDashboard() {
  
           {/* Right sidebar column */}
           <div className="space-y-8">
-            {/* 3D Glass Credit Card */}
-            <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-emerald-950 rounded-[40px] aspect-[1.5/1] overflow-hidden relative group shadow-2xl border border-white/10 hover:border-emerald-500/20 transition-all duration-300">
-              {mounted && (
-                <div className="spline-container spline-interactive">
-                  <spline-viewer url="https://prod.spline.design/1e9d1552-3443-485d-a066-e46604b8db02/scene.splinecode"></spline-viewer>
+            {/* 3D CSS Premium Credit Card — zero crash, zero external deps */}
+            <div
+              className="rounded-[32px] aspect-[1.586/1] relative group overflow-hidden cursor-pointer"
+              style={{
+                background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 40%, #064e3b 100%)',
+                boxShadow: '0 32px 64px -12px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.06)',
+                transform: 'perspective(800px) rotateY(0deg)',
+                transition: 'transform 0.4s ease, box-shadow 0.4s ease',
+              }}
+              onMouseEnter={e => {
+                (e.currentTarget as HTMLDivElement).style.transform = 'perspective(800px) rotateY(-6deg) rotateX(3deg) scale(1.02)';
+                (e.currentTarget as HTMLDivElement).style.boxShadow = '0 40px 80px -12px rgba(0,0,0,0.9), 0 0 0 1px rgba(16,185,129,0.2), 0 0 40px -8px rgba(16,185,129,0.15)';
+              }}
+              onMouseLeave={e => {
+                (e.currentTarget as HTMLDivElement).style.transform = 'perspective(800px) rotateY(0deg) rotateX(0deg) scale(1)';
+                (e.currentTarget as HTMLDivElement).style.boxShadow = '0 32px 64px -12px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.06)';
+              }}
+            >
+              {/* Shimmer overlay */}
+              <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.06)_0%,rgba(255,255,255,0)_50%,rgba(16,185,129,0.04)_100%)] pointer-events-none" />
+              {/* Glow orb top-right */}
+              <div className="absolute -top-8 -right-8 w-40 h-40 bg-emerald-500/10 rounded-full blur-3xl group-hover:bg-emerald-500/20 transition-all duration-500 pointer-events-none" />
+              {/* Card content */}
+              <div className="absolute inset-0 p-6 flex flex-col justify-between">
+                {/* Top row: brand + chip */}
+                <div className="flex justify-between items-start">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 bg-emerald-500 rounded-lg flex items-center justify-center text-white font-black text-sm shadow-lg shadow-emerald-500/30">G</div>
+                    <div>
+                      <span className="text-white font-black text-sm tracking-tight">G-Black</span>
+                      <p className="text-[8px] text-slate-500 font-bold uppercase tracking-widest">Platinum Elite</p>
+                    </div>
+                  </div>
+                  {/* Holographic chip */}
+                  <div className="w-10 h-8 rounded-md bg-gradient-to-br from-yellow-300/20 via-yellow-400/30 to-amber-500/10 border border-yellow-500/20 relative overflow-hidden">
+                    <div className="absolute inset-0 bg-[repeating-linear-gradient(90deg,transparent,transparent_3px,rgba(255,255,255,0.05)_3px,rgba(255,255,255,0.05)_4px)]" />
+                    <div className="absolute inset-0 bg-[repeating-linear-gradient(0deg,transparent,transparent_3px,rgba(255,255,255,0.03)_3px,rgba(255,255,255,0.03)_4px)]" />
+                  </div>
                 </div>
-              )}
-              <div className="absolute inset-0 p-8 flex flex-col justify-between pointer-events-none z-10">
-                <h4 className="text-white font-black text-lg">G-Black Card</h4>
-                <div className="text-white/60 font-mono tracking-[0.2em] text-sm">•••• •••• •••• 4290</div>
+                {/* Card number */}
+                <div>
+                  <p className="font-mono text-base tracking-[0.2em] text-white/90">•••• •••• •••• 4290</p>
+                  <div className="flex gap-4 mt-3">
+                    <div>
+                      <p className="text-[7px] text-slate-600 font-bold uppercase tracking-widest">Validade</p>
+                      <p className="text-[10px] font-bold text-slate-400 mt-0.5">12/32</p>
+                    </div>
+                    <div>
+                      <p className="text-[7px] text-slate-600 font-bold uppercase tracking-widest">Titular</p>
+                      <p className="text-[10px] font-bold text-slate-400 mt-0.5 truncate max-w-[120px]">{user?.user_metadata?.full_name || 'G. Corrêa'}</p>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 
