@@ -52,9 +52,12 @@ export async function GET(request: Request) {
     const stamp = now.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
 
     reminders?.forEach((rem: any) => {
-      const type = rem.is_recurring ? 'Assinatura Mensal' : 'Boleto/Dívida';
+      const isIncome = Number(rem.amount) > 0;
+      const type = rem.is_recurring 
+        ? (isIncome ? 'Receita Recorrente' : 'Assinatura/Despesa Recorrente') 
+        : (isIncome ? 'Receita Prevista' : 'Boleto/Dívida');
       const status = rem.paid ? 'PAGO' : 'PENDENTE';
-      const formattedAmount = Number(rem.amount).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+      const formattedAmount = Math.abs(Number(rem.amount)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
       
       const cleanTitle = rem.title.replace(/[,;]/g, ' ');
       const cleanDesc = `Tipo: ${type} \\nValor: ${formattedAmount} \\nStatus: ${status} \\nUrgência: ${rem.urgency || 'Normal'}`;

@@ -385,6 +385,7 @@ export async function generateFinancialResponse(
     transactions: any[];
     goals: any[];
     reminders: any[];
+    creditCards?: any[];
   },
   chatHistory: { role: 'user' | 'model'; parts: { text: string }[] }[] = [],
   oauthToken?: string,
@@ -423,13 +424,16 @@ export async function generateFinancialResponse(
     SALDOS E MÉTRICAS ATUAIS:
     ${JSON.stringify(financialContext.balances, null, 2)}
     
+    CARTÕES DE CRÉDITO ATIVOS:
+    ${JSON.stringify(financialContext.creditCards || [], null, 2)}
+    
     LANÇAMENTOS RECENTES:
     ${JSON.stringify(financialContext.transactions, null, 2)}
     
     METAS DE INVESTIMENTO:
     ${JSON.stringify(financialContext.goals, null, 2)}
     
-    PRÓXIMOS PAGAMENTOS (FATURAS E REMINDERS):
+    PRÓXIMOS COMPROMISSOS E RECEITAS PREVISTAS (REMINDERS - VALORES NEGATIVOS SÃO DESPESAS/PAGAMENTOS, POSITIVOS SÃO RECEITAS/SALÁRIO):
     ${JSON.stringify(financialContext.reminders, null, 2)}
     ---
     

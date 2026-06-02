@@ -53,6 +53,25 @@ export default function Transactions() {
   const [type, setType] = useState<'expense' | 'income'>('expense');
   const [icon, setIcon] = useState('Tv');
   const [modalError, setModalError] = useState('');
+  const [creditCards, setCreditCards] = useState<any[]>([]);
+  const [selectedCardId, setSelectedCardId] = useState<string>('');
+
+  const fetchCreditCards = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data, error } = await supabase
+        .from('credit_cards')
+        .select('*')
+        .eq('user_id', user.id);
+      if (!error && data) {
+        setCreditCards(data);
+        if (data.length > 0) setSelectedCardId(data[0].id);
+      }
+    } catch (err) {
+      console.error('Error fetching cards:', err);
+    }
+  };
 
   const fetchTransactions = async () => {
     try {
@@ -73,6 +92,7 @@ export default function Transactions() {
 
   useEffect(() => {
     fetchTransactions();
+    fetchCreditCards();
 
     // Subscribe to real-time changes
     const channel = supabase
@@ -114,7 +134,8 @@ export default function Transactions() {
         category,
         amount: numericAmount,
         icon,
-        date: new Date().toISOString()
+        date: new Date().toISOString(),
+        card_id: category === 'Cartão' ? (selectedCardId || null) : null
       });
 
       if (error) throw error;
@@ -297,6 +318,11 @@ export default function Transactions() {
                     <option value="Salário">Salário</option>
                     <option value="Transporte">Transporte</option>
                     <option value="Saúde">Saúde</option>
+                    <option value="Cartão">Cartão</option>
+                    <option value="Assinaturas">Assinaturas</option>
+                    <option value="Boleto">Boleto</option>
+                    <option value="Utilidades">Utilidades</option>
+                    <option value="Outros">Outros</option>
                   </select>
                 </div>
                 <div>
@@ -311,9 +337,28 @@ export default function Transactions() {
                     <option value="ArrowDownLeft">Salário (Seta)</option>
                     <option value="Zap">Utilidades (Raio)</option>
                     <option value="Activity">Saúde (Gráfico)</option>
+                    <option value="CreditCard">Cartão (Cartão)</option>
+                    <option value="FileText">Boleto (Documento)</option>
                   </select>
                 </div>
               </div>
+
+              {category === 'Cartão' && creditCards.length > 0 && (
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Associar ao Cartão</label>
+                  <select
+                    value={selectedCardId}
+                    onChange={(e) => setSelectedCardId(e.target.value)}
+                    className="w-full px-4 py-3.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/5 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:text-white"
+                  >
+                    {creditCards.map((card) => (
+                      <option key={card.id} value={card.id}>
+                        {card.card_name} (•••• {card.last_four})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Valor (R$)</label>

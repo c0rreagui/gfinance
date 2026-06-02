@@ -127,6 +127,7 @@ export default function Subscriptions() {
           .select('*')
           .eq('user_id', user.id)
           .eq('is_recurring', true)
+          .lt('amount', 0)
           .order('due_date', { ascending: true });
 
         if (error) throw error;

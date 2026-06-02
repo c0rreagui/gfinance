@@ -131,7 +131,7 @@ export default function FinanceDashboard() {
       ] = await Promise.all([
         supabase.from('balances').select('*').eq('user_id', userId),
         supabase.from('transactions').select('*').eq('user_id', userId).lte('date', new Date().toISOString()).order('date', { ascending: false }).limit(5),
-        supabase.from('reminders').select('*').eq('user_id', userId).eq('paid', false).order('due_date', { ascending: true }).limit(2),
+        supabase.from('reminders').select('*').eq('user_id', userId).eq('paid', false).lt('amount', 0).order('due_date', { ascending: true }).limit(2),
         supabase.from('goals').select('*').eq('user_id', userId).limit(2),
         supabase.from('credit_cards').select('last_four').eq('user_id', userId).limit(1)
       ]);

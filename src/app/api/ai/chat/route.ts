@@ -148,19 +148,22 @@ export async function POST(req: Request): Promise<NextResponse> {
       { data: dbBalances },
       { data: dbTransactions },
       { data: dbGoals },
-      { data: dbReminders }
+      { data: dbReminders },
+      { data: dbCards }
     ] = await Promise.all([
       supabase.from('balances').select('label, amount, trend, icon, type').eq('user_id', user.id).limit(20),
-      supabase.from('transactions').select('date, description, amount, category').eq('user_id', user.id).order('date', { ascending: false }).limit(80),
+      supabase.from('transactions').select('date, description, amount, category, card_id').eq('user_id', user.id).order('date', { ascending: false }).limit(80),
       supabase.from('goals').select('name, target_amount, current_amount').eq('user_id', user.id).limit(20),
-      supabase.from('reminders').select('title, due_date, amount, urgency').eq('user_id', user.id).eq('paid', false).order('due_date', { ascending: true }).limit(5)
+      supabase.from('reminders').select('title, due_date, amount, urgency, card_id').eq('user_id', user.id).eq('paid', false).order('due_date', { ascending: true }).limit(5),
+      supabase.from('credit_cards').select('card_name, card_limit, closing_day, due_day, last_four').eq('user_id', user.id)
     ]);
 
     const financialContext = {
       balances: dbBalances || [],
       transactions: dbTransactions || [],
       goals: dbGoals || [],
-      reminders: dbReminders || []
+      reminders: dbReminders || [],
+      creditCards: dbCards || []
     };
 
     // 9. Invocar a IA injetando a Memória Permanente Global

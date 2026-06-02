@@ -77,6 +77,7 @@ export default function DebtsPage() {
           .select('*')
           .eq('user_id', user.id)
           .eq('paid', false)
+          .lt('amount', 0)
           .order('due_date', { ascending: true });
 
         if (error) throw error;

@@ -47,12 +47,13 @@ interface Reminder {
 
 interface CalendarEvent {
   id: string;
-  type: 'transaction' | 'subscription' | 'reminder';
+  type: 'transaction' | 'subscription' | 'reminder' | 'invoice_closing' | 'invoice_due';
   title: string;
   amount: number;
   category: string;
   icon?: string;
   paid?: boolean;
+  meta?: any;
 }
 
 // 2. Synthetic Haptic Click using Web Audio API
@@ -125,6 +126,42 @@ const getLastBusinessDay = (year: number, month: number): number => {
   return date.getDate();
 };
 
+// Helper to calculate the start and end dates of the billing cycle for a card in a given month (0-indexed)
+const getCardBillingCycle = (card: any, y: number, m: number) => {
+  const c = card.closing_day;
+  const d = card.due_day;
+  let startYear = y;
+  let startMonth = m;
+  let endYear = y;
+  let endMonth = m;
+
+  if (d > c) {
+    // Closes in current month m, ends on day c. Starts in previous month m-1, day c+1.
+    startMonth = m - 1;
+    if (startMonth < 0) {
+      startMonth = 11;
+      startYear = y - 1;
+    }
+  } else {
+    // Closes in previous month m-1, ends on day c. Starts in month m-2, day c+1.
+    startMonth = m - 2;
+    endMonth = m - 1;
+    if (startMonth < 0) {
+      startMonth = startMonth + 12;
+      startYear = y - 1;
+    }
+    if (endMonth < 0) {
+      endMonth = 11;
+      endYear = y - 1;
+    }
+  }
+
+  // Use UTC to align with database ISO datetime strings
+  const startDate = new Date(Date.UTC(startYear, startMonth, c + 1, 0, 0, 0, 0));
+  const endDate = new Date(Date.UTC(endYear, endMonth, c, 23, 59, 59, 999));
+  return { startDate, endDate };
+};
+
 export default function FinancialCalendar() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -132,6 +169,8 @@ export default function FinancialCalendar() {
   const [initialBalance, setInitialBalance] = useState(0);
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
+  const [creditCards, setCreditCards] = useState<any[]>([]);
+  const [selectedCardId, setSelectedCardId] = useState<string>('');
 
   // 1. Privacy Mode States
   const [isPrivate, setIsPrivate] = useState(false);
@@ -169,16 +208,23 @@ export default function FinancialCalendar() {
       const [
         { data: profile },
         { data: txs },
-        { data: rems }
+        { data: rems },
+        { data: cards }
       ] = await Promise.all([
         supabase.from('profiles').select('initial_balance').eq('id', user.id).single(),
         supabase.from('transactions').select('*').eq('user_id', user.id).order('date', { ascending: true }),
-        supabase.from('reminders').select('*').eq('user_id', user.id)
+        supabase.from('reminders').select('*').eq('user_id', user.id),
+        supabase.from('credit_cards').select('*').eq('user_id', user.id)
       ]);
       
       setInitialBalance(Number(profile?.initial_balance) || 0);
       setTransactions(txs || []);
       setReminders(rems || []);
+      setCreditCards(cards || []);
+      
+      if (cards && cards.length > 0) {
+        setSelectedCardId(cards[0].id);
+      }
 
     } catch (err) {
       console.error('Error fetching calendar dataset:', err);
@@ -309,22 +355,9 @@ export default function FinancialCalendar() {
     reminders.forEach((rem) => {
       const remDate = new Date(rem.due_date);
       
-      // Dynamic logic to detect if a reminder is an income or expense
-      // If amount is positive and matches typical income categories or titles
-      const isIncomeReminder = rem.amount > 0 && (
-        rem.category_icon === 'ArrowDownLeft' ||
-        rem.category_icon === 'Wallet' ||
-        rem.title.toLowerCase().includes('salário') ||
-        rem.title.toLowerCase().includes('receita') ||
-        rem.title.toLowerCase().includes('rendimento')
-      );
-      // If it's a despesa and stored as positive, force negative sign for calendar projection
-      // If it's stored as negative, keep negative. If income, keep positive.
-      const resolvedAmount = rem.amount < 0 
-        ? rem.amount 
-        : isIncomeReminder 
-        ? rem.amount 
-        : -rem.amount;
+      // Trust the sign of the amount directly (+ for income, - for expense)
+      const isIncomeReminder = rem.amount > 0;
+      const resolvedAmount = rem.amount;
 
       if (rem.is_recurring) {
         // If recurring: replicates on the calculated day of the current active month
@@ -375,8 +408,91 @@ export default function FinancialCalendar() {
       }
     });
 
+    // C. Add credit card closing and due date events
+    creditCards.forEach((card) => {
+      const closingDay = card.closing_day;
+      const dueDay = card.due_day;
+
+      // 1. Plot closing day event (Fechamento da Fatura & Melhor Dia de Compra)
+      if (closingDay >= 1 && closingDay <= daysInMonth) {
+        // Calculate the cycle for this closing day
+        // If due_day > closing_day, it's the cycle for the current month
+        // If due_day <= closing_day, it's the cycle for the next month
+        let cycleYear = year;
+        let cycleMonth = month;
+        if (dueDay <= closingDay) {
+          cycleMonth = month + 1;
+          if (cycleMonth > 11) {
+            cycleMonth = 0;
+            cycleYear = year + 1;
+          }
+        }
+        
+        // Compute billing cycle
+        const { startDate, endDate } = getCardBillingCycle(card, cycleYear, cycleMonth);
+        
+        // Sum transactions linked to this card in this cycle
+        const cycleTxs = transactions.filter((tx) => {
+          if (tx.card_id !== card.id) return false;
+          const txDate = new Date(tx.date);
+          return txDate >= startDate && txDate <= endDate;
+        });
+        const invoiceTotal = cycleTxs.reduce((sum, tx) => sum + Math.abs(tx.amount), 0);
+
+        if (map[closingDay]) {
+          map[closingDay].push({
+            id: `card-closing-${card.id}-${year}-${month}`,
+            type: 'invoice_closing',
+            title: `Fechamento: ${card.card_name}`,
+            amount: -invoiceTotal,
+            category: 'Fatura de Cartão',
+            icon: 'CreditCard',
+            paid: false,
+            meta: {
+              card,
+              startDate: startDate.toISOString(),
+              endDate: endDate.toISOString(),
+              transactions: cycleTxs
+            }
+          });
+        }
+      }
+
+      // 2. Plot due day event (Vencimento da Fatura)
+      if (dueDay >= 1 && dueDay <= daysInMonth) {
+        // Compute billing cycle for the invoice due in this month
+        const { startDate, endDate } = getCardBillingCycle(card, year, month);
+        
+        // Sum transactions linked to this card in this cycle
+        const cycleTxs = transactions.filter((tx) => {
+          if (tx.card_id !== card.id) return false;
+          const txDate = new Date(tx.date);
+          return txDate >= startDate && txDate <= endDate;
+        });
+        const invoiceTotal = cycleTxs.reduce((sum, tx) => sum + Math.abs(tx.amount), 0);
+
+        if (map[dueDay]) {
+          map[dueDay].push({
+            id: `card-due-${card.id}-${year}-${month}`,
+            type: 'invoice_due',
+            title: `Vencimento: ${card.card_name}`,
+            amount: -invoiceTotal,
+            category: 'Fatura de Cartão',
+            icon: 'AlertCircle',
+            paid: false,
+            meta: {
+              card,
+              startDate: startDate.toISOString(),
+              endDate: endDate.toISOString(),
+              transactions: cycleTxs
+            }
+          });
+        }
+      }
+    });
+
     return map;
-  }, [transactions, reminders, year, month, daysInMonth]);
+  }, [transactions, reminders, creditCards, year, month, daysInMonth]);
 
   // 3. Compute running daily balance projection for each day of the active month
   const dailyBalances = useMemo(() => {
@@ -389,7 +505,10 @@ export default function FinancialCalendar() {
       // Sum up day events (ignoring paid state for projections to anticipate cash flows)
       events.forEach((ev) => {
         // Replicated subscriptions/reminders are projected as debits unless already paid
-        currentRunningBalance += ev.amount;
+        // EXCLUDE credit card invoice due and closing dates from the running balance to prevent double counting!
+        if (ev.type !== 'invoice_closing' && ev.type !== 'invoice_due') {
+          currentRunningBalance += ev.amount;
+        }
       });
 
       map[d] = currentRunningBalance;
@@ -500,6 +619,7 @@ export default function FinancialCalendar() {
             icon: rem.category_icon || 'Repeat',
             date: formattedDate.toISOString(),
             reminder_id: rem.id,
+            card_id: rem.card_id || null, // Link to credit card if the reminder has it
             source_type: 'manual'
           });
         }
@@ -634,7 +754,8 @@ export default function FinancialCalendar() {
           urgency: 'medium',
           category_icon: categoryIcon,
           brand_color: getBrandColor(formDesc),
-          frequency: formFrequency
+          frequency: formFrequency,
+          card_id: formCategory === 'Cartão' ? (selectedCardId || null) : null
         });
 
         if (error) throw error;
@@ -646,7 +767,8 @@ export default function FinancialCalendar() {
           category: formCategory,
           amount: numericAmount,
           icon: getCategoryIcon(formCategory, formType),
-          date: transactionDate.toISOString()
+          date: transactionDate.toISOString(),
+          card_id: formCategory === 'Cartão' ? (selectedCardId || null) : null
         });
 
         if (error) throw error;
@@ -1027,9 +1149,10 @@ export default function FinancialCalendar() {
                   selectedDayItems.map((ev) => {
                     const isIncome = ev.amount > 0;
                     const isReminder = ev.type === 'reminder' || ev.type === 'subscription';
+                    const isInvoiceEvent = ev.type === 'invoice_closing' || ev.type === 'invoice_due';
                     
                     // 8. Brand Color Vertical Line Accent
-                    const brandColor = isReminder ? getBrandColor(ev.title) : null;
+                    const brandColor = isReminder ? getBrandColor(ev.title) : isInvoiceEvent ? (ev.type === 'invoice_due' ? '#ef4444' : '#10b981') : null;
                     
                     // 9. Checkbox visualization logic
                     const showCheckbox = isReminder && ev.paid !== undefined;
@@ -1039,7 +1162,7 @@ export default function FinancialCalendar() {
                         key={ev.id}
                         draggable={isReminder && !ev.paid}
                         onDragStart={isReminder ? (e) => handleDragStart(e, ev.id) : undefined}
-                        className={`relative overflow-hidden pl-5 p-4 bg-slate-950/30 border border-white/5 rounded-2xl flex justify-between items-center hover:border-white/10 transition-colors ${
+                        className={`relative overflow-hidden pl-5 p-4 bg-slate-950/30 border border-white/5 rounded-2xl flex flex-col gap-2 hover:border-white/10 transition-colors ${
                           isReminder && !ev.paid ? 'cursor-grab active:cursor-grabbing' : ''
                         }`}
                       >
@@ -1050,80 +1173,116 @@ export default function FinancialCalendar() {
                           />
                         )}
 
-                        <div className="flex items-center gap-3">
-                          {/* 9. 1-Click Quick-Pay Checkbox */}
-                          {showCheckbox && (
-                            <button
-                              onClick={() => {
-                                const isRecurring = ev.type === 'subscription' || (reminders.find(r => r.id === ev.id)?.is_recurring);
-                                const calculatedDate = selectedDay ? new Date(year, month, selectedDay, 12, 0, 0) : new Date();
-                                handleTogglePaid(ev.id, isRecurring, calculatedDate);
-                              }}
-                              className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 transition-colors ${
-                                ev.paid 
-                                  ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-400' 
-                                  : 'border-slate-600 hover:border-emerald-500 cursor-pointer'
-                              }`}
-                              title={ev.paid ? 'Confirmado - Clique para desfazer' : 'Marcar como Pago'}
-                            >
-                              {ev.paid ? (
-                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                              ) : null}
-                            </button>
-                          )}
-
-                          <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs shrink-0 ${
-                            isIncome
-                              ? 'bg-emerald-500/10 text-emerald-400'
-                              : ev.type === 'subscription'
-                              ? 'bg-blue-500/10 text-blue-400'
-                              : 'bg-amber-500/10 text-amber-400'
-                          }`}>
-                            {isIncome ? (
-                              <TrendingUp className="w-4 h-4" />
-                            ) : ev.type === 'subscription' ? (
-                              <Repeat className="w-4 h-4" />
-                            ) : (
-                              <CreditCard className="w-4 h-4" />
+                        <div className="w-full flex justify-between items-center">
+                          <div className="flex items-center gap-3">
+                            {/* 9. 1-Click Quick-Pay Checkbox */}
+                            {showCheckbox && (
+                              <button
+                                onClick={() => {
+                                  const isRecurring = ev.type === 'subscription' || (reminders.find(r => r.id === ev.id)?.is_recurring);
+                                  const calculatedDate = selectedDay ? new Date(year, month, selectedDay, 12, 0, 0) : new Date();
+                                  handleTogglePaid(ev.id, isRecurring, calculatedDate);
+                                }}
+                                className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 transition-colors ${
+                                  ev.paid 
+                                    ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-400' 
+                                    : 'border-slate-600 hover:border-emerald-500 cursor-pointer'
+                                }`}
+                                title={ev.paid ? 'Confirmado - Clique para desfazer' : 'Marcar como Pago'}
+                              >
+                                {ev.paid ? (
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                                ) : null}
+                              </button>
                             )}
-                          </div>
-                          <div>
-                            <p className="text-xs font-black text-slate-200">{ev.title}</p>
-                            <span className="text-[8px] text-slate-500 font-bold uppercase tracking-widest mt-0.5">
-                              {ev.category} • {ev.type.toUpperCase()}
-                            </span>
-                          </div>
-                        </div>
 
-                        <div className="flex items-center gap-3">
-                          <div className="text-right">
-                            <p className="text-xs font-black">
-                              {renderCurrency(ev.amount, `drawer-item-${ev.id}`, isIncome ? 'text-emerald-400' : 'text-slate-200')}
-                            </p>
-                            {ev.paid !== undefined && (
-                              <span className={`text-[7px] font-black uppercase tracking-widest block ${
-                                ev.paid ? 'text-emerald-500' : 'text-amber-500'
-                              }`}>
-                                {ev.paid ? 'Pago' : 'Pendente'}
+                            <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs shrink-0 ${
+                              isIncome
+                                ? 'bg-emerald-500/10 text-emerald-400'
+                                : ev.type === 'subscription'
+                                ? 'bg-blue-500/10 text-blue-400'
+                                : isInvoiceEvent
+                                ? (ev.type === 'invoice_due' ? 'bg-red-500/10 text-red-400' : 'bg-emerald-500/10 text-emerald-400')
+                                : 'bg-amber-500/10 text-amber-400'
+                            }`}>
+                              {isIncome ? (
+                                <TrendingUp className="w-4 h-4" />
+                              ) : ev.type === 'subscription' ? (
+                                <Repeat className="w-4 h-4" />
+                              ) : isInvoiceEvent ? (
+                                <CreditCard className="w-4 h-4" />
+                              ) : (
+                                <CreditCard className="w-4 h-4" />
+                              )}
+                            </div>
+                            <div>
+                              <p className="text-xs font-black text-slate-200">{ev.title}</p>
+                              <span className="text-[8px] text-slate-500 font-bold uppercase tracking-widest mt-0.5">
+                                {ev.category} • {ev.type.toUpperCase()}
                               </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-3">
+                            <div className="text-right">
+                              <p className="text-xs font-black">
+                                {renderCurrency(ev.amount, `drawer-item-${ev.id}`, isIncome ? 'text-emerald-400' : (isInvoiceEvent ? (ev.type === 'invoice_due' ? 'text-red-400' : 'text-emerald-400') : 'text-slate-200'))}
+                              </p>
+                              {ev.paid !== undefined && !isInvoiceEvent && (
+                                <span className={`text-[7px] font-black uppercase tracking-widest block ${
+                                  ev.paid ? 'text-emerald-500' : 'text-amber-500'
+                                }`}>
+                                  {ev.paid ? 'Pago' : 'Pendente'}
+                                </span>
+                              )}
+                            </div>
+                            
+                            {!isInvoiceEvent && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (ev.type === 'transaction') {
+                                    handleDeleteTransaction(ev.id);
+                                  } else {
+                                    handleDeleteReminder(ev.id);
+                                  }
+                                }}
+                                className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer shrink-0"
+                                title={ev.type === 'transaction' ? 'Excluir Transação' : 'Excluir Lembrete'}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
                             )}
                           </div>
-                          
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (ev.type === 'transaction') {
-                                handleDeleteTransaction(ev.id);
-                              } else {
-                                handleDeleteReminder(ev.id);
-                              }
-                            }}
-                            className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer shrink-0"
-                            title={ev.type === 'transaction' ? 'Excluir Transação' : 'Excluir Lembrete'}
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
                         </div>
+
+                        {/* Invoice breakdown list inside the event card */}
+                        {isInvoiceEvent && ev.meta?.transactions && ev.meta.transactions.length > 0 && (
+                          <div className="w-full mt-2 pt-2.5 border-t border-white/5 pl-2 space-y-1">
+                            <p className="text-[8px] text-slate-500 font-bold uppercase tracking-widest mb-1.5">Lançamentos do Ciclo:</p>
+                            <div className="max-h-[120px] overflow-y-auto no-scrollbar space-y-1.5 pr-1">
+                              {ev.meta.transactions.map((tx: any) => (
+                                <div key={tx.id} className="flex justify-between items-center text-[10px] bg-slate-950/20 p-1.5 rounded-lg border border-white/5">
+                                  <div className="flex flex-col">
+                                    <span className="text-slate-300 font-bold max-w-[150px] truncate">{tx.description}</span>
+                                    <span className="text-[7px] text-slate-500 font-bold uppercase tracking-widest mt-0.5">
+                                      {new Date(tx.date).toLocaleDateString('pt-BR')}
+                                    </span>
+                                  </div>
+                                  <span className="text-slate-200 font-mono font-bold">
+                                    {-Math.abs(tx.amount).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {isInvoiceEvent && (!ev.meta?.transactions || ev.meta.transactions.length === 0) && (
+                          <div className="w-full mt-1.5 text-left pl-2 text-[8px] text-slate-500 font-bold uppercase tracking-widest">
+                            Nenhuma compra vinculada neste ciclo.
+                          </div>
+                        )}
                       </div>
                     );
                   })
@@ -1247,6 +1406,24 @@ export default function FinancialCalendar() {
                         <option value="mensal">Mesmo Dia do Mês</option>
                         <option value="primeiro_dia_util">Primeiro Dia Útil</option>
                         <option value="ultimo_dia_util">Último Dia Útil</option>
+                      </select>
+                    </div>
+                  )}
+
+                  {/* Credit Card Selector */}
+                  {formCategory === 'Cartão' && creditCards.length > 0 && (
+                    <div className="space-y-2 p-3.5 bg-slate-950/60 border border-white/5 rounded-xl animate-in fade-in slide-in-from-top-1 duration-200">
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block text-left">Associar ao Cartão</label>
+                      <select
+                        value={selectedCardId}
+                        onChange={(e) => setSelectedCardId(e.target.value)}
+                        className="w-full px-4 py-2.5 bg-slate-950 border border-white/5 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500/20 text-white"
+                      >
+                        {creditCards.map((card) => (
+                          <option key={card.id} value={card.id}>
+                            {card.card_name} (•••• {card.last_four})
+                          </option>
+                        ))}
                       </select>
                     </div>
                   )}
