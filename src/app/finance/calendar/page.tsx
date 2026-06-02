@@ -18,7 +18,8 @@ import {
   CalendarDays,
   Sparkles,
   Eye,
-  EyeOff
+  EyeOff,
+  Trash2
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
@@ -443,6 +444,38 @@ export default function FinancialCalendar() {
       await fetchCalendarData();
     } catch (err) {
       console.error('Error toggling paid state:', err);
+    }
+  };
+
+  const handleDeleteReminder = async (id: string) => {
+    playHapticClick();
+    try {
+      const { error } = await supabase
+        .from('reminders')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+
+      await fetchCalendarData();
+    } catch (err) {
+      console.error('Error deleting reminder:', err);
+    }
+  };
+
+  const handleDeleteTransaction = async (id: string) => {
+    playHapticClick();
+    try {
+      const { error } = await supabase
+        .from('transactions')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+
+      await fetchCalendarData();
+    } catch (err) {
+      console.error('Error deleting transaction:', err);
     }
   };
 
@@ -986,17 +1019,34 @@ export default function FinancialCalendar() {
                           </div>
                         </div>
 
-                        <div className="text-right">
-                          <p className="text-xs font-black">
-                            {renderCurrency(ev.amount, `drawer-item-${ev.id}`, isIncome ? 'text-emerald-400' : 'text-slate-200')}
-                          </p>
-                          {ev.paid !== undefined && (
-                            <span className={`text-[7px] font-black uppercase tracking-widest ${
-                              ev.paid ? 'text-emerald-500' : 'text-amber-500'
-                            }`}>
-                              {ev.paid ? 'Pago' : 'Pendente'}
-                            </span>
-                          )}
+                        <div className="flex items-center gap-3">
+                          <div className="text-right">
+                            <p className="text-xs font-black">
+                              {renderCurrency(ev.amount, `drawer-item-${ev.id}`, isIncome ? 'text-emerald-400' : 'text-slate-200')}
+                            </p>
+                            {ev.paid !== undefined && (
+                              <span className={`text-[7px] font-black uppercase tracking-widest block ${
+                                ev.paid ? 'text-emerald-500' : 'text-amber-500'
+                              }`}>
+                                {ev.paid ? 'Pago' : 'Pendente'}
+                              </span>
+                            )}
+                          </div>
+                          
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (ev.type === 'transaction') {
+                                handleDeleteTransaction(ev.id);
+                              } else {
+                                handleDeleteReminder(ev.id);
+                              }
+                            }}
+                            className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer shrink-0"
+                            title={ev.type === 'transaction' ? 'Excluir Transação' : 'Excluir Lembrete'}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                       </div>
                     );
