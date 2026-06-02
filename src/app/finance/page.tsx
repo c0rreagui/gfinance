@@ -103,6 +103,22 @@ export default function FinanceDashboard() {
 
   const fetchDashboardData = async (userId: string) => {
     try {
+      // Reconcile balances first to sync any newly matured future transactions
+      const { data: { session } } = await supabase.auth.getSession();
+      const supabaseToken = session?.access_token;
+      if (supabaseToken) {
+        try {
+          await fetch('/api/finance/reconcile', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${supabaseToken}`
+            }
+          });
+        } catch (e) {
+          console.warn('Silent balance reconciliation failed:', e);
+        }
+      }
+
       // 1. Fetch Balances
       const { data: dbBalances } = await supabase
         .from('balances')
@@ -128,11 +144,12 @@ export default function FinanceDashboard() {
         ]);
       }
 
-      // 2. Fetch Transactions
+      // 2. Fetch Transactions (excluding future-dated transactions)
       const { data: dbTransactions } = await supabase
         .from('transactions')
         .select('*')
         .eq('user_id', userId)
+        .lte('date', new Date().toISOString())
         .order('date', { ascending: false })
         .limit(5);
       

@@ -29,7 +29,8 @@ function parseSms(texto: string): { amount: number; description: string; date: s
 
   // Regex 1: Itaú Pix Recebido
   // Ex: "Itau: Pix recebido de JOAO SILVA em 28/05/2026 de R$ 1.500,00"
-  const pixRecRegex = /pix\s+recebido\s+de\s+(.+?)\s+(?:em\s+\d{2}\/\d{2}\/\d{4}\s+)?de\s+r\$\s*([\d.,]+)/i;
+  // Ex: "Itau: Pix recebido de JOAO SILVA R$ 1.500,00"
+  const pixRecRegex = /pix\s+recebido\s+de\s+(.+?)\s+(?:em\s+\d{2}\/\d{2}\/\d{4}\s+)?(?:de\s+)?r\$\s*([\d.,]+)/i;
   const pixRecMatch = text.match(pixRecRegex);
   if (pixRecMatch) {
     const rawVal = pixRecMatch[2].replace(/\./g, "").replace(",", ".");
@@ -41,8 +42,9 @@ function parseSms(texto: string): { amount: number; description: string; date: s
 
   // Regex 2: Compra aprovada no Cartão
   // Ex: "Itaucard: compra aprovada no MASTER BLACK final 1234 em 28/05 as 17:50 R$ 259,90 no STRIPE."
+  // Ex: "Itaucard: compra aprovada no cartao final 1234 de R$ 45,90 em Uber"
   if (amount === 0) {
-    const cardRegex = /(?:compra aprovada no|compra aprovada).*?r\$\s*([\d.,]+)\s+no\s+(.+?)(?:\.|$)/i;
+    const cardRegex = /(?:compra aprovada no|compra aprovada).*?r\$\s*([\d.,]+)\s+(?:no|em|na|nos|nas)\s+(.+?)(?:\.|$)/i;
     const cardMatch = text.match(cardRegex);
     if (cardMatch) {
       const rawVal = cardMatch[1].replace(/\./g, "").replace(",", ".");
@@ -55,8 +57,9 @@ function parseSms(texto: string): { amount: number; description: string; date: s
 
   // Regex 3: Pix Enviado / Transferência Realizada
   // Ex: "Itau: transferencia de R$ 100,00 para GUILHERME realizada em 28/05/2026."
+  // Ex: "Itau: Pix enviado de R$ 50,00 para Pedro"
   if (amount === 0) {
-    const pixEnvRegex = /(?:transferencia|pix enviado).*?r\$\s*([\d.,]+)\s+para\s+(.+?)(?:\s+realizada|\.|$)/i;
+    const pixEnvRegex = /(?:transferencia|pix enviado).*?r\$\s*([\d.,]+)\s+(?:para|em|a)\s+(.+?)(?:\s+realizada|\.|$)/i;
     const pixEnvMatch = text.match(pixEnvRegex);
     if (pixEnvMatch) {
       const rawVal = pixEnvMatch[1].replace(/\./g, "").replace(",", ".");
@@ -69,13 +72,14 @@ function parseSms(texto: string): { amount: number; description: string; date: s
 
   // Regex 4: Compra aprovada genérica com valor e local
   // Ex: "Compra aprovada em 28/05 R$ 45,60 no estabelecimento UBER"
+  // Ex: "Compra aprovada R$ 10,00 em Spotify"
   if (amount === 0) {
-    const genericRegex = /(?:r\$\s*([\d.,]+)\s+no\s+estabelecimento\s+(.+?)(?:\.|$))|(?:r\$\s*([\d.,]+)\s+no\s+(.+?)(?:\.|$))/i;
+    const genericRegex = /(?:r\$\s*([\d.,]+)\s+(?:no|em|na|nos|nas)\s+(?:estabelecimento\s+)?(.+?)(?:\.|$))/i;
     const genericMatch = text.match(genericRegex);
     if (genericMatch) {
-      const rawVal = (genericMatch[1] || genericMatch[3]).replace(/\./g, "").replace(",", ".");
+      const rawVal = genericMatch[1].replace(/\./g, "").replace(",", ".");
       amount = -parseFloat(rawVal);
-      description = (genericMatch[2] || genericMatch[4]).trim();
+      description = genericMatch[2].trim();
     }
   }
 
@@ -153,13 +157,37 @@ serve(async (req) => {
       }
     }
 
-    // 5. Payload Extraction and Parsing
-    const body = await req.json();
-    const { texto_sms } = body;
+    // Fallback: extract userId from query params (extremely helpful for iOS Shortcuts)
+    const urlObj = new URL(req.url);
+    const queryUserId = urlObj.searchParams.get("user_id");
+    if (!userId && queryUserId) {
+      userId = queryUserId;
+    }
 
-    // Check body fallback if user_id was passed directly (for simple test environments)
-    if (!userId && body.user_id) {
-      userId = body.user_id;
+    // 5. Payload Extraction and Parsing with Fallbacks
+    let texto_sms = "";
+    const contentType = req.headers.get("content-type") || "";
+
+    if (req.body) {
+      if (contentType.includes("application/json")) {
+        try {
+          const body = await req.json();
+          texto_sms = body.texto_sms || "";
+          if (!userId && body.user_id) {
+            userId = body.user_id;
+          }
+        } catch (e) {
+          // If JSON parsing fails, read as plain text
+          try {
+            const rawText = await req.text();
+            texto_sms = rawText;
+          } catch (_) {}
+        }
+      } else {
+        try {
+          texto_sms = await req.text();
+        } catch (_) {}
+      }
     }
 
     if (!userId) {
@@ -177,12 +205,13 @@ serve(async (req) => {
     }
 
     // 6. Strict Validation: Ensure "texto_sms" key exists and is a valid string
-    if (!texto_sms || typeof texto_sms !== "string") {
+    texto_sms = texto_sms.trim();
+    if (!texto_sms) {
       console.warn("[SMS Webhook] Payload de requisição malformado ou 'texto_sms' ausente.");
       return new Response(
         JSON.stringify({
           error: "Bad Request",
-          message: "O payload fornecido é inválido. A chave 'texto_sms' é obrigatória e deve ser uma string."
+          message: "O payload fornecido é inválido. O texto do SMS é obrigatório e deve ser enviado no corpo da requisição."
         }),
         { 
           status: 400, 

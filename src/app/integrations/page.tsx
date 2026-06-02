@@ -58,8 +58,6 @@ const getSourceBadgeDetails = (sourceType: string | null) => {
 };
 
 export default function DataSources() {
-  const webhookUrl = 'https://jdliepgseoyoxfygmdet.supabase.co/functions/v1/sms-webhook';
-
   const [copied, setCopied] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -70,6 +68,10 @@ export default function DataSources() {
   const [logs, setLogs] = useState<OperationLog[]>([]);
   const [logsLoading, setLogsLoading] = useState(true);
   const [userId, setUserId] = useState<string>('');
+
+  const webhookUrl = userId 
+    ? `https://jdliepgseoyoxfygmdet.supabase.co/functions/v1/sms-webhook?user_id=${userId}`
+    : 'https://jdliepgseoyoxfygmdet.supabase.co/functions/v1/sms-webhook';
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -483,11 +485,11 @@ export default function DataSources() {
               </div>
 
               <p className="text-xs text-slate-400 leading-relaxed mb-6">
-                Configure o <strong>Atalhos (Shortcuts) do iOS</strong> para ler os SMS do Itaú e encaminhar automaticamente como payload HTTP POST para a URL abaixo.
+                Configure o <strong>Atalhos (Shortcuts) do iOS</strong> para capturar os SMS do Itaú e encaminhar automaticamente como payload HTTP POST para a URL personalizada abaixo.
               </p>
 
               <div className="space-y-2 mb-8">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">URL de destino da Edge Function</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Sua URL do Webhook (Contém seu Token/User ID)</label>
                 <div className="flex gap-2">
                   <div className="flex-1 min-w-0 bg-slate-950 border border-white/5 rounded-2xl px-4 py-3.5 flex items-center">
                     <input
@@ -517,7 +519,7 @@ export default function DataSources() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-white/5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-white/5 mb-6">
                 <div className="flex gap-3">
                   <div className="p-2 bg-orange-500/10 text-orange-400 rounded-xl shrink-0 h-9 w-9 flex items-center justify-center">
                     <span className="text-xs font-black">01</span>
@@ -525,7 +527,7 @@ export default function DataSources() {
                   <div>
                     <h5 className="text-xs font-black text-slate-200">Gatilho no Atalhos</h5>
                     <p className="text-[11px] text-slate-400 mt-0.5 leading-normal">
-                      Crie uma automação no recebimento de SMS com termos como &quot;itaucard&quot; ou &quot;Pix recebido&quot;.
+                      Crie uma automação pessoal no iOS para disparar "Ao receber mensagem de 290-40".
                     </p>
                   </div>
                 </div>
@@ -534,27 +536,35 @@ export default function DataSources() {
                     <span className="text-xs font-black">02</span>
                   </div>
                   <div>
-                    <h5 className="text-xs font-black text-slate-200">Requisição POST</h5>
+                    <h5 className="text-xs font-black text-slate-200">Ação de Envio (POST)</h5>
                     <p className="text-[11px] text-slate-400 mt-0.5 leading-normal">
-                      Adicione &quot;Obter Conteúdo de URL&quot; enviando o texto do SMS no body em JSON.
+                      Use &quot;Obter Conteúdo de URL&quot;, clique em &quot;&gt;&quot;, configure como <strong>POST</strong>, e no corpo envie o <strong>Texto do Atalho (Mensagem)</strong>.
                     </p>
                   </div>
                 </div>
               </div>
 
-              <div className="mt-6 pt-6 border-t border-white/5 space-y-3">
-                <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest block">Payload JSON de Exemplo (iOS Shortcuts)</span>
-                <div className="relative">
-                  <pre className="text-[10px] font-mono text-emerald-400 select-all overflow-x-auto whitespace-pre bg-slate-950 p-4 rounded-2xl border border-white/5 leading-relaxed">
-{`{
-  "texto_sms": "Itaucard: compra aprovada no MASTER BLACK... R$ 100,00",
-  "user_id": "${userId || 'Carregando...'}"
-}`}
-                  </pre>
+              <div className="pt-6 border-t border-white/5 space-y-4">
+                <div>
+                  <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-2">Método Recomendado (Texto Puro)</span>
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    Basta colar a URL copiada acima e enviar o texto bruto do SMS como o corpo da requisição POST (Request Body: File/Text). A Edge Function identifica seu usuário pela URL e faz o parse do texto automaticamente.
+                  </p>
                 </div>
-                <p className="text-[10px] text-slate-500 leading-normal">
-                  Passe o parâmetro <code className="text-slate-400 font-mono">user_id</code> no corpo JSON junto a <code className="text-slate-400 font-mono">texto_sms</code> para que a Edge Function processe com segurança.
-                </p>
+                
+                <div className="space-y-2">
+                  <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest block">Método Alternativo (Payload JSON)</span>
+                  <div className="relative">
+                    <pre className="text-[10px] font-mono text-emerald-400 select-all overflow-x-auto whitespace-pre bg-slate-950 p-4 rounded-2xl border border-white/5 leading-relaxed">
+{`{
+  "texto_sms": "Itaucard: compra aprovada no MASTER BLACK... R$ 100,00"
+}`}
+                    </pre>
+                  </div>
+                  <p className="text-[10px] text-slate-500 leading-normal">
+                    Se preferir enviar JSON, use o formato acima. O cabeçalho <code className="text-slate-400 font-mono">Content-Type</code> deve ser <code className="text-slate-400 font-mono">application/json</code>.
+                  </p>
+                </div>
               </div>
             </div>
 
