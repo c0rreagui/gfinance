@@ -32,6 +32,8 @@ interface DBCreditCard {
   color_theme: string;
   manual_invoice_amount: number | null;
   created_at?: string;
+  physical_last_four?: string | null;
+  card_brand?: string;
 }
 
 interface DBInstallment {
@@ -123,6 +125,50 @@ const themes = {
   }
 };
 
+const BrandLogo = ({ brand, theme, size = 'md' }: { brand?: string; theme: any; size?: 'sm' | 'md' }) => {
+  const b = (brand || 'mastercard').toLowerCase();
+  
+  if (b === 'visa') {
+    return (
+      <span className={`font-sans font-black italic tracking-wider ${size === 'sm' ? 'text-[10px]' : 'text-xs md:text-sm'} text-white flex items-center gap-0.5`}>
+        <span className="text-sky-400">V</span>
+        <span>I</span>
+        <span>S</span>
+        <span className="text-amber-400">A</span>
+      </span>
+    );
+  }
+  if (b === 'elo') {
+    return (
+      <div className="flex items-center gap-1">
+        <span className={`font-sans font-black italic ${size === 'sm' ? 'text-[8px]' : 'text-[10px]'} tracking-tight text-white`}>elo</span>
+        <div className="flex -space-x-1">
+          <div className={`${size === 'sm' ? 'w-1.5 h-1.5' : 'w-2 h-2'} rounded-full bg-[#E3262A]`}></div>
+          <div className={`${size === 'sm' ? 'w-1.5 h-1.5' : 'w-2 h-2'} rounded-full bg-[#F5A623]`}></div>
+          <div className={`${size === 'sm' ? 'w-1.5 h-1.5' : 'w-2 h-2'} rounded-full bg-[#00A1E4]`}></div>
+        </div>
+      </div>
+    );
+  }
+  if (b === 'amex') {
+    return (
+      <div className={`border border-white/20 bg-slate-950/40 ${size === 'sm' ? 'px-1 py-0.2 text-[6px]' : 'px-1.5 py-0.5 text-[8px]'} rounded font-black uppercase tracking-wider text-white font-mono`}>
+        Amex
+      </div>
+    );
+  }
+  
+  // Default: mastercard
+  const circleSize = size === 'sm' ? 'w-4 h-4' : 'w-6 h-6';
+  const spaceClass = size === 'sm' ? '-space-x-1.5' : '-space-x-2';
+  return (
+    <div className={`flex ${spaceClass}`}>
+      <div className={`${circleSize} rounded-full backdrop-blur-sm border ${theme.circles.left}`}></div>
+      <div className={`${circleSize} rounded-full border ${theme.circles.right}`}></div>
+    </div>
+  );
+};
+
 const getCardBillingCycle = (card: DBCreditCard) => {
   const closingDay = card.closing_day;
   const dueDay = card.due_day;
@@ -205,6 +251,13 @@ export default function CardsPage() {
   const [rightTab, setRightTab] = useState<'transactions' | 'installments'>('transactions');
   const [installments, setInstallments] = useState<DBInstallment[]>([]);
   const [ignoredRange, setIgnoredRange] = useState<{ startDate: string; endDate: string } | null>(null);
+  
+  // Custom grouping & branding states
+  const [editPhysicalLastFour, setEditPhysicalLastFour] = useState('');
+  const [editCardBrand, setEditCardBrand] = useState('mastercard');
+  
+  const [newPhysicalLastFour, setNewPhysicalLastFour] = useState('');
+  const [newCardBrand, setNewCardBrand] = useState('mastercard');
 
   useEffect(() => {
     const rangeStr = localStorage.getItem('gfinance_ignored_period');
@@ -489,6 +542,8 @@ export default function CardsPage() {
       setEditExpiration(activeCard.expiration_date);
       setEditClosing(activeCard.closing_day.toString());
       setEditDue(activeCard.due_day.toString());
+      setEditPhysicalLastFour(activeCard.physical_last_four || '');
+      setEditCardBrand(activeCard.card_brand || 'mastercard');
 
       if (activeCard.created_at) {
         setMemberSince(new Date(activeCard.created_at).getFullYear().toString());
@@ -576,7 +631,9 @@ export default function CardsPage() {
           last_four: editLastFour,
           expiration_date: editExpiration,
           closing_day: closingNum,
-          due_day: dueNum
+          due_day: dueNum,
+          physical_last_four: editPhysicalLastFour || null,
+          card_brand: editCardBrand
         })
         .eq('id', activeCard.id);
 
@@ -660,6 +717,8 @@ export default function CardsPage() {
           closing_day: closingNum,
           due_day: dueNum,
           color_theme: newTheme,
+          physical_last_four: newPhysicalLastFour || null,
+          card_brand: newCardBrand,
           spline_url: 'https://prod.spline.design/1e9d1552-3443-485d-a066-e46604b8db02/scene.splinecode'
         })
         .select()
@@ -668,6 +727,8 @@ export default function CardsPage() {
       if (error) throw error;
 
       setNewSuccess('Cartão adicionado com sucesso!');
+      setNewPhysicalLastFour('');
+      setNewCardBrand('mastercard');
       setTimeout(() => {
         setIsCreateOpen(false);
         fetchCardData(newCard?.id);
@@ -917,13 +978,26 @@ export default function CardsPage() {
                   </div>
 
                   {/* Card Number */}
-                  <div className="space-y-1">
+                  <div className="space-y-1.5">
                     <div className="flex items-center gap-3">
-                      <p className="font-mono text-lg tracking-[0.25em] text-white">
+                      <p className="font-mono text-base md:text-lg tracking-[0.2em] text-white">
                         •••• •••• •••• {activeCard.last_four}
                       </p>
+                      <span className="text-[6px] font-black tracking-widest bg-emerald-500/20 text-emerald-400 border border-emerald-500/35 px-1.5 py-0.5 rounded uppercase">
+                        Virtual
+                      </span>
                     </div>
-                    <div className="flex gap-6 mt-4">
+                    {activeCard.physical_last_four && (
+                      <div className="flex items-center gap-3 border-t border-white/5 pt-1.5">
+                        <p className="font-mono text-sm md:text-base tracking-[0.2em] text-slate-400">
+                          •••• •••• •••• {activeCard.physical_last_four}
+                        </p>
+                        <span className="text-[6px] font-black tracking-widest bg-sky-500/20 text-sky-400 border border-sky-500/35 px-1.5 py-0.5 rounded uppercase">
+                          Físico
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex gap-6 mt-3">
                       <div>
                         <p className="text-[7px] text-slate-500 font-bold uppercase tracking-widest">Validade</p>
                         <p className="text-[10px] font-bold text-slate-300 mt-0.5">{activeCard.expiration_date}</p>
@@ -941,10 +1015,7 @@ export default function CardsPage() {
                       <p className="text-[7px] text-slate-500 font-bold uppercase tracking-widest">Titular</p>
                       <p className="text-xs font-black uppercase tracking-wider text-slate-100 mt-0.5">{ownerName}</p>
                     </div>
-                    <div className="flex -space-x-2">
-                      <div className={`w-6 h-6 rounded-full backdrop-blur-sm border ${activeTheme.circles.left}`}></div>
-                      <div className={`w-6 h-6 rounded-full border ${activeTheme.circles.right}`}></div>
-                    </div>
+                    <BrandLogo brand={activeCard.card_brand} theme={activeTheme} size="md" />
                   </div>
                 </div>
               </div>
@@ -1121,6 +1192,33 @@ export default function CardsPage() {
                     </div>
                   </div>
 
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Bandeira do Cartão</label>
+                      <select
+                        value={editCardBrand}
+                        onChange={(e) => setEditCardBrand(e.target.value)}
+                        className="w-full px-4 py-3 bg-slate-950 border border-white/5 rounded-xl text-xs text-white focus:outline-none focus:ring-1 focus:ring-emerald-500/20"
+                      >
+                        <option value="mastercard">Mastercard</option>
+                        <option value="visa">Visa</option>
+                        <option value="elo">Elo</option>
+                        <option value="amex">American Express</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Final do Cartão Físico (Opcional - 4 dígitos)</label>
+                      <input
+                        type="text"
+                        maxLength={4}
+                        value={editPhysicalLastFour}
+                        onChange={(e) => setEditPhysicalLastFour(e.target.value)}
+                        placeholder="Ex: 5678"
+                        className="w-full px-4 py-3 bg-slate-950 border border-white/5 rounded-xl text-xs text-white font-mono focus:outline-none focus:ring-1 focus:ring-emerald-500/20 text-center"
+                      />
+                    </div>
+                  </div>
+
                   <div className="grid grid-cols-3 gap-4">
                     <div>
                       <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Validade (MM/AA)</label>
@@ -1219,15 +1317,25 @@ export default function CardsPage() {
                             <span className="text-[9px] font-black text-white uppercase tracking-wider">{c.card_name}</span>
                             <div className={`w-3.5 h-3.5 rounded-full ${theme.logoBg}`}></div>
                           </div>
-                          <p className="font-mono text-xs text-white tracking-widest mt-4">
-                            •••• •••• •••• {c.last_four}
-                          </p>
-                          <div className="flex justify-between items-end border-t border-white/5 pt-2 mt-2">
-                            <span className="text-[7px] text-slate-400 font-mono">VAL: {c.expiration_date}</span>
-                            <div className="flex -space-x-1">
-                              <div className={`w-4 h-4 rounded-full ${theme.circles.left}`}></div>
-                              <div className={`w-4 h-4 rounded-full ${theme.circles.right}`}></div>
+                          <div className={`space-y-1 ${c.physical_last_four ? 'mt-1' : 'mt-4'}`}>
+                            <div className="flex items-center justify-between">
+                              <p className="font-mono text-[10px] md:text-xs text-white tracking-widest">
+                                •••• {c.last_four}
+                              </p>
+                              <span className="text-[5px] font-black tracking-widest opacity-70 uppercase text-white">Virtual</span>
                             </div>
+                            {c.physical_last_four && (
+                              <div className="flex items-center justify-between border-t border-white/5 pt-1">
+                                <p className="font-mono text-[10px] md:text-xs text-slate-300 tracking-widest">
+                                  •••• {c.physical_last_four}
+                                </p>
+                                <span className="text-[5px] font-black tracking-widest opacity-70 uppercase text-slate-300">Físico</span>
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex justify-between items-end border-t border-white/5 pt-2 mt-1">
+                            <span className="text-[7px] text-slate-400 font-mono">VAL: {c.expiration_date}</span>
+                            <BrandLogo brand={c.card_brand} theme={theme} size="sm" />
                           </div>
                         </div>
                       </div>
@@ -1504,6 +1612,33 @@ export default function CardsPage() {
                       value={newDue}
                       onChange={(e) => setNewDue(e.target.value)}
                       className="w-full px-4 py-3 bg-slate-950 border border-white/5 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500/20 text-white text-center"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Bandeira do Cartão</label>
+                    <select
+                      value={newCardBrand}
+                      onChange={(e) => setNewCardBrand(e.target.value)}
+                      className="w-full px-4 py-3 bg-slate-950 border border-white/5 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500/20 text-white"
+                    >
+                      <option value="mastercard">Mastercard</option>
+                      <option value="visa">Visa</option>
+                      <option value="elo">Elo</option>
+                      <option value="amex">American Express</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Final do Físico (Opcional)</label>
+                    <input
+                      type="text"
+                      maxLength={4}
+                      placeholder="Ex: 5678"
+                      value={newPhysicalLastFour}
+                      onChange={(e) => setNewPhysicalLastFour(e.target.value)}
+                      className="w-full px-4 py-3 bg-slate-950 border border-white/5 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500/20 text-white font-mono text-center"
                     />
                   </div>
                 </div>
