@@ -199,6 +199,24 @@ export default function FinancialCalendar() {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [filterStart, setFilterStart] = useState('');
   const [filterEnd, setFilterEnd] = useState('');
+  const [pickerYear, setPickerYear] = useState(() => new Date().getFullYear());
+  const [pickerMonth, setPickerMonth] = useState(() => new Date().getMonth());
+
+  useEffect(() => {
+    if (isFilterOpen) {
+      if (filterStart) {
+        const d = new Date(filterStart);
+        if (!isNaN(d.getTime())) {
+          setPickerYear(d.getFullYear());
+          setPickerMonth(d.getMonth());
+        }
+      } else {
+        const d = new Date();
+        setPickerYear(d.getFullYear());
+        setPickerMonth(d.getMonth());
+      }
+    }
+  }, [isFilterOpen, filterStart]);
 
   useEffect(() => {
     const rangeStr = localStorage.getItem('gfinance_ignored_period');
@@ -957,7 +975,7 @@ export default function FinancialCalendar() {
         <div className="max-w-6xl mx-auto space-y-6 w-full flex-1 flex flex-col">
           
           {/* Header */}
-          <div className="stagger-in flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shrink-0" style={{ animationDelay: '50ms' }}>
+          <div className="stagger-in flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shrink-0 relative z-20" style={{ animationDelay: '50ms' }}>
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 bg-emerald-500 rounded-xl flex items-center justify-center text-white shadow-lg shadow-emerald-500/20">
                 <CalendarIcon className="w-5 h-5" />
@@ -1009,32 +1027,131 @@ export default function FinancialCalendar() {
                 {isFilterOpen && (
                   <>
                     <div className="fixed inset-0 z-40 cursor-default" onClick={() => setIsFilterOpen(false)} />
-                    <div className="absolute right-0 mt-2 w-72 bg-slate-900/95 border border-white/10 rounded-2xl p-5 shadow-2xl backdrop-blur-md z-50 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+                    <div className="absolute right-0 mt-2 w-80 bg-slate-900/95 border border-white/10 rounded-2xl p-5 shadow-2xl backdrop-blur-md z-50 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200 text-left">
                       <div className="space-y-1">
-                        <h3 className="text-[10px] font-black uppercase tracking-wider text-slate-200">Filtro de Contas Passadas</h3>
+                        <h3 className="text-[10px] font-black uppercase tracking-wider text-slate-200">Período Ignorado</h3>
                         <p className="text-[9px] text-slate-500 font-medium leading-relaxed">
-                          Selecione um intervalo de datas para ignorar e ocultar contas e assinaturas pendentes do passado.
+                          Selecione as datas de início e fim no mini-calendário abaixo.
                         </p>
                       </div>
-                      
-                      <div className="grid grid-cols-2 gap-3">
+
+                      {/* Mini Calendar Widget */}
+                      <div className="space-y-3">
+                        {/* Month Selector Header */}
+                        <div className="flex justify-between items-center bg-slate-950/40 p-1.5 rounded-xl border border-white/5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              playHapticClick();
+                              if (pickerMonth === 0) {
+                                setPickerMonth(11);
+                                setPickerYear(prev => prev - 1);
+                              } else {
+                                setPickerMonth(prev => prev - 1);
+                              }
+                            }}
+                            className="p-1 hover:bg-white/5 rounded-lg text-slate-400 hover:text-white transition-colors cursor-pointer"
+                          >
+                            <ChevronLeft className="w-3.5 h-3.5" />
+                          </button>
+                          <span className="text-[10px] font-black uppercase tracking-wider text-slate-200 font-mono">
+                            {['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'][pickerMonth]} {pickerYear}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              playHapticClick();
+                              if (pickerMonth === 11) {
+                                setPickerMonth(0);
+                                setPickerYear(prev => prev + 1);
+                              } else {
+                                setPickerMonth(prev => prev + 1);
+                              }
+                            }}
+                            className="p-1 hover:bg-white/5 rounded-lg text-slate-400 hover:text-white transition-colors cursor-pointer"
+                          >
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                        
+                        {/* Week Days Headers */}
+                        <div className="grid grid-cols-7 gap-1 text-center text-[8px] font-black text-slate-500 uppercase tracking-widest">
+                          <span>Dom</span>
+                          <span>Seg</span>
+                          <span>Ter</span>
+                          <span>Qua</span>
+                          <span>Qui</span>
+                          <span>Sex</span>
+                          <span>Sáb</span>
+                        </div>
+                        
+                        {/* Day Grid */}
+                        <div className="grid grid-cols-7 gap-1">
+                          {(() => {
+                            const daysInMonth = new Date(pickerYear, pickerMonth + 1, 0).getDate();
+                            const firstDayIndex = new Date(pickerYear, pickerMonth, 1).getDay();
+                            const cells = [];
+                            
+                            for (let i = 0; i < firstDayIndex; i++) {
+                              cells.push(<div key={`pad-${i}`} className="h-7 w-7" />);
+                            }
+                            
+                            for (let d = 1; d <= daysInMonth; d++) {
+                              const monthStr = String(pickerMonth + 1).padStart(2, '0');
+                              const dayStr = String(d).padStart(2, '0');
+                              const dateStr = `${pickerYear}-${monthStr}-${dayStr}`;
+                              
+                              const isStart = filterStart === dateStr;
+                              const isEnd = filterEnd === dateStr;
+                              const isInRange = filterStart && filterEnd && dateStr > filterStart && dateStr < filterEnd;
+                              
+                              let cellClass = "h-7 w-7 text-[10px] rounded-lg flex items-center justify-center cursor-pointer transition-all font-mono ";
+                              if (isStart || isEnd) {
+                                cellClass += "bg-emerald-500 text-white font-bold shadow-lg shadow-emerald-500/20";
+                              } else if (isInRange) {
+                                cellClass += "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20";
+                              } else {
+                                cellClass += "text-slate-300 hover:bg-white/5 hover:text-white";
+                              }
+                              
+                              cells.push(
+                                <button
+                                  key={`day-${d}`}
+                                  type="button"
+                                  onClick={() => {
+                                    playHapticClick();
+                                    if (!filterStart || (filterStart && filterEnd)) {
+                                      setFilterStart(dateStr);
+                                      setFilterEnd('');
+                                    } else {
+                                      if (dateStr >= filterStart) {
+                                        setFilterEnd(dateStr);
+                                      } else {
+                                        setFilterStart(dateStr);
+                                        setFilterEnd('');
+                                      }
+                                    }
+                                  }}
+                                  className={cellClass}
+                                >
+                                  {d}
+                                </button>
+                              );
+                            }
+                            return cells;
+                          })()}
+                        </div>
+                      </div>
+
+                      {/* Pre-formatted Date Text Display */}
+                      <div className="flex items-center justify-between text-[8px] font-black uppercase tracking-widest text-slate-400 bg-slate-950 p-2.5 rounded-xl border border-white/5 font-mono">
                         <div>
-                          <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest block mb-1">Data Início</label>
-                          <input 
-                            type="date" 
-                            value={filterStart}
-                            onChange={(e) => setFilterStart(e.target.value)}
-                            className="w-full px-2.5 py-1.5 bg-slate-950 border border-white/5 rounded-lg text-[10px] text-white focus:outline-none focus:ring-1 focus:ring-emerald-500/20 font-mono"
-                          />
+                          <span>Início: </span>
+                          <span className="text-slate-200">{filterStart ? new Date(filterStart + 'T12:00:00').toLocaleDateString('pt-BR') : '—'}</span>
                         </div>
                         <div>
-                          <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest block mb-1">Data Fim</label>
-                          <input 
-                            type="date" 
-                            value={filterEnd}
-                            onChange={(e) => setFilterEnd(e.target.value)}
-                            className="w-full px-2.5 py-1.5 bg-slate-950 border border-white/5 rounded-lg text-[10px] text-white focus:outline-none focus:ring-1 focus:ring-emerald-500/20 font-mono"
-                          />
+                          <span>Fim: </span>
+                          <span className="text-slate-200">{filterEnd ? new Date(filterEnd + 'T12:00:00').toLocaleDateString('pt-BR') : '—'}</span>
                         </div>
                       </div>
 
