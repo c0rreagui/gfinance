@@ -251,6 +251,14 @@ GEMINI_API_KEY=<salvo no gerenciador — não commitar>
 
 ---
 
+## 🛡️ Isolamento de Ecossistemas (G-Finance ↔ G-Work)
+
+Para evitar acoplamento acidental e regressões em futuras sessões de IA ou refatorações, o G-Hub implementa um isolamento estrito entre os ecossistemas:
+- **Camada de Código (Linter):** Regras de `"no-restricted-imports"` no `eslint.config.mjs` impedem a importação de módulos do G-Finance (como `finance`, `transactions`, `cards`, `debts`, `subscriptions`, `wealth`, `analytics`, `crypto`, `integrations`) por arquivos do G-Work (`src/app/tasks`) e vice-versa.
+- **Camada de Dados (Supabase):** As migrações, tabelas e procedimentos do G-Work (`tasks`, `tasks_projects`, `transcriptions`) são completamente segregados dos triggers e tabelas financeiras do G-Finance.
+
+---
+
 ## 🧭 Próximas Ações Prioritárias
 
 | Prioridade | Item |
