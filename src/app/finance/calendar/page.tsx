@@ -353,7 +353,9 @@ export default function FinancialCalendar() {
       }
       const txDate = new Date(tx.date);
       if (txDate < firstDayOfMonthUTC) {
-        bal += tx.amount;
+        if (!tx.card_id) {
+          bal += tx.amount;
+        }
       }
     });
     return bal;
@@ -424,7 +426,8 @@ export default function FinancialCalendar() {
             title: tx.description,
             amount: tx.amount,
             category: tx.category,
-            icon: tx.icon
+            icon: tx.icon,
+            card_id: tx.card_id
           });
         }
       }
@@ -473,7 +476,8 @@ export default function FinancialCalendar() {
             amount: resolvedAmount,
             category: rem.category_icon ? (isIncomeReminder ? 'Receita Recorrente' : 'Assinatura') : 'Lançamento Fixo',
             icon: rem.category_icon || 'Repeat',
-            paid: isPaidInActiveMonth
+            paid: isPaidInActiveMonth,
+            card_id: rem.card_id
           });
         }
       } else {
@@ -501,7 +505,8 @@ export default function FinancialCalendar() {
               amount: resolvedAmount,
               category: isIncomeReminder ? 'Receita Prevista' : 'Boleto',
               icon: rem.category_icon || 'AlertCircle',
-              paid: rem.paid
+              paid: rem.paid,
+              card_id: rem.card_id
             });
           }
         }
@@ -628,9 +633,10 @@ export default function FinancialCalendar() {
       
       // Sum up day events (ignoring paid state for projections to anticipate cash flows)
       events.forEach((ev) => {
-        // Replicated subscriptions/reminders are projected as debits unless already paid
-        // EXCLUDE credit card invoice due and closing dates from the running balance to prevent double counting!
-        if (ev.type !== 'invoice_closing' && ev.type !== 'invoice_due') {
+        // Exclude individual credit card transactions/reminders and invoice closing dates from cash flow
+        // Include invoice due date as it represents actual cash outflow
+        const isCreditCardItem = ev.card_id || ev.type === 'invoice_closing';
+        if (!isCreditCardItem) {
           currentRunningBalance += ev.amount;
         }
       });
@@ -660,8 +666,13 @@ export default function FinancialCalendar() {
     for (let d = 1; d <= daysInMonth; d++) {
       const events = dailyEvents[d] || [];
       events.forEach((ev) => {
-        if (ev.amount > 0) projectedIncomes += ev.amount;
-        else projectedExpenses += Math.abs(ev.amount);
+        // Exclude individual credit card transactions/reminders and invoice closing dates from cash flow totals
+        // Include invoice due date as the actual consolidated expense
+        const isCreditCardItem = ev.card_id || ev.type === 'invoice_closing';
+        if (!isCreditCardItem) {
+          if (ev.amount > 0) projectedIncomes += ev.amount;
+          else projectedExpenses += Math.abs(ev.amount);
+        }
       });
     }
 

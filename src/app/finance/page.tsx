@@ -208,13 +208,14 @@ export default function FinanceDashboard() {
       if (ignoredRange) {
         const { data: ignoredTxs } = await supabase
           .from('transactions')
-          .select('amount')
+          .select('amount, card_id')
           .eq('user_id', userId)
           .gte('date', ignoredRange.startDate + 'T00:00:00Z')
           .lte('date', ignoredRange.endDate + 'T23:59:59Z');
 
         if (ignoredTxs) {
           ignoredTxs.forEach(tx => {
+            if (tx.card_id) return; // ignora transações de cartão de crédito
             const val = Number(tx.amount);
             if (val > 0) {
               ignoredIncome += val;

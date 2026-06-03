@@ -19,7 +19,7 @@ export async function reconcileBalances(
     // 1. Buscar todas as transações do usuário no banco (excluindo transações futuras)
     const { data: transactions, error: txError } = await supabaseClient
       .from('transactions')
-      .select('amount')
+      .select('amount, card_id')
       .eq('user_id', userId)
       .lte('date', new Date().toISOString());
 
@@ -44,7 +44,10 @@ export async function reconcileBalances(
     let expense = 0;
 
     if (transactions && transactions.length > 0) {
-      transactions.forEach((tx: { amount: number }) => {
+      transactions.forEach((tx: { amount: number; card_id?: string | null }) => {
+        // Ignorar transações de cartão de crédito no fluxo de caixa líquido
+        if (tx.card_id) return;
+
         const val = Number(tx.amount);
         if (val > 0) {
           income += val;
