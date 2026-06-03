@@ -21,7 +21,9 @@ import {
   Plus,
   Trash2,
   X,
-  Check
+  Check,
+  Smartphone,
+  Layers
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
@@ -56,6 +58,8 @@ const serviceIcons: Record<string, any> = {
   BookOpen,
   Dumbbell,
   Zap,
+  Smartphone,
+  Layers
 };
 
 const serviceGradients = [
@@ -93,6 +97,12 @@ function resolveSubscription(rem: Reminder, index: number) {
       kindle: BookOpen,
       smartfit: Dumbbell,
       chatgpt: Zap,
+      tim: Smartphone,
+      claro: Smartphone,
+      vivo: Smartphone,
+      celular: Smartphone,
+      planos: Layers,
+      plano: Layers,
     };
     for (const [key, iconVal] of Object.entries(serviceIconsLower)) {
       if (titleLower.includes(key)) {
@@ -670,6 +680,8 @@ export default function Subscriptions() {
                       <option value="BookOpen">Leitura / Notícias (Livro)</option>
                       <option value="Dumbbell">Bem-Estar / Esportes (Haltere)</option>
                       <option value="Zap">Tecnologia / SaaS (Raio)</option>
+                      <option value="Smartphone">Plano de Celular (Smartphone)</option>
+                      <option value="Layers">Assinatura de Planos (Geral)</option>
                     </select>
                   </div>
                   <div>
