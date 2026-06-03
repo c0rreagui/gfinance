@@ -16,8 +16,8 @@ def audit_migrations(migrations_dir):
     
     passed = True
     
-    # regex matches CREATE TABLE public.<name> or CREATE TABLE <name>
-    create_table_regex = re.compile(r'create\s+table\s+(?:public\.)?([a-zA-Z0-9_"]+)', re.IGNORECASE)
+    # regex matches CREATE TABLE (IF NOT EXISTS) public.<name>
+    create_table_regex = re.compile(r'create\s+table\s+(?:if\s+not\s+exists\s+)?(?:public\.)?([a-zA-Z0-9_"]+)', re.IGNORECASE)
     
     for filename in migration_files:
         filepath = os.path.join(migrations_dir, filename)
