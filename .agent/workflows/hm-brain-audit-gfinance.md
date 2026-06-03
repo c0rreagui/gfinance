@@ -4,7 +4,7 @@ description: Auditoria profunda do Obsidian Vault para o G-Finance — análise 
 
 # /hm-brain-audit-gfinance — Arquiteto Neural do Second Brain (G-Finance)
 
-Você não é um auditor de links. Você é o **arquiteto neural** do sistema cognitivo que permite a um operador solo competir com times de 50 pessoas. O Vault Obsidian (`E:\Obsidian\Synapse-Wiki`) é a vantagem assimétrica fundamental do ecossistema G-Hub: memória institucional persistente que sobrevive entre sessões, entre agentes, entre meses. Sem ele, cada sessão começa do zero. Com ele, cada sessão herda anos de decisões, cicatrizes e sabedoria.
+Você não é um auditor de links. Você é o **arquiteto neural** do sistema cognitivo que permite a um operador solo competir com times de 50 pessoas. O Vault Obsidian (`E:\Obsidian\G-Hub vault\G-Hub vault`) é a vantagem assimétrica fundamental do ecossistema G-Hub: memória institucional persistente que sobrevive entre sessões, entre agentes, entre meses. Sem ele, cada sessão começa do zero. Com ele, cada sessão herda anos de decisões, cicatrizes e sabedoria.
 
 Sua missão não é "consertar links quebrados". É **maximizar a densidade cognitiva** do vault para que qualquer agente futuro — ou o próprio CTO — consiga em 5 minutos de leitura absorver o que levou meses para construir o G-Finance e G-Work.
 
@@ -13,7 +13,7 @@ Sua missão não é "consertar links quebrados". É **maximizar a densidade cogn
 - **Operador:** Guilherme (CTO e fundador) — sozinho.
 - **Plataforma:** G-Finance / G-Hub — uso pessoal, não comercial. Ferramenta de produção.
 - **Adversários:** Times com capital humano e financeiro massivo. A vantagem do operador é AI low-level + curadoria humana + **este vault**.
-- **Vault:** `E:\Obsidian\Synapse-Wiki`
+- **Vault:** `E:\Obsidian\G-Hub vault\G-Hub vault`
 - **Codebase:** `d:\APPS - ANTIGRAVITY\G-Hub`
 - **Princípio:** O Brain vence o código. Se divergem, o código é dívida técnica.
 
@@ -25,7 +25,7 @@ Nenhuma ferramenta comercial (Notion AI, Obsidian plugins, Logseq, etc.) faz o q
 
 ## Registro Neural Persistente (a memória entre auditorias)
 
-O vault mantém um arquivo de estado estruturado em `E:\Obsidian\Synapse-Wiki\Operações\Brain_Audit_Registry_GFinance.md`. Este arquivo é o **cérebro do cérebro** — a memória de longo prazo que persiste entre auditorias e impede que o sistema redescubra, re-reporte ou re-proponha findings já conhecidos.
+O vault mantém um arquivo de estado estruturado em `E:\Obsidian\G-Hub vault\G-Hub vault\G-Hub\G-Finance\Operações\Brain_Audit_Registry_GFinance.md`. Este arquivo é o **cérebro do cérebro** — a memória de longo prazo que persiste entre auditorias e impede que o sistema redescubra, re-reporte ou re-proponha findings já conhecidos.
 
 ### Estrutura do Registry
 
@@ -115,10 +115,10 @@ Se `Brain_Audit_Registry_GFinance.md` não existe, a skill:
 Antes de qualquer análise, absorver o estado atual do sistema E a memória acumulada de auditorias anteriores.
 
 **Ações:**
-1. Ler `E:\Obsidian\Synapse-Wiki\00_Diretriz_Mestra.md` — as regras são lei
-2. Ler `E:\Obsidian\Synapse-Wiki\Arquitetura\G-Hub e G-Work.md` — o mapa mental e arquitetura de G-Finance/G-Hub
-3. **Ler `E:\Obsidian\Synapse-Wiki\Operações\Brain_Audit_Registry_GFinance.md`** — carregar todos os FND-XXXX com seus status. Se não existe, criar com estrutura vazia e marcar como primeira auditoria do G-Finance.
-4. Identificar a auditoria anterior mais recente em `Operações/Brain_Audit_GFinance_*.md` (se existir) para baseline de score
+1. Ler `E:\Obsidian\G-Hub vault\G-Hub vault\00_Diretriz_Mestra.md` — as regras são lei
+2. Ler `E:\Obsidian\G-Hub vault\G-Hub vault\G-Hub\G-Finance\Arquitetura\G-Hub e G-Work.md` — o mapa mental e arquitetura de G-Finance/G-Hub
+3. **Ler `E:\Obsidian\G-Hub vault\G-Hub vault\G-Hub\G-Finance\Operações\Brain_Audit_Registry_GFinance.md`** — carregar todos os FND-XXXX com seus status. Se não existe, criar com estrutura vazia e marcar como primeira auditoria do G-Finance.
+4. Identificar a auditoria anterior mais recente em `G-Hub/G-Finance/Operações/Brain_Audit_GFinance_*.md` (se existir) para baseline de score
 5. `list_dir` recursivo em todas as pastas do vault que se referem a G-Finance/G-Hub
 6. Contar: total de notas, tamanho médio do vault
 7. Computar delta desde última auditoria (notas adicionadas, removidas, modificadas)
@@ -461,7 +461,7 @@ Cada auditoria é um checkpoint. O vault deve acumular inteligência sobre si me
 **Ações:**
 
 **10A — Salvar relatório da auditoria:**
-1. Salvar o relatório completo como `E:\Obsidian\Synapse-Wiki\Operações\Brain_Audit_GFinance_YYYY-MM-DD.md`
+1. Salvar o relatório completo como `E:\Obsidian\G-Hub vault\G-Hub vault\G-Hub\G-Finance\Operações\Brain_Audit_GFinance_YYYY-MM-DD.md`
 2. Frontmatter do relatório:
    ```yaml
    ---
@@ -481,7 +481,7 @@ Cada auditoria é um checkpoint. O vault deve acumular inteligência sobre si me
    ---
    ```
 
-**10B — Atualizar o Neural Registry (`Brain_Audit_Registry_GFinance.md`):**
+**10B — Atualizar o Neural Registry (`G-Hub/G-Finance/Operações/Brain_Audit_Registry_GFinance.md`):**
 1. Para cada finding 🆕 NEW detectado nesta auditoria: adicionar nova entrada FND-XXXX com status NEW
 2. Para cada finding 🔁 PERSISTENT: incrementar `recurrence_count`, atualizar `last_seen`
 3. Para cada finding ✅ RESOLVED: mover para seção "Findings Resolvidos" com data de resolução e método (auto-fix, manual, CTO action)
@@ -496,8 +496,8 @@ Cada auditoria é um checkpoint. O vault deve acumular inteligência sobre si me
 3. Novas ações propostas nesta auditoria: adicionar como `[ ]` com FND-XXXX
 
 **10D — Atualizar índices do vault:**
-1. Adicionar link para a nova auditoria em `MOCs/Operações.md`
-2. Atualizar `Arquitetura/G-Hub e G-Work.md` com data da última auditoria e score
+1. Adicionar link para a nova auditoria em `G-Hub/G-Finance/MOCs/Operações.md`
+2. Atualizar `G-Hub/G-Finance/Arquitetura/G-Hub e G-Work.md` com data da última auditoria e score
 
 **Output:**
 ```
