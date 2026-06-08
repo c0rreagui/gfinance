@@ -163,6 +163,15 @@ const getCardBillingCycle = (card: any, y: number, m: number) => {
   return { startDate, endDate };
 };
 
+// SHA-256 hash helper using Web Crypto API for client-side deterministic deduplication
+const buildSourceHash = async (userId: string, date: string, description: string, amount: number): Promise<string> => {
+  const normalized = `${userId}|${date.substring(0, 10)}|${description.trim().toLowerCase()}|${amount.toFixed(2)}`;
+  const msgUint8 = new TextEncoder().encode(normalized);
+  const hashBuffer = await window.crypto.subtle.digest("SHA-256", msgUint8);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
+};
+
 export default function FinancialCalendar() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -201,6 +210,34 @@ export default function FinancialCalendar() {
   const [filterEnd, setFilterEnd] = useState('');
   const [pickerYear, setPickerYear] = useState(() => new Date().getFullYear());
   const [pickerMonth, setPickerMonth] = useState(() => new Date().getMonth());
+
+  // Helper to check if credit card invoice is paid for a specific cycle due date (dueYear, dueMonth)
+  const checkInvoicePaid = (card: any, dueYear: number, dueMonth: number): boolean => {
+    const targetDueDate = new Date(Date.UTC(dueYear, dueMonth, card.due_day, 12, 0, 0));
+    
+    return transactions.some((tx) => {
+      if (tx.card_id !== null) return false;
+      if (tx.category !== 'Cartão') return false;
+      
+      const desc = tx.description.toLowerCase();
+      if (!desc.includes('pagamento')) return false;
+      
+      // Remove accents and normalize strings for matching
+      const cardNameClean = card.card_name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const descClean = desc.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      
+      const matchesCardName = descClean.includes(cardNameClean) || 
+        (card.last_four && descClean.includes(card.last_four)) ||
+        (card.card_name === 'Itaú Mult MC Plat' && descClean.includes('itau mult mc plat'));
+      
+      if (!matchesCardName) return false;
+      
+      const txDate = new Date(tx.date);
+      const diffTime = Math.abs(txDate.getTime() - targetDueDate.getTime());
+      const diffDays = diffTime / (1000 * 60 * 60 * 24);
+      return diffDays <= 15;
+    });
+  };
 
   useEffect(() => {
     if (isFilterOpen) {
@@ -259,16 +296,31 @@ export default function FinancialCalendar() {
 
       setUserId(user.id);
 
+      // 1. Fetch profile details including hidden_before_date
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('initial_balance, hidden_before_date')
+        .eq('id', user.id)
+        .single();
+      
+      const profileHiddenBeforeDate = profile?.hidden_before_date || null;
+
+      let txsQuery = supabase.from('transactions').select('*').eq('user_id', user.id).order('date', { ascending: true });
+      let remsQuery = supabase.from('reminders').select('*').eq('user_id', user.id);
+
+      if (profileHiddenBeforeDate) {
+        txsQuery = txsQuery.gte('date', `${profileHiddenBeforeDate}T00:00:00.000Z`);
+        remsQuery = remsQuery.gte('due_date', `${profileHiddenBeforeDate}T00:00:00.000Z`);
+      }
+
       // Parallel fetch of all calendar datasets to eliminate waterfall latency
       const [
-        { data: profile },
         { data: txs },
         { data: rems },
         { data: cards }
       ] = await Promise.all([
-        supabase.from('profiles').select('initial_balance').eq('id', user.id).single(),
-        supabase.from('transactions').select('*').eq('user_id', user.id).order('date', { ascending: true }),
-        supabase.from('reminders').select('*').eq('user_id', user.id),
+        txsQuery,
+        remsQuery,
         supabase.from('credit_cards').select('*').eq('user_id', user.id)
       ]);
       
@@ -561,20 +613,25 @@ export default function FinancialCalendar() {
           : cycleTxs.reduce((sum, tx) => sum + Math.abs(tx.amount), 0) +
             cycleRems.reduce((sum, rem) => sum + Math.abs(rem.amount), 0);
 
+        const invoicePaid = checkInvoicePaid(card, cycleYear, cycleMonth);
+
         if (map[closingDay]) {
           map[closingDay].push({
-            id: `card-closing-${card.id}-${year}-${month}`,
+            id: `card-closing-${card.id}-${cycleYear}-${cycleMonth}`,
             type: 'invoice_closing',
             title: `Fechamento: ${card.card_name}`,
             amount: -invoiceTotal,
             category: 'Fatura de Cartão',
             icon: 'CreditCard',
-            paid: false,
+            paid: invoicePaid,
             meta: {
               card,
               startDate: startDate.toISOString(),
               endDate: endDate.toISOString(),
-              transactions: cycleTxs
+              transactions: cycleTxs,
+              cycleYear,
+              cycleMonth,
+              invoiceTotal
             }
           });
         }
@@ -605,6 +662,8 @@ export default function FinancialCalendar() {
           : cycleTxs.reduce((sum, tx) => sum + Math.abs(tx.amount), 0) +
             cycleRems.reduce((sum, rem) => sum + Math.abs(rem.amount), 0);
 
+        const invoicePaid = checkInvoicePaid(card, year, month);
+
         if (map[dueDay]) {
           map[dueDay].push({
             id: `card-due-${card.id}-${year}-${month}`,
@@ -613,12 +672,15 @@ export default function FinancialCalendar() {
             amount: -invoiceTotal,
             category: 'Fatura de Cartão',
             icon: 'AlertCircle',
-            paid: false,
+            paid: invoicePaid,
             meta: {
               card,
               startDate: startDate.toISOString(),
               endDate: endDate.toISOString(),
-              transactions: cycleTxs
+              transactions: cycleTxs,
+              cycleYear: year,
+              cycleMonth: month,
+              invoiceTotal
             }
           });
         }
@@ -638,9 +700,9 @@ export default function FinancialCalendar() {
       
       // Sum up day events (ignoring paid state for projections to anticipate cash flows)
       events.forEach((ev) => {
-        // Exclude individual credit card transactions/reminders and invoice closing dates from cash flow
-        // Include invoice due date as it represents actual cash outflow
-        const isCreditCardItem = ev.card_id || ev.type === 'invoice_closing';
+        // Exclude individual credit card transactions/reminders, invoice closing, and invoice due dates from cash flow
+        // Only the actual payment transaction (checking account debit) affects cash flow
+        const isCreditCardItem = ev.card_id || ev.type === 'invoice_closing' || ev.type === 'invoice_due';
         if (!isCreditCardItem) {
           currentRunningBalance += ev.amount;
         }
@@ -671,9 +733,9 @@ export default function FinancialCalendar() {
     for (let d = 1; d <= daysInMonth; d++) {
       const events = dailyEvents[d] || [];
       events.forEach((ev) => {
-        // Exclude individual credit card transactions/reminders and invoice closing dates from cash flow totals
-        // Include invoice due date as the actual consolidated expense
-        const isCreditCardItem = ev.card_id || ev.type === 'invoice_closing';
+        // Exclude individual credit card transactions/reminders, invoice closing, and invoice due dates from cash flow totals
+        // Only actual checking account transactions affect the totals
+        const isCreditCardItem = ev.card_id || ev.type === 'invoice_closing' || ev.type === 'invoice_due';
         if (!isCreditCardItem) {
           if (ev.amount > 0) projectedIncomes += ev.amount;
           else projectedExpenses += Math.abs(ev.amount);
@@ -776,6 +838,76 @@ export default function FinancialCalendar() {
       await fetchCalendarData();
     } catch (err) {
       console.error('Error toggling paid state:', err);
+    }
+  };
+
+  const handleToggleInvoicePaid = async (ev: CalendarEvent) => {
+    playHapticClick();
+    if (!userId || !ev.meta?.card) return;
+
+    const { card, cycleYear, cycleMonth, invoiceTotal } = ev.meta;
+    const isPaid = ev.paid;
+
+    try {
+      if (isPaid) {
+        // Find the transaction representing the payment and delete it
+        const targetDueDate = new Date(Date.UTC(cycleYear, cycleMonth, card.due_day, 12, 0, 0));
+        
+        const txToDelete = transactions.find((tx) => {
+          if (tx.card_id !== null) return false;
+          if (tx.category !== 'Cartão') return false;
+          const desc = tx.description.toLowerCase();
+          if (!desc.includes('pagamento')) return false;
+          
+          const cardNameClean = card.card_name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+          const descClean = desc.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+          const matchesCardName = descClean.includes(cardNameClean) || 
+            (card.last_four && descClean.includes(card.last_four)) ||
+            (card.card_name === 'Itaú Mult MC Plat' && descClean.includes('itau mult mc plat'));
+          if (!matchesCardName) return false;
+          
+          const txDate = new Date(tx.date);
+          const diffTime = Math.abs(txDate.getTime() - targetDueDate.getTime());
+          const diffDays = diffTime / (1000 * 60 * 60 * 24);
+          return diffDays <= 15;
+        });
+
+        if (txToDelete) {
+          const { error } = await supabase
+            .from('transactions')
+            .delete()
+            .eq('id', txToDelete.id);
+          if (error) throw error;
+        }
+      } else {
+        // Create a new transaction representing the invoice payment in the checking account
+        // Set date to selectedDay of year and month (use UTC to avoid timezone shift)
+        const paymentDate = new Date(Date.UTC(year, month, selectedDay!, 12, 0, 0));
+        const paymentDesc = `Pagamento Fatura: ${card.card_name}`;
+        
+        // Generate deterministically matching source_hash client-side
+        const sourceHash = await buildSourceHash(userId, paymentDate.toISOString(), paymentDesc, -invoiceTotal);
+
+        const { error } = await supabase
+          .from('transactions')
+          .insert({
+            user_id: userId,
+            description: paymentDesc,
+            category: 'Cartão',
+            amount: -invoiceTotal,
+            icon: 'CreditCard',
+            date: paymentDate.toISOString(),
+            card_id: null, // checking account transaction
+            source_type: 'manual',
+            source_hash: sourceHash
+          });
+
+        if (error) throw error;
+      }
+
+      await fetchCalendarData();
+    } catch (err) {
+      console.error('Error toggling invoice paid state:', err);
     }
   };
 
@@ -1360,14 +1492,22 @@ export default function FinancialCalendar() {
                     <div className="flex-1 flex flex-col justify-center my-2 space-y-1">
                       {dayEvents.map((ev, i) => {
                         const isInc = ev.amount > 0;
+                        const isInvoice = ev.type === 'invoice_closing' || ev.type === 'invoice_due';
+                        
+                        let colorClass = isInc
+                          ? 'bg-emerald-500/10 text-emerald-400/90 border border-emerald-500/10'
+                          : 'bg-red-500/10 text-red-400/90 border border-red-500/10';
+
+                        if (isInvoice) {
+                          colorClass = ev.paid
+                            ? 'bg-emerald-500/10 text-emerald-400/90 border border-emerald-500/10'
+                            : 'bg-slate-800 text-slate-400 border border-slate-700/50';
+                        }
+
                         return (
                           <div
                             key={ev.id + '-' + i}
-                            className={`text-[8px] font-black px-1.5 py-0.5 rounded-md truncate flex items-center justify-between ${
-                              isInc 
-                                ? 'bg-emerald-500/10 text-emerald-400/90 border border-emerald-500/10' 
-                                : 'bg-red-500/10 text-red-400/90 border border-red-500/10'
-                            }`}
+                            className={`text-[8px] font-black px-1.5 py-0.5 rounded-md truncate flex items-center justify-between ${colorClass}`}
                           >
                             <span className="truncate max-w-[65px]">{ev.title}</span>
                             <span 
@@ -1473,10 +1613,10 @@ export default function FinancialCalendar() {
                     const isInvoiceEvent = ev.type === 'invoice_closing' || ev.type === 'invoice_due';
                     
                     // 8. Brand Color Vertical Line Accent
-                    const brandColor = isReminder ? getBrandColor(ev.title) : isInvoiceEvent ? (ev.type === 'invoice_due' ? '#ef4444' : '#10b981') : null;
+                    const brandColor = isReminder ? getBrandColor(ev.title) : isInvoiceEvent ? (ev.paid ? '#10b981' : '#64748b') : null;
                     
                     // 9. Checkbox visualization logic
-                    const showCheckbox = isReminder && ev.paid !== undefined;
+                    const showCheckbox = (isReminder && ev.paid !== undefined) || isInvoiceEvent;
 
                     return (
                       <div
@@ -1500,9 +1640,13 @@ export default function FinancialCalendar() {
                             {showCheckbox && (
                               <button
                                 onClick={() => {
-                                  const isRecurring = ev.type === 'subscription' || (reminders.find(r => r.id === ev.id)?.is_recurring);
-                                  const calculatedDate = selectedDay ? new Date(year, month, selectedDay, 12, 0, 0) : new Date();
-                                  handleTogglePaid(ev.id, isRecurring, calculatedDate);
+                                  if (isInvoiceEvent) {
+                                    handleToggleInvoicePaid(ev);
+                                  } else {
+                                    const isRecurring = ev.type === 'subscription' || (reminders.find(r => r.id === ev.id)?.is_recurring);
+                                    const calculatedDate = selectedDay ? new Date(year, month, selectedDay, 12, 0, 0) : new Date();
+                                    handleTogglePaid(ev.id, isRecurring, calculatedDate);
+                                  }
                                 }}
                                 className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 transition-colors ${
                                   ev.paid 
@@ -1523,7 +1667,7 @@ export default function FinancialCalendar() {
                                 : ev.type === 'subscription'
                                 ? 'bg-blue-500/10 text-blue-400'
                                 : isInvoiceEvent
-                                ? (ev.type === 'invoice_due' ? 'bg-red-500/10 text-red-400' : 'bg-emerald-500/10 text-emerald-400')
+                                ? (ev.paid ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-800 text-slate-400')
                                 : 'bg-amber-500/10 text-amber-400'
                             }`}>
                               {isIncome ? (
@@ -1537,8 +1681,8 @@ export default function FinancialCalendar() {
                               )}
                             </div>
                             <div>
-                              <p className="text-xs font-black text-slate-200">{ev.title}</p>
-                              <span className="text-[8px] text-slate-500 font-bold uppercase tracking-widest mt-0.5">
+                              <p className={`text-xs font-black text-slate-200 transition-all ${ev.paid ? 'line-through opacity-50' : ''}`}>{ev.title}</p>
+                              <span className={`text-[8px] font-bold uppercase tracking-widest mt-0.5 block transition-all ${ev.paid ? 'opacity-40' : 'text-slate-500'}`}>
                                 {ev.category} • {ev.type.toUpperCase()}
                               </span>
                             </div>
@@ -1546,11 +1690,11 @@ export default function FinancialCalendar() {
 
                           <div className="flex items-center gap-3">
                             <div className="text-right">
-                              <p className="text-xs font-black">
-                                {renderCurrency(ev.amount, `drawer-item-${ev.id}`, isIncome ? 'text-emerald-400' : (isInvoiceEvent ? (ev.type === 'invoice_due' ? 'text-red-400' : 'text-emerald-400') : 'text-slate-200'))}
+                              <p className={`text-xs font-black transition-all ${ev.paid ? 'opacity-40' : ''}`}>
+                                {renderCurrency(ev.amount, `drawer-item-${ev.id}`, isIncome ? 'text-emerald-400' : (isInvoiceEvent ? (ev.paid ? 'text-emerald-400' : 'text-slate-400') : 'text-slate-200'))}
                               </p>
-                              {ev.paid !== undefined && !isInvoiceEvent && (
-                                <span className={`text-[7px] font-black uppercase tracking-widest block ${
+                              {ev.paid !== undefined && (
+                                <span className={`text-[7px] font-black uppercase tracking-widest block transition-all ${
                                   ev.paid ? 'text-emerald-500' : 'text-amber-500'
                                 }`}>
                                   {ev.paid ? 'Pago' : 'Pendente'}

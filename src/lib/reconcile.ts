@@ -16,27 +16,35 @@ export async function reconcileBalances(
   try {
     console.info(`[Reconcile] Iniciando reconciliação de saldos para o usuário: ${userId}`);
 
-    // 1. Buscar todas as transações do usuário no banco (excluindo transações futuras)
-    const { data: transactions, error: txError } = await supabaseClient
+    // 1. Buscar saldo inicial e período oculto do perfil
+    const { data: profile, error: profileError } = await supabaseClient
+      .from('profiles')
+      .select('initial_balance, hidden_before_date')
+      .eq('id', userId)
+      .single();
+
+    let initialBalance = 0;
+    let hiddenBeforeDate: string | null = null;
+    if (!profileError && profile) {
+      initialBalance = Number(profile.initial_balance) || 0;
+      hiddenBeforeDate = profile.hidden_before_date || null;
+    }
+
+    // 2. Buscar todas as transações do usuário no banco (excluindo transações futuras e anteriores ao período oculto)
+    let query = supabaseClient
       .from('transactions')
       .select('amount, card_id')
       .eq('user_id', userId)
       .lte('date', new Date().toISOString());
 
-    if (txError) {
-      throw new Error(`Falha ao buscar transações: ${txError.message}`);
+    if (hiddenBeforeDate) {
+      query = query.gte('date', `${hiddenBeforeDate}T00:00:00.000Z`);
     }
 
-    // 1.5 Buscar saldo inicial do perfil
-    const { data: profile, error: profileError } = await supabaseClient
-      .from('profiles')
-      .select('initial_balance')
-      .eq('id', userId)
-      .single();
+    const { data: transactions, error: txError } = await query;
 
-    let initialBalance = 0;
-    if (!profileError && profile) {
-      initialBalance = Number(profile.initial_balance) || 0;
+    if (txError) {
+      throw new Error(`Falha ao buscar transações: ${txError.message}`);
     }
 
     // 2. Calcular os agregados financeiros

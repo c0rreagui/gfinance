@@ -21,37 +21,37 @@ async function buildSourceHash(userId: string, date: string, description: string
 }
 
 function parseSmsDate(text: string): string {
-  // Regex to match dd/mm/yyyy and optionally time (e.g. 12h19 or 12:19 or 12h19m)
-  // Ex: "02/06/2026 as 12h19"
-  // Ex: "28/05/2026 17:50"
-  const dateWithTimeRegex = /(\d{2})\/(\d{2})\/(\d{4})\s*(?:as|às|at)?\s*(\d{2})h?[:m]?(\d{2})?/i;
-  const match = text.match(dateWithTimeRegex);
-  if (match) {
-    const [_, day, month, year, hour, minute] = match;
-    const formattedMonth = month.padStart(2, '0');
-    const formattedDay = day.padStart(2, '0');
-    const formattedHour = (hour || '12').padStart(2, '0');
-    const formattedMinute = (minute || '00').padStart(2, '0');
-    return `${year}-${formattedMonth}-${formattedDay}T${formattedHour}:${formattedMinute}:00-03:00`;
-  }
-
-  // Fallback 1: Try dd/mm (without year)
-  const dateShortRegex = /(\d{2})\/(\d{2})\s*(?:as|às|at)?\s*(\d{2})h?[:m]?(\d{2})?/i;
-  const shortMatch = text.match(dateShortRegex);
-  if (shortMatch) {
-    const [_, day, month, hour, minute] = shortMatch;
-    const year = new Date().getFullYear();
-    const formattedMonth = month.padStart(2, '0');
-    const formattedDay = day.padStart(2, '0');
-    const formattedHour = (hour || '12').padStart(2, '0');
-    const formattedMinute = (minute || '00').padStart(2, '0');
-    return `${year}-${formattedMonth}-${formattedDay}T${formattedHour}:${formattedMinute}:00-03:00`;
+  const hasThreePartDate = /\d{2}\/\d{2}\/\d{4}/.test(text);
+  
+  if (hasThreePartDate) {
+    const dateWithTimeRegex = /(\d{2})\/(\d{2})\/(\d{4})(?:\s*,?\s*(?:as|às|at)?\s*(\d{2})h?[:m]?(\d{2})?)?/i;
+    const match = text.match(dateWithTimeRegex);
+    if (match) {
+      const [_, day, month, year, hour, minute] = match;
+      const formattedMonth = month.padStart(2, '0');
+      const formattedDay = day.padStart(2, '0');
+      const formattedHour = (hour || '12').padStart(2, '0');
+      const formattedMinute = (minute || '00').padStart(2, '0');
+      return `${year}-${formattedMonth}-${formattedDay}T${formattedHour}:${formattedMinute}:00-03:00`;
+    }
+  } else {
+    const dateShortRegex = /(\d{2})\/(\d{2})(?:\s*,?\s*(?:as|às|at)?\s*(\d{2})h?[:m]?(\d{2})?)?/i;
+    const shortMatch = text.match(dateShortRegex);
+    if (shortMatch) {
+      const [_, day, month, hour, minute] = shortMatch;
+      const year = new Date().getFullYear();
+      const formattedMonth = month.padStart(2, '0');
+      const formattedDay = day.padStart(2, '0');
+      const formattedHour = (hour || '12').padStart(2, '0');
+      const formattedMinute = (minute || '00').padStart(2, '0');
+      return `${year}-${formattedMonth}-${formattedDay}T${formattedHour}:${formattedMinute}:00-03:00`;
+    }
   }
 
   return new Date().toISOString();
 }
 
-function parseSms(texto: string): { amount: number; description: string; date: string; category: string; icon: string } | null {
+function parseSms(texto: string): { amount: number; description: string; date: string; category: string; icon: string; cardLastFour: string | null } | null {
   const text = texto.trim();
   let amount = 0;
   let description = "Transação SMS";
@@ -59,21 +59,77 @@ function parseSms(texto: string): { amount: number; description: string; date: s
   let icon = "Circle";
   let parsed = false;
 
-  // Extract date dynamically if present in the text
+  // Extract card last four digits
+  let cardLastFour: string | null = null;
+  const cardMatch = text.match(/(?:final|cartao)\s+(\d{4})/i);
+  if (cardMatch) {
+    cardLastFour = cardMatch[1];
+  }
+
+  // 0. Ignore international warning duplicate messages (as standard approval message will follow)
+  if (/compra internacional aprovada de/i.test(text) && !text.includes('-')) {
+    return null;
+  }
+
   const txDate = parseSmsDate(text);
+
+  // Pattern 0a: Itaú Pagamento de Fatura (Boleto/Bancário)
+  // Ex: "Seu pagamento de RS 812,55 efetuado em 04/06/2026 para ITAU MULT MC PLAT"
+  const paymentRegex = /seu pagamento de (?:r\$|rs)\s*([\d.,]+)\s+efetuado\s+em\s+(\d{2}\/\d{2}\/\d{4})\s+para\s+([^-.]+?)(?:\s+ja foi|\.|$)/i;
+  const paymentMatch = text.match(paymentRegex);
+  if (paymentMatch) {
+    const rawVal = paymentMatch[1].replace(/\./g, "").replace(",", ".");
+    amount = -parseFloat(rawVal);
+    description = `Pagamento: ${paymentMatch[3].trim()}`;
+    category = "Cartão";
+    icon = "CreditCard";
+    parsed = true;
+  }
+
+  // Pattern 0b: Recebemos o pagamento
+  // Ex: "Recebemos o pagamento no valor de RS 812,55 em 04/06/2026 para ITAU MULT MC PLAT..."
+  if (!parsed) {
+    const paymentRecRegex = /recebemos o pagamento(?: no valor de)? (?:r\$|rs)\s*([\d.,]+)\s+em\s+(\d{2}\/\d{2}\/\d{4})\s+para\s+([^-.]+?)(?:\s+ja foi|\.|$)/i;
+    const paymentRecMatch = text.match(paymentRecRegex);
+    if (paymentRecMatch) {
+      const rawVal = paymentRecMatch[1].replace(/\./g, "").replace(",", ".");
+      amount = -parseFloat(rawVal);
+      description = `Pagamento: ${paymentRecMatch[3].trim()}`;
+      category = "Cartão";
+      icon = "CreditCard";
+      parsed = true;
+    }
+  }
 
   // Pattern 1: Itaú Pix Recebido
   // Ex: "Itau: Pix recebido de JOAO SILVA em 28/05/2026 de R$ 1.500,00"
   // Ex: "Itau: Pix recebido de JOAO SILVA R$ 1.500,00"
-  const pixRecRegex = /pix\s+recebido\s+de\s+(.+?)\s+(?:em\s+\d{2}\/\d{2}\/\d{4}\s+)?(?:de\s+)?(?:r\$|rs)\s*([\d.,]+)/i;
-  const pixRecMatch = text.match(pixRecRegex);
-  if (pixRecMatch) {
-    const rawVal = pixRecMatch[2].replace(/\./g, "").replace(",", ".");
-    amount = parseFloat(rawVal);
-    description = `Pix Recebido: ${pixRecMatch[1].trim()}`;
-    category = "Transferência";
-    icon = "ArrowLeftRight";
-    parsed = true;
+  if (!parsed) {
+    const pixRecRegex = /pix\s+recebido\s+de\s+(.+?)\s+(?:em\s+\d{2}\/\d{2}\/\d{4}\s+)?(?:de\s+)?(?:r\$|rs)\s*([\d.,]+)/i;
+    const pixRecMatch = text.match(pixRecRegex);
+    if (pixRecMatch) {
+      const rawVal = pixRecMatch[2].replace(/\./g, "").replace(",", ".");
+      amount = parseFloat(rawVal);
+      description = `Pix Recebido: ${pixRecMatch[1].trim()}`;
+      category = "Transferência";
+      icon = "ArrowLeftRight";
+      parsed = true;
+    }
+  }
+
+  // Pattern 1b: Refund / Estorno
+  // Ex: "Confirmamos o estorno da compra no ITAU MULT MC PLAT p/ GUILHERME CORREA S SILVA - MERCADOLIVRE*MERCADOL, RS 349,52 em 04/06/2026 as 13h36."
+  if (!parsed) {
+    const refundRegex = /(?:confirmamos o estorno|estorno de compra|estorno aprovado).*?-\s*([^-]+?),\s*(?:r\$|rs|us\$|usd|us)\s*([\d.,]+)/i;
+    const refundMatch = text.match(refundRegex);
+    if (refundMatch) {
+      const rawVal = refundMatch[2].replace(/\./g, "").replace(",", ".");
+      amount = parseFloat(rawVal); // Positive amount for refund!
+      description = `Estorno: ${refundMatch[1].trim()}`;
+      category = "Cartão";
+      icon = "RefreshCw";
+      parsed = true;
+    }
   }
 
   // Pattern 2: Itaú Card SMS (Hyphen-separated, establishment before amount)
@@ -91,11 +147,32 @@ function parseSms(texto: string): { amount: number; description: string; date: s
     }
   }
 
+  // Pattern 2b: Compra aprovada with hyphen and "valor" / currency (BRL or USD)
+  // Ex: "Compra aprovada no seu ITAU MULT MC PLAT final 5960 - PIX GUSTAVO DOURADO PER valor RS 67,00"
+  // Ex: "Compra aprovada no seu ITAU MULT MC PLAT final 5960 - PADDLE.NET - valor US 12,00 em 04/06/2026 as 14h22."
+  if (!parsed) {
+    const cardValRegex = /(?:compra aprovada no|compra aprovada).*?-\s*([^-]+?)(?:\s+-\s+|\s+)(?:valor\s+)?(?:r\$|rs|us\$|usd|us)\s*([\d.,]+)/i;
+    const cardValMatch = text.match(cardValRegex);
+    if (cardValMatch) {
+      const rawVal = cardValMatch[2].replace(/\./g, "").replace(",", ".");
+      amount = -parseFloat(rawVal);
+      description = cardValMatch[1].trim();
+      category = "Cartão";
+      icon = "CreditCard";
+      parsed = true;
+
+      const foreignMatch = text.match(/\b(us\$|usd|us)\b\s*[\d.,]+/i);
+      if (foreignMatch) {
+        description = `${description} (USD)`;
+      }
+    }
+  }
+
   // Pattern 3: Compra aprovada no Cartão (Standard amount before establishment)
   // Ex: "Itaucard: compra aprovada no MASTER BLACK final 1234 em 28/05 as 17:50 R$ 259,90 no STRIPE."
   // Ex: "Itaucard: compra aprovada no cartao final 1234 de R$ 45,90 em Uber"
   if (!parsed) {
-    const cardStandardRegex = /(?:compra aprovada no|compra aprovada).*?(?:r\$|rs)\s*([\d.,]+)\s+(?:no|em|na|nos|nas)\s+(.+?)(?:\.|$)/i;
+    const cardStandardRegex = /(?:compra aprovada no|compra aprovada).*?(?:r\$|rs|us\$|usd|us)\s*([\d.,]+)\s+(?:no|em|na|nos|nas)\s+(.+?)(?:\.|$)/i;
     const cardStandardMatch = text.match(cardStandardRegex);
     if (cardStandardMatch) {
       const rawVal = cardStandardMatch[1].replace(/\./g, "").replace(",", ".");
@@ -104,6 +181,11 @@ function parseSms(texto: string): { amount: number; description: string; date: s
       category = "Cartão";
       icon = "CreditCard";
       parsed = true;
+
+      const foreignMatch = text.match(/\b(us\$|usd|us)\b\s*[\d.,]+/i);
+      if (foreignMatch) {
+        description = `${description} (USD)`;
+      }
     }
   }
 
@@ -127,12 +209,30 @@ function parseSms(texto: string): { amount: number; description: string; date: s
   // Ex: "Compra aprovada em 28/05 R$ 45,60 no estabelecimento UBER"
   // Ex: "Compra aprovada RS 10,00 em Spotify"
   if (!parsed) {
-    const genericRegex = /(?:(?:r\$|rs)\s*([\d.,]+)\s+(?:no|em|na|nos|nas)\s+(?:estabelecimento\s+)?(.+?)(?:\.|$))/i;
+    const genericRegex = /(?:(?:r\$|rs|us\$|usd|us)\s*([\d.,]+)\s+(?:no|em|na|nos|nas)\s+(?:estabelecimento\s+)?(.+?)(?:\.|$))/i;
     const genericMatch = text.match(genericRegex);
     if (genericMatch) {
       const rawVal = genericMatch[1].replace(/\./g, "").replace(",", ".");
       amount = -parseFloat(rawVal);
       description = genericMatch[2].trim();
+      parsed = true;
+    }
+  }
+
+  // Fallback 6: Super Generic Parser to avoid any data loss in production
+  if (!parsed) {
+    const fallbackRegex = /(?:valor\s+)?(?:r\$|rs|us\$|usd|us)\s*([\d.,]+)/i;
+    const fallbackMatch = text.match(fallbackRegex);
+    if (fallbackMatch) {
+      const rawVal = fallbackMatch[1].replace(/\./g, "").replace(",", ".");
+      amount = parseFloat(rawVal);
+      
+      const isDebit = /pago|pagamento|debito|enviado|compra|aprovada|saida/i.test(text);
+      if (isDebit) {
+        amount = -amount;
+      }
+      
+      description = text.length > 50 ? `${text.substring(0, 47)}...` : text;
       parsed = true;
     }
   }
@@ -143,10 +243,13 @@ function parseSms(texto: string): { amount: number; description: string; date: s
 
   // Infer category based on description keywords
   const descLower = description.toLowerCase();
-  if (/uber|99|taxi|posto|gasolina/i.test(descLower)) {
+  if (descLower.includes("estorno") || descLower.includes("reembolso")) {
+    category = "Cartão";
+    icon = "RefreshCw";
+  } else if (/uber|99|taxi|posto|gasolina/i.test(descLower)) {
     category = "Transporte";
     icon = "Car";
-  } else if (/supermercado|mercado|carrefour|extra|pao de acucar|atacado/i.test(descLower)) {
+  } else if (/supermercado|mercado|carrefour|extra|pao de acucar|atacado/i.test(descLower) && !descLower.includes("mercadolivre") && !descLower.includes("mercado livre")) {
     category = "Alimentação";
     icon = "ShoppingCart";
   } else if (/netflix|spotify|streaming|amazon prime|apple/i.test(descLower)) {
@@ -168,7 +271,8 @@ function parseSms(texto: string): { amount: number; description: string; date: s
     description,
     date: txDate,
     category,
-    icon
+    icon,
+    cardLastFour
   };
 }
 
@@ -302,6 +406,46 @@ serve(async (req) => {
     // 8. Unique constraint SHA-256 deduplication
     const sourceHash = await buildSourceHash(userId, parsedTx.date, parsedTx.description, parsedTx.amount);
 
+    // Look up card in the database to link card_id
+    let cardId: string | null = null;
+    const cardLastFour = parsedTx.cardLastFour;
+    const textLower = texto_sms.toLowerCase();
+
+    if (cardLastFour || textLower.includes("itau mult mc plat") || textLower.includes("itau platinum") || textLower.includes("itaucard")) {
+      const { data: creditCards } = await supabase
+        .from("credit_cards")
+        .select("id, last_four, card_name")
+        .eq("user_id", userId);
+
+      if (creditCards && creditCards.length > 0) {
+        if (cardLastFour) {
+          // Find direct match
+          let card = creditCards.find((c: { id: string; last_four: string; card_name: string }) => c.last_four === cardLastFour);
+          // Fallback for virtual card 5960 -> 4215
+          if (!card && cardLastFour === "5960") {
+            card = creditCards.find((c: { id: string; last_four: string; card_name: string }) => c.last_four === "4215");
+          }
+          if (card) {
+            cardId = card.id;
+          }
+        }
+        
+        // Fallback: match by card name keywords in text if no cardId resolved yet
+        if (!cardId) {
+          if (textLower.includes("itau mult mc plat")) {
+            const card = creditCards.find((c: { id: string; last_four: string; card_name: string }) => c.card_name.toLowerCase().includes("mult mc plat"));
+            if (card) cardId = card.id;
+          } else if (textLower.includes("itau platinum")) {
+            const card = creditCards.find((c: { id: string; last_four: string; card_name: string }) => c.card_name.toLowerCase().includes("platinum"));
+            if (card) cardId = card.id;
+          } else if (textLower.includes("itaucard")) {
+            // Default to first card if generic itaucard keyword is present
+            cardId = creditCards[0].id;
+          }
+        }
+      }
+    }
+
     const { error: insertError } = await supabase
       .from("transactions")
       .insert({
@@ -312,7 +456,8 @@ serve(async (req) => {
         category: parsedTx.category,
         icon: parsedTx.icon,
         source_hash: sourceHash,
-        source_type: "sms"
+        source_type: "sms",
+        card_id: cardId
       });
 
     let isDuplicate = false;

@@ -86,10 +86,29 @@ export default function Transactions() {
   const fetchTransactions = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
+      
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Fetch profile to check for hidden_before_date
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('hidden_before_date')
+        .eq('id', user.id)
+        .single();
+      const profileHiddenBeforeDate = profile?.hidden_before_date || null;
+
+      let query = supabase
         .from('transactions')
         .select('*')
-        .order('date', { ascending: false });
+        .eq('user_id', user.id)
+        .lte('date', new Date().toISOString());
+
+      if (profileHiddenBeforeDate) {
+        query = query.gte('date', `${profileHiddenBeforeDate}T00:00:00.000Z`);
+      }
+
+      const { data, error } = await query.order('date', { ascending: false });
 
       if (error) throw error;
       setTransactions((data || []).map(t => ({

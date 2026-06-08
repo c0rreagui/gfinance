@@ -163,6 +163,32 @@ export default function DebtsPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
+      // Fetch profile to check for hidden_before_date
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('hidden_before_date')
+        .eq('id', user.id)
+        .single();
+      const profileHiddenBeforeDate = profile?.hidden_before_date || null;
+
+      let instQuery = supabase
+        .from('installments')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      let remQuery = supabase
+        .from('reminders')
+        .select('*')
+        .eq('user_id', user.id)
+        .lt('amount', 0)
+        .order('due_date', { ascending: true });
+
+      if (profileHiddenBeforeDate) {
+        instQuery = instQuery.gte('created_at', `${profileHiddenBeforeDate}T00:00:00.000Z`);
+        remQuery = remQuery.gte('due_date', `${profileHiddenBeforeDate}T00:00:00.000Z`);
+      }
+
       // 1. Fetch Credit Cards
       const { data: cardsData } = await supabase
         .from('credit_cards')
@@ -171,11 +197,7 @@ export default function DebtsPage() {
       setCreditCards(cardsData || []);
 
       // 2. Fetch Installments
-      const { data: instData } = await supabase
-        .from('installments')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
+      const { data: instData } = await instQuery;
       const parsedInsts = (instData || []).map(i => ({
         ...i,
         total_amount: typeof i.total_amount === 'string' ? parseFloat(i.total_amount) : (i.total_amount || 0),
@@ -186,12 +208,7 @@ export default function DebtsPage() {
       setInstallments(parsedInsts);
 
       // 3. Fetch Reminders (Expenses only: amount < 0)
-      const { data: remData } = await supabase
-        .from('reminders')
-        .select('*')
-        .eq('user_id', user.id)
-        .lt('amount', 0)
-        .order('due_date', { ascending: true });
+      const { data: remData } = await remQuery;
       const parsedRems = (remData || []).map(r => ({
         ...r,
         amount: typeof r.amount === 'string' ? parseFloat(r.amount) : (r.amount || 0)

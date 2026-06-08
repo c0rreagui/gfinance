@@ -226,6 +226,34 @@ export default function FinanceDashboard() {
         }
       }
 
+      // Fetch profile to check for hidden_before_date
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('hidden_before_date')
+        .eq('id', userId)
+        .single();
+      const profileHiddenBeforeDate = profile?.hidden_before_date || null;
+
+      let transactionsQuery = supabase
+        .from('transactions')
+        .select('*')
+        .eq('user_id', userId)
+        .lte('date', new Date().toISOString())
+        .order('date', { ascending: false });
+
+      let remindersQuery = supabase
+        .from('reminders')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('paid', false)
+        .lt('amount', 0)
+        .order('due_date', { ascending: true });
+
+      if (profileHiddenBeforeDate) {
+        transactionsQuery = transactionsQuery.gte('date', `${profileHiddenBeforeDate}T00:00:00.000Z`);
+        remindersQuery = remindersQuery.gte('due_date', `${profileHiddenBeforeDate}T00:00:00.000Z`);
+      }
+
       // Parallel fetch of all dashboard datasets to eliminate waterfall latency
       const [
         { data: dbBalances },
@@ -235,8 +263,8 @@ export default function FinanceDashboard() {
         { data: dbCards }
       ] = await Promise.all([
         supabase.from('balances').select('*').eq('user_id', userId),
-        supabase.from('transactions').select('*').eq('user_id', userId).lte('date', new Date().toISOString()).order('date', { ascending: false }).limit(ignoredRange ? 35 : 5),
-        supabase.from('reminders').select('*').eq('user_id', userId).eq('paid', false).lt('amount', 0).order('due_date', { ascending: true }).limit(10),
+        transactionsQuery.limit(ignoredRange ? 35 : 5),
+        remindersQuery.limit(10),
         supabase.from('goals').select('*').eq('user_id', userId).limit(2),
         supabase.from('credit_cards').select('last_four').eq('user_id', userId).limit(1)
       ]);

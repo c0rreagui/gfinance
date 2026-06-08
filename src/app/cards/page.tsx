@@ -251,6 +251,7 @@ export default function CardsPage() {
   const [rightTab, setRightTab] = useState<'transactions' | 'installments'>('transactions');
   const [installments, setInstallments] = useState<DBInstallment[]>([]);
   const [ignoredRange, setIgnoredRange] = useState<{ startDate: string; endDate: string } | null>(null);
+  const [hiddenBeforeDate, setHiddenBeforeDate] = useState<string | null>(null);
   
   // Custom grouping & branding states
   const [editPhysicalLastFour, setEditPhysicalLastFour] = useState('');
@@ -307,12 +308,16 @@ export default function CardsPage() {
       // 1. Fetch profile details
       const { data: profile } = await supabase
         .from('profiles')
-        .select('full_name, card_limit')
+        .select('full_name, card_limit, hidden_before_date')
         .eq('id', user.id)
         .single();
 
       if (profile?.full_name) {
         setOwnerName(profile.full_name);
+      }
+
+      if (profile?.hidden_before_date) {
+        setHiddenBeforeDate(profile.hidden_before_date);
       }
 
       // 2. Fetch credit cards
@@ -410,13 +415,56 @@ export default function CardsPage() {
     try {
       const { startDate, endDate } = getCardBillingCycle(card);
 
-      // 1. Fetch last 10 transactions
-      const { data: recentTxs } = await supabase
+      // Fetch profile to get hidden_before_date dynamically
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('hidden_before_date')
+        .eq('id', card.user_id)
+        .single();
+      const profileHiddenBeforeDate = profile?.hidden_before_date || null;
+
+      let recentQuery = supabase
         .from('transactions')
         .select('*')
         .eq('card_id', card.id)
-        .order('date', { ascending: false })
-        .limit(ignoredRange ? 35 : 10);
+        .order('date', { ascending: false });
+
+      let instQuery = supabase
+        .from('installments')
+        .select('*')
+        .eq('card_id', card.id)
+        .order('created_at', { ascending: false });
+
+      let cycleTxsQuery = supabase
+        .from('transactions')
+        .select('*')
+        .eq('card_id', card.id)
+        .gte('date', startDate.toISOString())
+        .lte('date', endDate.toISOString());
+
+      let cycleRemsQuery = supabase
+        .from('reminders')
+        .select('*')
+        .eq('card_id', card.id)
+        .eq('paid', false)
+        .gte('due_date', startDate.toISOString())
+        .lte('due_date', endDate.toISOString());
+
+      let cardRemsQuery = supabase
+        .from('reminders')
+        .select('*')
+        .eq('card_id', card.id);
+
+      if (profileHiddenBeforeDate) {
+        recentQuery = recentQuery.gte('date', `${profileHiddenBeforeDate}T00:00:00.000Z`);
+        instQuery = instQuery.gte('created_at', `${profileHiddenBeforeDate}T00:00:00.000Z`);
+        cycleTxsQuery = cycleTxsQuery.gte('date', `${profileHiddenBeforeDate}T00:00:00.000Z`);
+        cycleRemsQuery = cycleRemsQuery.gte('due_date', `${profileHiddenBeforeDate}T00:00:00.000Z`);
+        cardRemsQuery = cardRemsQuery.gte('due_date', `${profileHiddenBeforeDate}T00:00:00.000Z`);
+      }
+
+      // 1. Fetch last 10 transactions
+      const { data: recentTxs } = await recentQuery.limit(ignoredRange ? 35 : 10);
       let parsedRecent = (recentTxs || []).map(t => ({
         ...t,
         amount: typeof t.amount === 'string' ? parseFloat(t.amount) : (t.amount || 0)
@@ -433,11 +481,7 @@ export default function CardsPage() {
       setCardTransactions(parsedRecent.slice(0, 10));
 
       // 2. Fetch all installments
-      const { data: insts } = await supabase
-        .from('installments')
-        .select('*')
-        .eq('card_id', card.id)
-        .order('created_at', { ascending: false });
+      const { data: insts } = await instQuery;
       const parsedInsts = (insts || []).map(i => ({
         ...i,
         total_amount: typeof i.total_amount === 'string' ? parseFloat(i.total_amount) : (i.total_amount || 0),
@@ -448,12 +492,7 @@ export default function CardsPage() {
       setInstallments(parsedInsts);
 
       // 3. Fetch cycle transactions
-      const { data: cycleTxs } = await supabase
-        .from('transactions')
-        .select('*')
-        .eq('card_id', card.id)
-        .gte('date', startDate.toISOString())
-        .lte('date', endDate.toISOString());
+      const { data: cycleTxs } = await cycleTxsQuery;
       let parsedCycleTxs = (cycleTxs || []).map(t => ({
         ...t,
         amount: typeof t.amount === 'string' ? parseFloat(t.amount) : (t.amount || 0)
@@ -469,13 +508,7 @@ export default function CardsPage() {
       }
 
       // 4. Fetch cycle unpaid reminders
-      const { data: cycleRems } = await supabase
-        .from('reminders')
-        .select('*')
-        .eq('card_id', card.id)
-        .eq('paid', false)
-        .gte('due_date', startDate.toISOString())
-        .lte('due_date', endDate.toISOString());
+      const { data: cycleRems } = await cycleRemsQuery;
       let parsedCycleRems = (cycleRems || []).map(r => ({
         ...r,
         amount: typeof r.amount === 'string' ? parseFloat(r.amount) : (r.amount || 0)
@@ -502,14 +535,11 @@ export default function CardsPage() {
 
       // 6. Calculate usedLimit (Outstanding Debt Consuming Limit)
       const oneOffTxsSum = parsedCycleTxs
-        .filter(t => !t.installment_id)
-        .reduce((acc, t) => acc + Math.abs(t.amount), 0);
-      
+          .filter(t => !t.installment_id)
+          .reduce((acc, t) => acc + Math.abs(t.amount), 0);
+
       // Fetch all reminders for this card to compute ignored installments
-      const { data: cardRems } = await supabase
-        .from('reminders')
-        .select('*')
-        .eq('card_id', card.id);
+      const { data: cardRems } = await cardRemsQuery;
       const parsedCardRems = (cardRems || []).map(r => ({
         ...r,
         amount: typeof r.amount === 'string' ? parseFloat(r.amount) : (r.amount || 0)
