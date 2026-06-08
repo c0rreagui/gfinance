@@ -418,40 +418,42 @@ serve(async (req) => {
 
     // Resolvendo card correspondente no banco de dados para associar transações ou atualizar limites
     let targetCardId: string | null = null;
+    let targetCard: { id: string; last_four: string; card_name: string; available_limit: any } | null = null;
     const cardLastFour = parsedTx.cardLastFour;
     const textLower = texto_sms.toLowerCase();
 
     if (cardLastFour || textLower.includes("itau mult mc plat") || textLower.includes("itau platinum") || textLower.includes("itaucard")) {
       const { data: creditCards } = await supabase
         .from("credit_cards")
-        .select("id, last_four, card_name")
+        .select("id, last_four, card_name, available_limit")
         .eq("user_id", userId);
 
       if (creditCards && creditCards.length > 0) {
+        let matchedCard = null;
         if (cardLastFour) {
           // Find direct match
-          let card = creditCards.find((c: { id: string; last_four: string; card_name: string }) => c.last_four === cardLastFour);
+          matchedCard = creditCards.find((c: any) => c.last_four === cardLastFour);
           // Fallback for virtual card 5960 -> 4215
-          if (!card && cardLastFour === "5960") {
-            card = creditCards.find((c: { id: string; last_four: string; card_name: string }) => c.last_four === "4215");
-          }
-          if (card) {
-            targetCardId = card.id;
+          if (!matchedCard && cardLastFour === "5960") {
+            matchedCard = creditCards.find((c: any) => c.last_four === "4215");
           }
         }
         
         // Fallback: match by card name keywords in text if no cardId resolved yet
-        if (!targetCardId) {
+        if (!matchedCard) {
           if (textLower.includes("itau mult mc plat")) {
-            const card = creditCards.find((c: { id: string; last_four: string; card_name: string }) => c.card_name.toLowerCase().includes("mult mc plat"));
-            if (card) targetCardId = card.id;
+            matchedCard = creditCards.find((c: any) => c.card_name.toLowerCase().includes("mult mc plat"));
           } else if (textLower.includes("itau platinum")) {
-            const card = creditCards.find((c: { id: string; last_four: string; card_name: string }) => c.card_name.toLowerCase().includes("platinum"));
-            if (card) targetCardId = card.id;
+            matchedCard = creditCards.find((c: any) => c.card_name.toLowerCase().includes("platinum"));
           } else if (textLower.includes("itaucard")) {
             // Default to first card if generic itaucard keyword is present
-            targetCardId = creditCards[0].id;
+            matchedCard = creditCards[0];
           }
+        }
+
+        if (matchedCard) {
+          targetCardId = matchedCard.id;
+          targetCard = matchedCard;
         }
       }
     }
@@ -465,13 +467,26 @@ serve(async (req) => {
       cardId = targetCardId;
     }
 
+    let finalAmount = parsedTx.amount;
+    // Se temos o limite disponível anterior e o limite disponível novo do SMS,
+    // e NÃO for um pagamento de fatura, calculamos o valor real da compra em reais!
+    if (!isPayment && targetCard && targetCard.available_limit !== null && targetCard.available_limit !== undefined && parsedTx.availableLimit !== undefined && parsedTx.availableLimit !== null) {
+      const prevLimit = Number(targetCard.available_limit);
+      const newLimit = Number(parsedTx.availableLimit);
+      const diff = prevLimit - newLimit;
+      if (diff > 0) {
+        console.log(`[SMS Webhook] Corrigindo valor da compra com base no limite disponível do cartão: anterior = R$ ${prevLimit}, novo = R$ ${newLimit}, diferença = R$ ${diff}`);
+        finalAmount = -diff;
+      }
+    }
+
     const { error: insertError } = await supabase
       .from("transactions")
       .insert({
         user_id: userId,
         date: parsedTx.date,
         description: parsedTx.description,
-        amount: parsedTx.amount,
+        amount: finalAmount,
         category: parsedTx.category,
         icon: parsedTx.icon,
         source_hash: sourceHash,

@@ -16,7 +16,11 @@ import {
   TrendingUp,
   Wallet,
   AlertCircle,
-  Trash2
+  Trash2,
+  Calendar,
+  Repeat,
+  Link2,
+  Link2Off
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
@@ -39,6 +43,14 @@ interface Transaction {
   category: string;
   amount: number;
   icon: string;
+  reminder_id?: string | null;
+  reminders?: {
+    id: string;
+    title: string;
+    amount: number;
+    paid: boolean;
+    is_recurring: boolean;
+  } | null;
 }
 
 export default function Transactions() {
@@ -65,6 +77,111 @@ export default function Transactions() {
     const today = new Date();
     return today.toISOString().substring(0, 10);
   });
+
+  // Linking State
+  const [reminders, setReminders] = useState<any[]>([]);
+  const [linkingTransaction, setLinkingTransaction] = useState<Transaction | null>(null);
+  const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
+
+  const fetchRemindersForLinking = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data, error } = await supabase
+        .from('reminders')
+        .select('*, transactions(id, description)')
+        .eq('user_id', user.id);
+      if (!error && data) {
+        setReminders(data);
+      }
+    } catch (err) {
+      console.error('Error fetching reminders for linking:', err);
+    }
+  };
+
+  const handleLinkTransaction = async (reminderId: string) => {
+    if (!linkingTransaction) return;
+    try {
+      setModalError('');
+      // 1. Link transaction to reminder
+      const { error: txErr } = await supabase
+        .from('transactions')
+        .update({ reminder_id: reminderId })
+        .eq('id', linkingTransaction.id);
+      if (txErr) throw txErr;
+
+      // 2. Mark reminder as paid
+      const { error: remErr } = await supabase
+        .from('reminders')
+        .update({ paid: true })
+        .eq('id', reminderId);
+      if (remErr) throw remErr;
+
+      // Close modal and refresh
+      setIsLinkModalOpen(false);
+      setLinkingTransaction(null);
+      fetchTransactions();
+    } catch (err: any) {
+      setModalError(err.message || 'Erro ao vincular transação.');
+    }
+  };
+
+  const handleUnlinkTransaction = async (tx: Transaction) => {
+    if (!tx.reminder_id) return;
+    const confirmUnlink = window.confirm(`Desvincular a transação "${tx.description}" do lembrete?`);
+    if (!confirmUnlink) return;
+    
+    try {
+      // 1. Set reminder_id = null on transaction
+      const { error: txErr } = await supabase
+        .from('transactions')
+        .update({ reminder_id: null })
+        .eq('id', tx.id);
+      if (txErr) throw txErr;
+
+      // 2. Set paid = false on reminder
+      const { error: remErr } = await supabase
+        .from('reminders')
+        .update({ paid: false })
+        .eq('id', tx.reminder_id);
+      if (remErr) throw remErr;
+
+      fetchTransactions();
+    } catch (err: any) {
+      console.error('Error unlinking transaction:', err);
+      alert('Erro ao desvincular transação: ' + err.message);
+    }
+  };
+
+  const rankReminders = (remindersList: any[], tx: Transaction) => {
+    const txAmount = Math.abs(tx.amount);
+    return remindersList.map(r => {
+      let score = 0;
+      const remAmount = Math.abs(r.amount);
+      
+      // Amount similarity
+      const diffPercent = Math.abs(txAmount - remAmount) / (txAmount || 1);
+      if (diffPercent < 0.05) score += 100;
+      else if (diffPercent < 0.2) score += 50;
+
+      // Title similarity
+      const txWords = tx.description.toLowerCase().split(/[\s*._-]+/);
+      const remWords = r.title.toLowerCase().split(/[\s*._-]+/);
+      let commonWords = 0;
+      txWords.forEach(w => {
+        if (w && w.length > 2 && remWords.some(rw => rw.includes(w) || w.includes(rw))) {
+          commonWords++;
+        }
+      });
+      score += commonWords * 40;
+
+      if (r.paid) {
+        score -= 10;
+      }
+
+      return { ...r, score };
+    }).sort((a, b) => b.score - a.score);
+  };
 
   const fetchCreditCards = async () => {
     try {
@@ -100,7 +217,7 @@ export default function Transactions() {
 
       let query = supabase
         .from('transactions')
-        .select('*')
+        .select('*, reminders:reminder_id (id, title, amount, paid, is_recurring)')
         .eq('user_id', user.id)
         .lte('date', new Date().toISOString());
 
@@ -343,6 +460,7 @@ export default function Transactions() {
                     <tr className="border-b border-slate-100 dark:border-white/5">
                       <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Descrição</th>
                       <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Categoria</th>
+                      <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Vínculo</th>
                       <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Valor</th>
                       <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Ações</th>
                     </tr>
@@ -370,6 +488,34 @@ export default function Transactions() {
                             <span className="px-3 py-1.5 bg-slate-100/50 dark:bg-white/5 text-slate-600 dark:text-slate-300 text-[10px] font-black rounded-lg uppercase tracking-widest">
                               {tx.category}
                             </span>
+                          </td>
+                          <td className="px-8 py-5">
+                            {tx.reminders ? (
+                              <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-violet-500/10 border border-violet-500/20 text-violet-400 text-[10px] font-black rounded-lg uppercase tracking-wider transition-all w-fit group/badge">
+                                <span>🔗 {tx.reminders.title}</span>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleUnlinkTransaction(tx);
+                                  }}
+                                  className="w-3.5 h-3.5 bg-violet-500/20 hover:bg-red-500 hover:text-white rounded-full flex items-center justify-center cursor-pointer transition-colors text-violet-300 text-[8px] font-bold"
+                                  title="Remover Vínculo"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => {
+                                  setLinkingTransaction(tx);
+                                  setIsLinkModalOpen(true);
+                                  fetchRemindersForLinking();
+                                }}
+                                className="text-slate-400 hover:text-emerald-400 text-[10px] font-black uppercase tracking-widest flex items-center gap-1 cursor-pointer transition-colors"
+                              >
+                                <span>+ Vincular</span>
+                              </button>
+                            )}
                           </td>
                           <td className="px-8 py-5 text-right font-black text-sm dark:text-white">
                             <span className={isIncome ? 'text-emerald-500' : ''}>
@@ -591,6 +737,129 @@ export default function Transactions() {
                 Confirmar Transação
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Link Transaction Modal */}
+      {isLinkModalOpen && linkingTransaction && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl max-w-lg w-full p-8 border border-white/20 shadow-2xl relative animate-in max-h-[85vh] flex flex-col">
+            <button 
+              onClick={() => {
+                setIsLinkModalOpen(false);
+                setLinkingTransaction(null);
+                setModalError('');
+              }}
+              className="absolute right-6 top-6 text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer"
+            >
+              <X className="w-6 h-6" />
+            </button>
+            
+            <div className="mb-6">
+              <h3 className="text-xl font-black dark:text-white">Vincular Lançamento</h3>
+              <p className="text-xs text-slate-400 mt-2">
+                Selecione um lembrete (assinatura, conta ou dívida) para associar a esta transação. 
+                Isso marcará o lembrete como pago automaticamente e evitará lançamentos duplicados.
+              </p>
+            </div>
+
+            {/* Transaction Card Preview */}
+            <div className="p-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/5 rounded-2xl mb-6">
+              <div className="flex justify-between items-center">
+                <div>
+                  <p className="text-xs font-black dark:text-white">{linkingTransaction.description}</p>
+                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">
+                    {new Date(linkingTransaction.date).toLocaleDateString('pt-BR')}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm font-black text-red-500">
+                    {linkingTransaction.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {modalError && (
+              <div className="p-4 bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 rounded-2xl flex items-start gap-2 mb-6 text-sm">
+                <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+                <span>{modalError}</span>
+              </div>
+            )}
+
+            {/* Reminders List */}
+            <div className="flex-1 overflow-y-auto no-scrollbar space-y-3 min-h-[200px] pr-1">
+              {reminders.length === 0 ? (
+                <div className="text-center py-10 text-slate-400 text-xs">
+                  Nenhum lembrete encontrado.
+                </div>
+              ) : (
+                rankReminders(reminders, linkingTransaction).map((r) => {
+                  const isLinkedToOther = r.transactions && r.transactions.length > 0 && !r.transactions.some((t: any) => t.id === linkingTransaction.id);
+                  const isSelected = linkingTransaction.reminder_id === r.id;
+                  
+                  return (
+                    <div 
+                      key={r.id}
+                      className={`p-4 rounded-2xl border transition-all flex items-center justify-between ${
+                        isSelected 
+                          ? 'bg-violet-500/10 border-violet-500/30' 
+                          : isLinkedToOther 
+                            ? 'bg-slate-50/50 dark:bg-slate-900/30 border-slate-100 dark:border-white/5 opacity-50' 
+                            : 'bg-slate-50 dark:bg-slate-900/60 hover:bg-slate-100 dark:hover:bg-slate-900 border-slate-200 dark:border-white/5'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center text-slate-500 dark:text-slate-400">
+                          {r.is_recurring ? <Repeat className="w-4 h-4" /> : <Calendar className="w-4 h-4" />}
+                        </div>
+                        <div className="max-w-[180px] sm:max-w-[240px]">
+                          <p className="text-xs font-black dark:text-white flex items-center gap-2 truncate">
+                            {r.title}
+                            {r.paid && (
+                              <span className="px-1.5 py-0.5 bg-emerald-500/10 text-emerald-400 text-[8px] font-bold rounded shrink-0">
+                                Pago
+                              </span>
+                            )}
+                          </p>
+                          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">
+                            Venc: {new Date(r.due_date).toLocaleDateString('pt-BR')} 
+                            {r.is_recurring && ' • Recorrente'}
+                          </p>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center gap-4">
+                        <div className="text-right">
+                          <p className="text-xs font-black dark:text-white">
+                            {Number(r.amount).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          </p>
+                        </div>
+                        
+                        {isLinkedToOther ? (
+                          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">
+                            Já Vinculado
+                          </span>
+                        ) : isSelected ? (
+                          <span className="text-[9px] font-bold text-violet-400 uppercase tracking-widest">
+                            Vinculado
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleLinkTransaction(r.id)}
+                            className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white text-[10px] font-black rounded-xl uppercase tracking-widest transition-all cursor-pointer"
+                          >
+                            Vincular
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>
         </div>
       )}
