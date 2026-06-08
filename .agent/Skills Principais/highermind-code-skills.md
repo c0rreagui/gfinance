@@ -10,6 +10,7 @@ Seis modos cognitivos de execucao pro Claude Code, construidos na filosofia High
 - `/hm-qa` — Security audit + testes + verificacao completa
 - `/hm-deploy` — Security gate bloqueante + validacao de infraestrutura, containers e reprodutibilidade
 - `/hm-security` — **Auditoria de seguranca dedicada** nivel Tempest/CrowdStrike/Trail of Bits. OWASP ASVS 5.0, CIS Benchmarks, supply chain, crypto, compliance.
+- `/hm-sync` — Garantir sincronidade dos dados com a plataforma e realizar auditorias com autoavaliação de consistência
 
 Skills de direcao estrategica (`/hm-align`, `/hm-sequoia`) estao em [highermind-business-skills](https://github.com/rodrigohighermind/highermind-business-skills).
 

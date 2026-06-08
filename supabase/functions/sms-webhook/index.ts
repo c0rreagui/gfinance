@@ -51,7 +51,7 @@ function parseSmsDate(text: string): string {
   return new Date().toISOString();
 }
 
-function parseSms(texto: string): { amount: number; description: string; date: string; category: string; icon: string; cardLastFour: string | null } | null {
+function parseSms(texto: string): { amount: number; description: string; date: string; category: string; icon: string; cardLastFour: string | null; availableLimit?: number | null } | null {
   const text = texto.trim();
   let amount = 0;
   let description = "Transação SMS";
@@ -266,13 +266,23 @@ function parseSms(texto: string): { amount: number; description: string; date: s
     icon = "TrendingUp";
   }
 
+  // Extract available limit if present in text
+  let availableLimit: number | null = null;
+  const limitAvailableRegex = /limite\s+(?:disponivel|disponível)\s*(?:de|:)?\s*(?:r\$|rs|us\$|us|usd)?\s*([\d.,]+)/i;
+  const limitMatch = text.match(limitAvailableRegex);
+  if (limitMatch) {
+    const rawLimit = limitMatch[1].replace(/\./g, "").replace(",", ".");
+    availableLimit = parseFloat(rawLimit);
+  }
+
   return {
     amount,
     description,
     date: txDate,
     category,
     icon,
-    cardLastFour
+    cardLastFour,
+    availableLimit
   };
 }
 
@@ -406,8 +416,8 @@ serve(async (req) => {
     // 8. Unique constraint SHA-256 deduplication
     const sourceHash = await buildSourceHash(userId, parsedTx.date, parsedTx.description, parsedTx.amount);
 
-    // Look up card in the database to link card_id
-    let cardId: string | null = null;
+    // Resolvendo card correspondente no banco de dados para associar transações ou atualizar limites
+    let targetCardId: string | null = null;
     const cardLastFour = parsedTx.cardLastFour;
     const textLower = texto_sms.toLowerCase();
 
@@ -426,24 +436,33 @@ serve(async (req) => {
             card = creditCards.find((c: { id: string; last_four: string; card_name: string }) => c.last_four === "4215");
           }
           if (card) {
-            cardId = card.id;
+            targetCardId = card.id;
           }
         }
         
         // Fallback: match by card name keywords in text if no cardId resolved yet
-        if (!cardId) {
+        if (!targetCardId) {
           if (textLower.includes("itau mult mc plat")) {
             const card = creditCards.find((c: { id: string; last_four: string; card_name: string }) => c.card_name.toLowerCase().includes("mult mc plat"));
-            if (card) cardId = card.id;
+            if (card) targetCardId = card.id;
           } else if (textLower.includes("itau platinum")) {
             const card = creditCards.find((c: { id: string; last_four: string; card_name: string }) => c.card_name.toLowerCase().includes("platinum"));
-            if (card) cardId = card.id;
+            if (card) targetCardId = card.id;
           } else if (textLower.includes("itaucard")) {
             // Default to first card if generic itaucard keyword is present
-            cardId = creditCards[0].id;
+            targetCardId = creditCards[0].id;
           }
         }
       }
+    }
+
+    // Apenas associamos card_id na transação se NÃO for um pagamento de fatura
+    // Isso garante que pagamentos de fatura reduzam o saldo da conta corrente e funcionem
+    // corretamente com os filtros e alertas do calendário.
+    const isPayment = parsedTx.description.toLowerCase().includes("pagamento");
+    let cardId: string | null = null;
+    if (!isPayment) {
+      cardId = targetCardId;
     }
 
     const { error: insertError } = await supabase
@@ -459,6 +478,15 @@ serve(async (req) => {
         source_type: "sms",
         card_id: cardId
       });
+
+    // Se o SMS continha o limite disponível e identificamos o cartão, atualizamos no banco
+    if (parsedTx.availableLimit !== undefined && parsedTx.availableLimit !== null && targetCardId) {
+      console.log(`[SMS Webhook] Atualizando limite disponível do cartão ${targetCardId} para R$ ${parsedTx.availableLimit}`);
+      await supabase
+        .from("credit_cards")
+        .update({ available_limit: parsedTx.availableLimit })
+        .eq("id", targetCardId);
+    }
 
     let isDuplicate = false;
     if (insertError) {

@@ -31,6 +31,7 @@ interface DBCreditCard {
   due_day: number;
   color_theme: string;
   manual_invoice_amount: number | null;
+  available_limit: number | null;
   created_at?: string;
   physical_last_four?: string | null;
   card_brand?: string;
@@ -359,6 +360,9 @@ export default function CardsPage() {
         card_limit: typeof c.card_limit === 'string' ? parseFloat(c.card_limit) : (c.card_limit || 0),
         manual_invoice_amount: c.manual_invoice_amount !== null && c.manual_invoice_amount !== undefined 
           ? (typeof c.manual_invoice_amount === 'string' ? parseFloat(c.manual_invoice_amount) : c.manual_invoice_amount)
+          : null,
+        available_limit: c.available_limit !== null && c.available_limit !== undefined
+          ? (typeof c.available_limit === 'string' ? parseFloat(c.available_limit) : c.available_limit)
           : null
       }));
       setCards(fetchedCards);
@@ -623,6 +627,27 @@ export default function CardsPage() {
         .eq('id', activeCard.id);
     } catch (e) {
       console.error('Erro ao salvar fatura manual:', e);
+    }
+  };
+
+  // Handle manual available limit override directly
+  const handleAvailableLimitChange = async (newAvailableVal: number | null) => {
+    if (!activeCard) return;
+
+    const updatedCards = [...cards];
+    updatedCards[activeIndex].available_limit = newAvailableVal;
+    setCards(updatedCards);
+
+    // Reload card data with updated manual value
+    await loadCardData(updatedCards[activeIndex]);
+
+    try {
+      await supabase
+        .from('credit_cards')
+        .update({ available_limit: newAvailableVal })
+        .eq('id', activeCard.id);
+    } catch (e) {
+      console.error('Erro ao salvar limite disponível manual:', e);
     }
   };
 
@@ -937,8 +962,13 @@ export default function CardsPage() {
   };
 
   const cardLimit = activeCard ? activeCard.card_limit : 25000;
-  const availableLimit = cardLimit - usedLimit;
-  const limitPercentage = cardLimit > 0 ? (usedLimit / cardLimit) * 100 : 0;
+  const availableLimit = (activeCard && activeCard.available_limit !== null && activeCard.available_limit !== undefined) 
+    ? activeCard.available_limit 
+    : cardLimit - usedLimit;
+  const impliedUsedLimit = (activeCard && activeCard.available_limit !== null && activeCard.available_limit !== undefined)
+    ? Math.max(0, cardLimit - activeCard.available_limit)
+    : usedLimit;
+  const limitPercentage = cardLimit > 0 ? (impliedUsedLimit / cardLimit) * 100 : 0;
 
   return (
     <div className="flex-1 overflow-y-auto p-8 bg-slate-950 text-slate-100 h-full no-scrollbar relative">
@@ -1133,9 +1163,9 @@ export default function CardsPage() {
                 </div>
 
                 {/* manual inputs */}
-                <div className="grid grid-cols-2 gap-4 border-t border-white/5 pt-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-t border-white/5 pt-6">
                   <div>
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Digite o Limite (R$)</label>
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Limite Total (R$)</label>
                     <input
                       type="number"
                       value={cardLimit}
@@ -1144,7 +1174,32 @@ export default function CardsPage() {
                     />
                   </div>
                   <div>
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Digite a Fatura (Ajuste Manual)</label>
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Limite Disponível (Manual)</label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        placeholder="Automático (SMS)"
+                        value={activeCard.available_limit ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? null : Number(e.target.value);
+                          handleAvailableLimitChange(val);
+                        }}
+                        className="w-full px-4 py-2.5 bg-slate-950 border border-white/5 rounded-xl text-xs text-white focus:outline-none focus:ring-1 focus:ring-emerald-500/20 font-mono text-center pr-8"
+                      />
+                      {activeCard.available_limit !== null && (
+                        <button
+                          type="button"
+                          onClick={() => handleAvailableLimitChange(null)}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white text-xs cursor-pointer px-1.5 py-0.5"
+                          title="Limpar ajuste manual"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Fatura Atual (Manual)</label>
                     <div className="relative">
                       <input
                         type="number"

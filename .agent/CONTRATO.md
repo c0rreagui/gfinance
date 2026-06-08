@@ -46,6 +46,7 @@ Se parece um template, reprovou. Se poderia pertencer a qualquer produto, reprov
 - `/hm-engineer` — Validar código em todas as camadas
 - `/hm-designer` — Validar interface contra o mais alto padrão
 - `/hm-qa` — Testar tudo, encontrar os gaps
+- `/hm-sync` — Garantir sincronidade dos dados com a plataforma e realizar auditorias de consistência
 - `/hm-align` — Checar se isso é a coisa certa pra construir
 
 ## Regras
