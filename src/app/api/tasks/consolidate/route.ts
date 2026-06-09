@@ -427,6 +427,18 @@ ${(t.extracted_entities as any)?.key_decisions?.map((kd: string) => `- ${kd}`).j
 
     const newTranscriptionId = newTr.id;
 
+    // Automatically mark the individual source transcriptions as processed (Auditadas),
+    // since they have been successfully consolidated into the General Analysis.
+    const { error: updateSourcesError } = await supabase
+      .from('transcriptions')
+      .update({ processed_at: new Date().toISOString() })
+      .in('id', transcriptionIds)
+      .eq('user_id', user.id);
+
+    if (updateSourcesError) {
+      console.error('[Consolidate - Update Sources] Error marking source transcriptions as processed:', updateSourcesError);
+    }
+
     return NextResponse.json({
       success: true,
       newTranscriptionId,
