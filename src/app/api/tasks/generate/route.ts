@@ -7,7 +7,7 @@ export const maxDuration = 300;
 
 // Initialize Gemini SDK client
 const apiKey = process.env.GEMINI_API_KEY;
-const DEFAULT_MODEL = 'gemini-2.5-flash';
+const DEFAULT_MODEL = 'gemini-2.5-flash-lite';
 
 function getGeminiClient(): GoogleGenerativeAI {
   if (!apiKey || apiKey === 'your-gemini-key-here') {
@@ -197,35 +197,35 @@ export async function POST(req: NextRequest) {
               priority: { type: SchemaType.STRING, description: 'Prioridade: critical, high, medium, low, none' },
               daysFromNow: { type: SchemaType.INTEGER, description: 'Dias recomendados para entrega final do Épico.' },
               children: {
-                type: SchemaType.ARRAY,
+                type: 'ARRAY',
                 items: {
-                  type: SchemaType.OBJECT,
+                  type: 'OBJECT',
                   properties: {
-                    title: { type: SchemaType.STRING, description: 'Título da Feature.' },
-                    description: { type: SchemaType.STRING, description: 'Descrição da Feature.' },
-                    type: { type: SchemaType.STRING, description: 'Sempre: feature' },
-                    priority: { type: SchemaType.STRING },
-                    daysFromNow: { type: SchemaType.INTEGER },
+                    title: { type: 'STRING', description: 'Título da Feature.' },
+                    description: { type: 'STRING', description: 'Descrição da Feature.' },
+                    type: { type: 'STRING', description: 'Sempre: feature' },
+                    priority: { type: 'STRING' },
+                    daysFromNow: { type: 'INTEGER' },
                     children: {
-                      type: SchemaType.ARRAY,
+                      type: 'ARRAY',
                       items: {
-                        type: SchemaType.OBJECT,
+                        type: 'OBJECT',
                         properties: {
-                          title: { type: SchemaType.STRING, description: 'Título da Story.' },
-                          description: { type: SchemaType.STRING, description: 'Descrição da Story.' },
-                          type: { type: SchemaType.STRING, description: 'Sempre: story' },
-                          priority: { type: SchemaType.STRING },
-                          daysFromNow: { type: SchemaType.INTEGER },
+                          title: { type: 'STRING', description: 'Título da Story.' },
+                          description: { type: 'STRING', description: 'Descrição da Story.' },
+                          type: { type: 'STRING', description: 'Sempre: story' },
+                          priority: { type: 'STRING' },
+                          daysFromNow: { type: 'INTEGER' },
                           children: {
-                            type: SchemaType.ARRAY,
+                            type: 'ARRAY',
                             items: {
-                              type: SchemaType.OBJECT,
+                              type: 'OBJECT',
                               properties: {
-                                title: { type: SchemaType.STRING, description: 'Título da Tarefa acionável.' },
-                                description: { type: SchemaType.STRING, description: 'Descrição da Tarefa.' },
-                                type: { type: SchemaType.STRING, description: 'Sempre: task' },
-                                priority: { type: SchemaType.STRING },
-                                daysFromNow: { type: SchemaType.INTEGER }
+                                title: { type: 'STRING', description: 'Título da Tarefa acionável.' },
+                                description: { type: 'STRING', description: 'Descrição da Tarefa.' },
+                                type: { type: 'STRING', description: 'Sempre: task' },
+                                priority: { type: 'STRING' },
+                                daysFromNow: { type: 'INTEGER' }
                               },
                               required: ['title', 'type', 'priority']
                             }
@@ -251,7 +251,14 @@ export async function POST(req: NextRequest) {
     let selectedModel = '';
     let totalTokenCount = null;
     let responseText = '';
-    const modelsToTry = [DEFAULT_MODEL, 'gemini-2.0-flash', 'gemini-1.5-flash'];
+    const modelsToTry = [
+      DEFAULT_MODEL,
+      'gemini-2.5-flash',
+      'gemini-2.0-flash-lite',
+      'gemini-2.0-flash',
+      'gemini-flash-latest',
+      'gemini-2.5-pro'
+    ];
     let lastError = null;
 
     for (const modelName of modelsToTry) {

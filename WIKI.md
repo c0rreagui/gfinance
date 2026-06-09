@@ -2,7 +2,7 @@
 
 Este documento é a fonte de verdade para desenvolvimento do **G-Finance** (anteriormente G-Hub), o sistema unificado de wealth management pessoal de Guilherme Corrêa. Mantido automaticamente pelo Antigravity Agent.
 
-> **Última atualização:** 02 de junho de 2026
+> **Última atualização:** 09 de junho de 2026
 
 ---
 
@@ -298,6 +298,8 @@ Para evitar acoplamento acidental e regressões em futuras sessões de IA ou ref
   - `[PASS]` G-Work: Painel Bento, Kanban Dnd, Árvore Hierárquica e Curation AI validados.
   - `[PASS]` Google Drive Sync: Permissão `drive.readonly` integrada, seletor de pastas e sync automático/manual ativo com integridade SHA-256.
   - `[PASS]` Compilação: Next.js build e strict typecheck 100% verdes (zero erros).
+  - `[PASS]` Análise de IA e Resiliência: Adicionada resiliência na análise de IA para arquivos grandes (Vercel timeout estendido para 300s via `maxDuration`). Corrigido fallback automático para múltiplos modelos do Gemini (`gemini-2.5-flash-lite` prioritário, evitando erros 503 e 429 de limites de cota da free tier).
+  - `[PASS]` UX/UI: Implementada prevenção contra crashes ao receber erros HTML no parsing de JSON, e reset automático de mensagens de erro ao alternar gravações selecionadas.
 - **Status de Deploy:** Pushed to GitHub. Deploy ativo na Vercel.
 
 

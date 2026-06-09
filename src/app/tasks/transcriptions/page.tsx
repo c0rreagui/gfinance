@@ -52,6 +52,11 @@ export default function TranscriptionsPage() {
     }
   }, [transcriptions]);
 
+  // Clear error message when switching selected transcription
+  useEffect(() => {
+    setErrorMsg('');
+  }, [selectedTr?.id]);
+
   const handleTriggerAI = async (trId: string) => {
     if (aiLoading) return;
     setAiLoading(true);
@@ -64,8 +69,18 @@ export default function TranscriptionsPage() {
         body: JSON.stringify({ transcriptionId: trId })
       });
 
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Erro ao processar transcrição.');
+      let result: any = null;
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        result = await response.json();
+      } else {
+        const text = await response.text();
+        // Extract plain text or simple description if it's a HTML response
+        const cleanText = text.replace(/<[^>]*>/g, '').substring(0, 120).trim();
+        throw new Error(cleanText || `Erro HTTP ${response.status}`);
+      }
+
+      if (!response.ok) throw new Error(result.error || `Erro ao processar transcrição (Status ${response.status}).`);
 
       // Format result for curation modal
       const mappedResult = {
