@@ -292,3 +292,12 @@ Para evitar acoplamento acidental e regressões em futuras sessões de IA ou ref
 - **UX/UI Highlights:** Substituir spinners de carregamento inicial por shimmer skeletons. Implementar suporte mobile para privacidade no Calendário.
 - **Status de Deploy:** Aprovado para Vercel/Supabase.
 
+### 🗓️ 09 de Junho de 2026 — /hm-DeEnQaUxVallPloy Pipeline
+- **Veredicto:** BASELINE-READY
+- **Findings G-Work:**
+  - `[PASS]` G-Work: Painel Bento, Kanban Dnd, Árvore Hierárquica e Curation AI validados.
+  - `[PASS]` Google Drive Sync: Permissão `drive.readonly` integrada, seletor de pastas e sync automático/manual ativo com integridade SHA-256.
+  - `[PASS]` Compilação: Next.js build e strict typecheck 100% verdes (zero erros).
+- **Status de Deploy:** Pushed to GitHub. Deploy ativo na Vercel.
+
+
