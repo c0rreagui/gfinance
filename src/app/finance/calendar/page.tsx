@@ -1433,6 +1433,13 @@ export default function FinancialCalendar() {
                 const events = dailyEvents[dayNum] || [];
                 const dailyProjBalance = dailyBalances[dayNum] || 0;
                 
+                const todayDate = new Date();
+                const isToday = todayDate.getDate() === dayNum &&
+                                todayDate.getMonth() === month &&
+                                todayDate.getFullYear() === year;
+                const hasEvents = events.length > 0;
+                const dailyNet = events.reduce((sum, e) => sum + e.amount, 0);
+
                 // Indicators check
                 const hasIncomes = events.some(e => e.amount > 0);
                 const hasExpenses = events.some(e => e.amount < 0 && e.type !== 'subscription');
@@ -1441,9 +1448,36 @@ export default function FinancialCalendar() {
 
                 // 5. Past vs Future Temporal styling
                 const cellIsPast = isPastDay(dayNum);
-                const temporalCellClass = cellIsPast
-                  ? 'opacity-70 saturate-50 hover:opacity-100 hover:saturate-100'
-                  : 'bright-cell';
+
+                // Premium visual hierarchy & Wow Factors
+                let cellClass = 'rounded-[20px] p-3 border transition-all duration-300 flex flex-col justify-between cursor-pointer group hover:scale-[1.02] stagger-in ';
+                let cellBgStyle = undefined;
+
+                if (isSelected) {
+                  cellClass += 'bg-emerald-500/10 border-emerald-500 shadow-lg shadow-emerald-500/10';
+                } else if (isToday) {
+                  cellClass += 'border-violet-500/50 shadow-[0_0_25px_rgba(139,92,246,0.2)] hover:border-violet-500/80';
+                  cellBgStyle = 'radial-gradient(circle at 50% 0%, rgba(139, 92, 246, 0.22) 0%, rgba(15, 23, 42, 0.7) 100%)';
+                } else if (hasEvents) {
+                  if (dailyNet > 0) {
+                    cellClass += 'border-emerald-500/30 hover:border-emerald-500/50 hover:shadow-[0_0_15px_rgba(16,185,129,0.08)]';
+                    cellBgStyle = 'linear-gradient(to bottom, rgba(16, 185, 129, 0.05) 0%, rgba(15, 23, 42, 0.55) 100%)';
+                  } else if (dailyNet < 0) {
+                    cellClass += 'border-red-500/30 hover:border-red-500/50 hover:shadow-[0_0_15px_rgba(239,68,68,0.08)]';
+                    cellBgStyle = 'linear-gradient(to bottom, rgba(239, 68, 68, 0.05) 0%, rgba(15, 23, 42, 0.55) 100%)';
+                  } else {
+                    cellClass += 'bg-slate-900/40 border-white/10 hover:border-white/20 hover:bg-slate-900/80';
+                  }
+                } else {
+                  // Mute empty days for visual focus
+                  cellClass += 'bg-slate-950/20 border-white/5 opacity-40 hover:opacity-100 hover:bg-slate-900/40 hover:border-white/10';
+                }
+
+                if (cellIsPast && !isToday && !isSelected) {
+                  cellClass += ' saturate-[0.4] opacity-50';
+                } else if (!cellIsPast) {
+                  cellClass += ' bright-cell';
+                }
 
                 // 4. Data Congestion & Proportions Progress Bar calculation
                 const dayEvents = events.slice(0, 3);
@@ -1464,20 +1498,32 @@ export default function FinancialCalendar() {
                     }}
                     onDragOver={handleDragOver}
                     onDrop={(e) => handleDrop(e, dayNum)}
-                    className={`rounded-[20px] p-3 border transition-all duration-300 flex flex-col justify-between cursor-pointer group hover:scale-[1.02] stagger-in ${
-                      isSelected
-                        ? 'bg-emerald-500/10 border-emerald-500 shadow-lg shadow-emerald-500/5'
-                        : 'bg-slate-900/40 border-white/5 hover:border-white/10 hover:bg-slate-900/80'
-                    } ${temporalCellClass}`}
-                    style={{ animationDelay: `${200 + idx * 8}ms` }}
+                    className={cellClass}
+                    style={{ 
+                      animationDelay: `${200 + idx * 8}ms`,
+                      background: cellBgStyle
+                    }}
                   >
                     {/* Day number & indicators */}
                     <div className="flex justify-between items-start">
-                      <span className={`text-xs font-black px-2 py-0.5 rounded-lg ${
-                        isSelected ? 'bg-emerald-500 text-white' : 'text-slate-300 group-hover:text-white'
-                      }`}>
-                        {dayNum}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span className={`text-xs font-black px-2 py-0.5 rounded-lg transition-all duration-300 ${
+                          isSelected 
+                            ? 'bg-emerald-500 text-white' 
+                            : isToday
+                              ? 'bg-violet-600 text-white shadow-sm shadow-violet-500/30'
+                              : hasEvents
+                                ? 'bg-slate-800/80 text-slate-200 group-hover:text-white group-hover:bg-slate-700'
+                                : 'text-slate-500 group-hover:text-slate-300'
+                        }`}>
+                          {dayNum}
+                        </span>
+                        {isToday && (
+                          <span className="text-[7px] font-black uppercase tracking-wider text-violet-400 bg-violet-500/10 border border-violet-500/20 px-1 py-0.5 rounded-md animate-pulse font-sans">
+                            Hoje
+                          </span>
+                        )}
+                      </div>
 
                       {/* Dot indicators - Hidden when page displays mini-badges or limited to 3 */}
                       <div className="flex gap-1">
