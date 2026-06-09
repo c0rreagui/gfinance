@@ -106,6 +106,28 @@ function GWorkProvider({ children }: { children: React.ReactNode }) {
     init();
   }, [fetchData, fetchInsights]);
 
+  // Silent background Google Drive synchronization on startup
+  useEffect(() => {
+    if (!user) return;
+    
+    const syncDrive = async () => {
+      try {
+        const res = await fetch('/api/tasks/sync-drive', { method: 'POST' });
+        const data = await res.json();
+        if (res.ok && data.success && data.filesImported > 0) {
+          // If new files were imported, refresh the data to display them
+          await refreshData();
+        }
+      } catch (err) {
+        console.error('[G-Work] Silent Drive sync failed:', err);
+      }
+    };
+
+    // Delay the sync slightly to not block initial page rendering
+    const timer = setTimeout(syncDrive, 1500);
+    return () => clearTimeout(timer);
+  }, [user, refreshData]);
+
   // Realtime subscriptions
   useEffect(() => {
     if (!user) return;

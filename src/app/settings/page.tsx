@@ -42,6 +42,17 @@ export default function Settings() {
   const [linkingError, setLinkingError] = useState('');
   const [linkingSuccess, setLinkingSuccess] = useState('');
 
+  // Google Drive sync states
+  const [folders, setFolders] = useState<{ id: string; name: string }[]>([]);
+  const [foldersLoading, setFoldersLoading] = useState(false);
+  const [foldersError, setFoldersError] = useState('');
+  const [driveFolderId, setDriveFolderId] = useState('');
+  const [driveFolderName, setDriveFolderName] = useState('');
+  const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncSuccessMsg, setSyncSuccessMsg] = useState('');
+  const [syncErrorMsg, setSyncErrorMsg] = useState('');
+
   const fetchProfile = async () => {
     try {
       setLoading(true);
@@ -96,6 +107,9 @@ export default function Settings() {
             currentProfile.initial_balance = Number(currentProfile.initial_balance) || 0;
             setPushNotif(currentProfile.push_notifications_enabled !== false);
             setTwoFactor(!!currentProfile.two_factor_enabled);
+            setDriveFolderId(currentProfile.google_drive_folder_id || '');
+            setDriveFolderName(currentProfile.google_drive_folder_name || '');
+            setLastSyncAt(currentProfile.google_drive_last_sync_at || null);
           }
           setProfile(currentProfile);
         }
@@ -120,6 +134,63 @@ export default function Settings() {
     fetchProfile();
   }, []);
 
+  const fetchFolders = async () => {
+    setFoldersLoading(true);
+    setFoldersError('');
+    try {
+      const res = await fetch('/api/auth/google-drive/folders');
+      if (!res.ok) {
+        throw new Error('Falha ao obter pastas do Google Drive');
+      }
+      const data = await res.json();
+      setFolders(data.folders || []);
+    } catch (err: any) {
+      setFoldersError(err.message || 'Erro ao carregar pastas');
+    } finally {
+      setFoldersLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const hasGoogle = identities.some((id: any) => id.provider === 'google');
+    if (hasGoogle) {
+      fetchFolders();
+    }
+  }, [identities]);
+
+  const handleFolderChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const folderId = e.target.value;
+    const folderName = folders.find(f => f.id === folderId)?.name || '';
+    setDriveFolderId(folderId);
+    setDriveFolderName(folderName);
+  };
+
+  const handleSyncDrive = async () => {
+    if (syncing) return;
+    setSyncing(true);
+    setSyncSuccessMsg('');
+    setSyncErrorMsg('');
+    try {
+      const res = await fetch('/api/tasks/sync-drive', {
+        method: 'POST'
+      });
+      const result = await res.json();
+      if (!res.ok) {
+        throw new Error(result.error || 'Erro ao sincronizar');
+      }
+      if (result.success) {
+        setSyncSuccessMsg(`Sincronização concluída! ${result.filesImported} novos arquivos importados (${result.filesScanned} escaneados na pasta "${result.folderName}").`);
+        setLastSyncAt(result.lastSyncAt);
+      } else {
+        setSyncErrorMsg(result.message || 'Falha na sincronização.');
+      }
+    } catch (err: any) {
+      setSyncErrorMsg(err.message || 'Erro de rede ao sincronizar');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const handleLinkGoogle = async () => {
     setLinkingError('');
     setLinkingSuccess('');
@@ -128,7 +199,7 @@ export default function Settings() {
         provider: 'google',
         options: {
           redirectTo: `${window.location.origin}/auth/callback?next=/settings`,
-          scopes: 'https://www.googleapis.com/auth/cloud-platform openid email profile',
+          scopes: 'https://www.googleapis.com/auth/cloud-platform openid email profile https://www.googleapis.com/auth/drive.readonly',
           queryParams: {
             access_type: 'offline',
             prompt: 'consent',
@@ -178,6 +249,8 @@ export default function Settings() {
           initial_balance: profile.initial_balance || 0,
           push_notifications_enabled: pushNotif,
           two_factor_enabled: twoFactor,
+          google_drive_folder_id: driveFolderId,
+          google_drive_folder_name: driveFolderName,
           updated_at: new Date().toISOString()
         });
 
@@ -480,6 +553,96 @@ export default function Settings() {
                 >
                   Vincular Conta Google
                 </button>
+              </div>
+            )}
+          </div>
+
+          {/* Google Drive Folder Sync Panel */}
+          <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md p-10 rounded-[48px] border border-white/50 dark:border-white/5 shadow-sm space-y-6">
+            <div>
+              <h4 className="font-black text-xl dark:text-white flex items-center gap-2.5">
+                <svg className="w-6 h-6 text-blue-500" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46.2 14.22 0 13.95 0h-4c-.27 0-.52.2-.57.47L9 3.12c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.05.27.3.47.57.47h4c.27 0 .52-.2.57-.47l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z" />
+                </svg>
+                Monitoramento do Google Drive (G-Work)
+              </h4>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
+                Selecione uma pasta do seu Google Drive para monitorar. O G-Work fará a varredura automática de arquivos de transcrição <code className="text-xs bg-slate-100 dark:bg-slate-900 px-1 py-0.5 rounded font-mono text-blue-500">.md</code> para alimentar sua base de conhecimento e organizar suas tarefas.
+              </p>
+            </div>
+
+            {!identities.some((id: any) => id.provider === 'google') ? (
+              <div className="p-6 rounded-3xl bg-slate-100/50 dark:bg-slate-900/40 border border-slate-200 dark:border-white/5 text-center space-y-3">
+                <p className="text-xs text-slate-400 dark:text-slate-500">
+                  Você precisa vincular sua conta do Google acima com a permissão de leitura de arquivos para ativar a sincronização do Drive.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {syncSuccessMsg && (
+                  <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-2xl flex items-start gap-2 text-sm font-semibold">
+                    <CheckCircle className="w-5 h-5 shrink-0 mt-0.5" />
+                    <span>{syncSuccessMsg}</span>
+                  </div>
+                )}
+
+                {syncErrorMsg && (
+                  <div className="p-4 bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 rounded-2xl flex items-start gap-2 text-sm font-semibold">
+                    <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+                    <span>{syncErrorMsg}</span>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Pasta do Drive para Monitorar</label>
+                    {foldersLoading ? (
+                      <div className="w-full px-6 py-4 bg-white/40 dark:bg-slate-800/40 border border-slate-200 dark:border-white/5 rounded-2xl text-xs text-slate-400 font-bold flex items-center gap-2">
+                        <div className="animate-spin rounded-full h-3 w-3 border-t-2 border-emerald-500"></div>
+                        Carregando pastas do seu Drive...
+                      </div>
+                    ) : foldersError ? (
+                      <div className="w-full px-6 py-4 bg-red-500/5 border border-red-500/10 rounded-2xl text-xs text-red-500 font-bold">
+                        {foldersError}. Reconecte seu Google.
+                      </div>
+                    ) : (
+                      <select
+                        value={driveFolderId}
+                        onChange={handleFolderChange}
+                        className="w-full px-6 py-4 bg-white/40 dark:bg-slate-800/40 border border-slate-200 dark:border-white/5 rounded-2xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all font-bold text-slate-700 dark:text-white text-xs cursor-pointer"
+                      >
+                        <option value="">Selecione uma pasta...</option>
+                        {folders.map(f => (
+                          <option key={f.id} value={f.id}>{f.name}</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <button
+                      type="button"
+                      onClick={handleSyncDrive}
+                      disabled={syncing || !driveFolderId}
+                      className="flex-1 py-4 px-6 bg-slate-900 hover:bg-slate-800 dark:bg-slate-950 dark:hover:bg-slate-900 border border-slate-800 dark:border-white/5 text-white text-[10px] font-black rounded-xl uppercase tracking-widest transition-all cursor-pointer disabled:opacity-50 text-center flex items-center justify-center gap-2"
+                    >
+                      {syncing ? (
+                        <>
+                          <div className="animate-spin rounded-full h-3.5 w-3.5 border-t-2 border-white"></div>
+                          <span>Sincronizando...</span>
+                        </>
+                      ) : (
+                        <span>Sincronizar Agora</span>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {lastSyncAt && (
+                  <p className="text-[10px] font-semibold text-slate-400 dark:text-slate-500">
+                    Última Sincronização: {new Date(lastSyncAt).toLocaleString('pt-BR')}
+                  </p>
+                )}
               </div>
             )}
           </div>
