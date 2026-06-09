@@ -305,6 +305,71 @@ export default function TranscriptionsPage() {
     }
   };
 
+  const handleBulkConsolidateAI = async () => {
+    const pendingItems = transcriptions.filter(
+      tr => selectedIds.includes(tr.id) && !tr.processed_at
+    );
+
+    const confirmMsg = `Deseja consolidar as ${selectedIds.length} gravações selecionadas? ${
+      pendingItems.length > 0 
+        ? `(As ${pendingItems.length} gravações pendentes serão analisadas individualmente primeiro)` 
+        : ''
+    }`;
+    if (!confirm(confirmMsg)) return;
+
+    setBulkActionLoading(true);
+    setErrorMsg('');
+
+    try {
+      // 1. Process pending items sequentially
+      for (let i = 0; i < pendingItems.length; i++) {
+        const item = pendingItems[i];
+        
+        const response = await fetch('/api/tasks/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ transcriptionId: item.id })
+        });
+
+        if (!response.ok) {
+          const errData = await response.json();
+          throw new Error(`Erro ao analisar a gravação ${item.file_name}: ${errData.error || response.status}`);
+        }
+
+        // Delay to avoid Gemini API free-tier concurrent spikes
+        await new Promise(resolve => setTimeout(resolve, 800));
+      }
+
+      // Refresh data so the individual summaries are updated
+      await refreshData();
+
+      // 2. Call consolidation API
+      const consolidateResponse = await fetch('/api/tasks/consolidate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transcriptionIds: selectedIds })
+      });
+
+      const consolidateResult = await consolidateResponse.json();
+      if (!consolidateResponse.ok) {
+        throw new Error(consolidateResult.error || 'Erro ao consolidar gravações.');
+      }
+
+      setSelectedIds([]);
+      setIsBulkMode(false);
+      
+      // Force refresh data in layout context
+      await Promise.all([refreshData(), refreshInsights()]);
+
+      alert('Sucesso! As gravações foram consolidadas e uma nova Análise Geral foi elaborada com as tarefas consolidadas.');
+    } catch (err: any) {
+      console.error(err);
+      setErrorMsg(err.message || 'Falha ao consolidar gravações.');
+    } finally {
+      setBulkActionLoading(false);
+    }
+  };
+
   const handleBulkEditSave = async (updates: BulkEditUpdates) => {
     setBulkActionLoading(true);
     setErrorMsg('');
@@ -908,6 +973,18 @@ export default function TranscriptionsPage() {
             <Sparkles className="w-3.5 h-3.5" />
             <span>{bulkActionLoading ? 'Processando...' : 'Analisar com IA'}</span>
           </button>
+
+          {/* Action: Bulk Consolidate AI */}
+          {selectedIds.length >= 2 && (
+            <button
+              onClick={handleBulkConsolidateAI}
+              disabled={bulkActionLoading}
+              className="flex items-center gap-1 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 disabled:opacity-50 text-white text-[9px] font-black uppercase tracking-wider rounded-lg px-3 py-1.5 shadow-md shadow-indigo-500/20 cursor-pointer transition-all animate-in fade-in zoom-in-95 duration-200"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>{bulkActionLoading ? 'Consolidando...' : 'Consolidar com IA'}</span>
+            </button>
+          )}
 
           {/* Action: Bulk Delete */}
           <button
