@@ -1,6 +1,6 @@
-# G-Finance — Central Developer Wiki
+# G-Hub — Central Developer Wiki
 
-Este documento é a fonte de verdade para desenvolvimento do **G-Finance** (anteriormente G-Hub), o sistema unificado de wealth management pessoal de Guilherme Corrêa. Mantido automaticamente pelo Antigravity Agent.
+Este documento é a fonte de verdade para desenvolvimento do **G-Hub** (integrando os módulos G-Finance e G-Work), o sistema unificado de controle e produtividade de Guilherme Corrêa. Mantido automaticamente pelo Antigravity Agent.
 
 > **Última atualização:** 09 de junho de 2026
 
