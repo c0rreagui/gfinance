@@ -3,6 +3,8 @@ import { createSupabaseServerClient } from '@/lib/supabase-server';
 import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
 import crypto from 'crypto';
 
+export const maxDuration = 300;
+
 // Initialize Gemini SDK client
 const apiKey = process.env.GEMINI_API_KEY;
 const DEFAULT_MODEL = 'gemini-2.5-flash';
