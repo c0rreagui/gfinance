@@ -168,6 +168,27 @@ export default function TranscriptionsPage() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleSaveMemories = async (approvedMemories: string[]) => {
+    if (approvedMemories.length === 0 || !selectedTr) return;
+    try {
+      const response = await fetch('/api/tasks/memories/dynamic', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          memories: approvedMemories,
+          sourceTranscriptionId: selectedTr.id
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Erro ao gravar memórias no banco.');
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert(`Falha ao gravar aprendizados: ${err.message}`);
+    }
+  };
+
   // Bulk Selection Handlers
   const handleToggleSelect = (id: string) => {
     setSelectedIds(prev => 
@@ -918,6 +939,7 @@ export default function TranscriptionsPage() {
         onClose={() => setIsCurationOpen(false)}
         fileName={selectedTr ? selectedTr.file_name : ''}
         result={curationResult}
+        onSave={handleSaveMemories}
       />
 
       {/* Bulk Edit Modal */}

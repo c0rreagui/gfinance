@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
 import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
 import crypto from 'crypto';
+import fs from 'fs/promises';
+import path from 'path';
 
 export const maxDuration = 300;
 
@@ -119,20 +121,57 @@ export async function POST(req: NextRequest) {
       .update(transcription.content)
       .digest('hex');
 
+    // Load static memory templates
+    let personaContent = '';
+    let almaContent = '';
+    let funcoesContent = '';
+    try {
+      const memoryDir = path.join(process.cwd(), 'src/lib/gwork/memory');
+      personaContent = await fs.readFile(path.join(memoryDir, 'persona.md'), 'utf-8');
+      almaContent = await fs.readFile(path.join(memoryDir, 'alma.md'), 'utf-8');
+      funcoesContent = await fs.readFile(path.join(memoryDir, 'funcoes.md'), 'utf-8');
+    } catch (err) {
+      console.warn('[Gemini Tasks API] Falha ao ler arquivos estáticos de memória, usando defaults.');
+    }
+
+    // Fetch active dynamic memories from database
+    const { data: dbMemories, error: memoriesError } = await supabase
+      .from('agent_memories')
+      .select('content')
+      .eq('user_id', user.id)
+      .eq('is_active', true);
+    
+    const activeMemoriesText = dbMemories && dbMemories.length > 0
+      ? dbMemories.map((m: any, idx: number) => `${idx + 1}. ${m.content}`).join('\n')
+      : 'Nenhuma diretriz de memória ativa no momento.';
+
     // 2. Call Gemini API to analyze raw content and return structured JSON
     const genAI = getGeminiClient();
     const systemPrompt = `
       Você é o G-Work Intelligence Engine, a mente analítica tática de inteligência do Guilherme, fundador & CTO.
-      Sua persona é de altíssimo nível técnico, direta, focada e pragmática (pense em engenharia de classe mundial, padrão Linear e Stripe).
-      Sua missão é ler o áudio transcrito e estruturar um plano de trabalho impecável no padrão Azure DevOps:
-      - Epic: Módulos inteiros ou macro-iniciativas (ex: Integração do Banco Itaú, Lançamento do Design System Neo).
-      - Feature: Funcionalidades necessárias dentro de um Epic (ex: Rastreamento de reconciliação, Componentes de Switch).
-      - Story: Requisitos operacionais ou histórias de usuário que resolvem a Feature (ex: Validar hash de deduplicação na API, Interface do toggle).
-      - Task: Itens extremamente concretos, técnicos e acionáveis de código ou infra (ex: Criar unit test no jest para hash, Estilizar Switch CSS).
-
-      Para cada item mapeado, escolha a prioridade ideal (critical, high, medium, low, none) e daysFromNow correspondente com prazos citados (ex: "até amanhã" = 1, "fim de semana" = 4). Caso não cite, use o bom senso (ex: Task = 1-3 dias, Story = 3-5 dias, Feature = 5-7 dias, Epic = 10-15 dias).
       
-      Gere também insights estratégicos (tipo de insight: action_suggestion, deadline_warning, pattern_detected, priority_shift) com gravidade (info, warning, critical), resumo conciso, decisões mapeadas, pessoas e prazos importantes.
+      Sua identidade, princípios e regras de execução estão definidos nas seções a seguir.
+      
+      ---
+      ## PERSONA (COMO VOCÊ SE COMPORTA E FALA)
+      ${personaContent || 'Você é focado, pragmático, direto e técnico. Padrão Stripe/Linear.'}
+      
+      ---
+      ## ALMA (DIRETRIZES DE QUALIDADE DO PROJETO)
+      ${almaContent || 'Padrão world-class em todas as camadas. Sem mocks ou placeholders.'}
+      
+      ---
+      ## FUNÇÕES E FLUXOS (COMO ESTRUTURAR TAREFAS)
+      ${funcoesContent || 'Kanban hierárquico Epic -> Feature -> Story -> Task.'}
+      
+      ---
+      ## DIRETRIZES DE MEMÓRIA APRENDIDAS (INSTRUÇÕES DO GUILHERME)
+      Estas são regras, preferências ou fatos específicos aprendidos nas reuniões anteriores que você DEVE respeitar:
+      ${activeMemoriesText}
+      
+      ---
+      Mapeie os itens de trabalho, prazos e decisões no padrão Azure DevOps.
+      Além de tudo isso, extraia NOVAS diretrizes de memória se houver novas preferências, regras explícitas de arquitetura, decisões importantes de design ou fatos novos aprendidos nesta gravação. Retorne-as no campo "extracted_memories" (apenas novas regras relevantes para o futuro, sem repetir as já aprendidas).
     `;
 
     const textPrompt = `
@@ -242,9 +281,14 @@ export async function POST(req: NextRequest) {
             required: ['title', 'type', 'priority']
           },
           description: 'Estrutura hierárquica de tarefas organizadas como Azure DevOps: Epic -> Feature -> Story -> Task.'
+        },
+        extracted_memories: {
+          type: SchemaType.ARRAY,
+          items: { type: SchemaType.STRING },
+          description: 'Diretrizes de preferência, fatos ou regras técnicas que o Guilherme determinou nesta gravação e que devem ser gravadas na memória do agente para o futuro (ex: Guilherme prefere Tailwind v4).'
         }
       },
-      required: ['summary', 'work_items', 'insights', 'key_decisions', 'mentioned_people', 'mentioned_dates']
+      required: ['summary', 'work_items', 'insights', 'key_decisions', 'mentioned_people', 'mentioned_dates', 'extracted_memories']
     };
 
     let result = null;
@@ -346,7 +390,8 @@ export async function POST(req: NextRequest) {
           summary: parsedJson.summary,
           key_decisions: parsedJson.key_decisions,
           mentioned_people: parsedJson.mentioned_people,
-          mentioned_dates: parsedJson.mentioned_dates
+          mentioned_dates: parsedJson.mentioned_dates,
+          extracted_memories: parsedJson.extracted_memories || []
         },
         processed_at: new Date().toISOString(),
         gemini_model: selectedModel,

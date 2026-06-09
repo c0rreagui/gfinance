@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { User, Shield, Bell, Eye, KeyRound, CheckCircle, HelpCircle, AlertCircle } from 'lucide-react';
+import { User, Shield, Bell, Eye, KeyRound, CheckCircle, HelpCircle, AlertCircle, Brain, Trash2, Check, SlidersHorizontal } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { encryptPassword } from '@/lib/crypto';
 import { reconcileBalances } from '@/lib/reconcile';
@@ -53,6 +53,102 @@ export default function Settings() {
   const [syncSuccessMsg, setSyncSuccessMsg] = useState('');
   const [syncErrorMsg, setSyncErrorMsg] = useState('');
   const [folderSearch, setFolderSearch] = useState('');
+
+  // AI Agent Memory states
+  const [activeAiTab, setActiveAiTab] = useState<'persona' | 'alma' | 'funcoes' | 'dynamic'>('persona');
+  const [staticContent, setStaticContent] = useState('');
+  const [staticLoading, setStaticLoading] = useState(false);
+  const [staticSuccess, setStaticSuccess] = useState('');
+  const [staticError, setStaticError] = useState('');
+  const [dynamicMemories, setDynamicMemories] = useState<any[]>([]);
+  const [dynamicLoading, setDynamicLoading] = useState(false);
+
+  const fetchStaticMemory = async (type: string) => {
+    setStaticLoading(true);
+    setStaticError('');
+    setStaticSuccess('');
+    try {
+      const res = await fetch(`/api/tasks/memories/static?type=${type}`);
+      if (!res.ok) throw new Error('Falha ao ler arquivo de memória.');
+      const data = await res.json();
+      setStaticContent(data.content || '');
+    } catch (err: any) {
+      setStaticError(err.message || 'Erro ao carregar memória estática.');
+    } finally {
+      setStaticLoading(false);
+    }
+  };
+
+  const fetchDynamicMemories = async () => {
+    setDynamicLoading(true);
+    setStaticError('');
+    setStaticSuccess('');
+    try {
+      const res = await fetch('/api/tasks/memories/dynamic?onlyActive=false');
+      if (!res.ok) throw new Error('Falha ao buscar aprendizados.');
+      const data = await res.json();
+      setDynamicMemories(data.memories || []);
+    } catch (err: any) {
+      setStaticError(err.message || 'Erro ao carregar memórias dinâmicas.');
+    } finally {
+      setDynamicLoading(false);
+    }
+  };
+
+  const handleSaveStatic = async () => {
+    setStaticLoading(true);
+    setStaticError('');
+    setStaticSuccess('');
+    try {
+      const res = await fetch('/api/tasks/memories/static', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: activeAiTab, content: staticContent })
+      });
+      if (!res.ok) throw new Error('Falha ao salvar arquivo.');
+      setStaticSuccess('Arquivo de memória salvo com sucesso localmente!');
+    } catch (err: any) {
+      setStaticError(err.message || 'Erro ao salvar memória estática.');
+    } finally {
+      setStaticLoading(false);
+    }
+  };
+
+  const handleDeleteDynamic = async (id: string) => {
+    if (!confirm('Deseja excluir permanentemente esta diretriz da memória do agente?')) return;
+    try {
+      const res = await fetch(`/api/tasks/memories/dynamic?id=${id}`, {
+        method: 'DELETE'
+      });
+      if (!res.ok) throw new Error('Falha ao excluir aprendizado.');
+      setDynamicMemories(prev => prev.filter(m => m.id !== id));
+      setStaticSuccess('Diretriz removida da memória do agente.');
+    } catch (err: any) {
+      setStaticError(err.message || 'Erro ao excluir aprendizado.');
+    }
+  };
+
+  const handleToggleDynamic = async (id: string, active: boolean) => {
+    try {
+      const res = await fetch('/api/tasks/memories/dynamic', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, is_active: active })
+      });
+      if (!res.ok) throw new Error('Falha ao atualizar status da diretriz.');
+      setDynamicMemories(prev => prev.map(m => m.id === id ? { ...m, is_active: active } : m));
+    } catch (err: any) {
+      setStaticError(err.message || 'Erro ao atualizar status da diretriz.');
+    }
+  };
+
+  useEffect(() => {
+    if (activeAiTab === 'dynamic') {
+      fetchDynamicMemories();
+    } else {
+      fetchStaticMemory(activeAiTab);
+    }
+  }, [activeAiTab]);
 
   const fetchProfile = async () => {
     try {
@@ -681,6 +777,170 @@ export default function Settings() {
                   <p className="text-[10px] font-semibold text-slate-400 dark:text-slate-500">
                     Última Sincronização: {new Date(lastSyncAt).toLocaleString('pt-BR')}
                   </p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Agente IA (G-Work) Panel */}
+          <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md p-10 rounded-[48px] border border-white/50 dark:border-white/5 shadow-sm space-y-6 animate-in">
+            <div>
+              <h4 className="font-black text-xl dark:text-white flex items-center gap-2.5">
+                <Brain className="w-6 h-6 text-indigo-500" />
+                Agente de Inteligência G-Work
+              </h4>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
+                Gerencie e edite a persona, os valores (alma) e as regras operacionais do seu assistente de IA tático, além de revisar os aprendizados e memórias dinâmicas.
+              </p>
+            </div>
+
+            {/* AI Settings Sub-tabs */}
+            <div className="flex border-b border-slate-200 dark:border-white/5 text-xs font-bold gap-4">
+              <button
+                type="button"
+                onClick={() => setActiveAiTab('persona')}
+                className={`pb-3 border-b-2 transition-colors cursor-pointer ${
+                  activeAiTab === 'persona' 
+                    ? 'border-indigo-500 text-indigo-500' 
+                    : 'border-transparent text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+                }`}
+              >
+                Persona (.md)
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveAiTab('alma')}
+                className={`pb-3 border-b-2 transition-colors cursor-pointer ${
+                  activeAiTab === 'alma' 
+                    ? 'border-indigo-500 text-indigo-500' 
+                    : 'border-transparent text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+                }`}
+              >
+                Alma (.md)
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveAiTab('funcoes')}
+                className={`pb-3 border-b-2 transition-colors cursor-pointer ${
+                  activeAiTab === 'funcoes' 
+                    ? 'border-indigo-500 text-indigo-500' 
+                    : 'border-transparent text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+                }`}
+              >
+                Funções (.md)
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveAiTab('dynamic')}
+                className={`pb-3 border-b-2 transition-colors cursor-pointer ${
+                  activeAiTab === 'dynamic' 
+                    ? 'border-indigo-500 text-indigo-500' 
+                    : 'border-transparent text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+                }`}
+              >
+                Memória Aprendida
+              </button>
+            </div>
+
+            {/* Editor feedback notifications */}
+            {staticSuccess && (
+              <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-2xl flex items-start gap-2 text-sm font-semibold">
+                <CheckCircle className="w-5 h-5 shrink-0 mt-0.5" />
+                <span>{staticSuccess}</span>
+              </div>
+            )}
+
+            {staticError && (
+              <div className="p-4 bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 rounded-2xl flex items-start gap-2 text-sm font-semibold">
+                <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+                <span>{staticError}</span>
+              </div>
+            )}
+
+            {/* Content areas */}
+            {activeAiTab !== 'dynamic' ? (
+              <div className="space-y-4 animate-in fade-in duration-200">
+                {staticLoading ? (
+                  <div className="w-full h-64 bg-slate-100/50 dark:bg-slate-950/20 border border-slate-200 dark:border-white/5 rounded-2xl flex items-center justify-center text-xs text-slate-400 font-bold gap-2">
+                    <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-indigo-500"></div>
+                    Carregando arquivo...
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <textarea
+                      value={staticContent}
+                      onChange={(e) => setStaticContent(e.target.value)}
+                      className="w-full h-72 px-5 py-4 bg-slate-100/50 dark:bg-slate-950/20 border border-slate-200 dark:border-white/5 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all font-mono text-xs text-slate-800 dark:text-slate-200 leading-relaxed no-scrollbar"
+                      placeholder="Carregando conteúdo..."
+                    />
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={handleSaveStatic}
+                        className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-black rounded-xl uppercase tracking-widest transition-all cursor-pointer shadow-md flex items-center gap-1.5"
+                      >
+                        <Check className="w-3.5 h-3.5" /> Salvar Arquivo
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-4 animate-in fade-in duration-200">
+                {dynamicLoading ? (
+                  <div className="w-full h-32 bg-slate-100/50 dark:bg-slate-950/20 border border-slate-200 dark:border-white/5 rounded-2xl flex items-center justify-center text-xs text-slate-400 font-bold gap-2">
+                    <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-indigo-500"></div>
+                    Carregando diretrizes...
+                  </div>
+                ) : dynamicMemories.length === 0 ? (
+                  <p className="text-xs text-slate-400 dark:text-slate-500 italic text-center py-8 bg-slate-100/50 dark:bg-slate-950/20 border border-dashed border-slate-200 dark:border-white/5 rounded-2xl">
+                    Nenhum aprendizado dinâmico cadastrado ou ativo. Dispare análises de IA para sugerir memórias.
+                  </p>
+                ) : (
+                  <div className="space-y-2 max-h-[350px] overflow-y-auto pr-1 no-scrollbar">
+                    {dynamicMemories.map((m) => (
+                      <div 
+                        key={m.id}
+                        className={`p-4 rounded-2xl border transition-all duration-200 flex justify-between items-center gap-4 ${
+                          m.is_active 
+                            ? 'bg-slate-50 dark:bg-slate-950/30 border-slate-200 dark:border-white/5 shadow-sm' 
+                            : 'bg-transparent border-transparent opacity-50'
+                        }`}
+                      >
+                        <div className="flex-1 min-w-0 pr-2">
+                          <p className="text-xs font-bold text-slate-800 dark:text-slate-200 leading-normal break-words">
+                            {m.content}
+                          </p>
+                          <span className="text-[9px] font-medium text-slate-400">
+                            Adicionado em: {new Date(m.created_at).toLocaleDateString('pt-BR')}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3 shrink-0">
+                          {/* Toggle switch for is_active */}
+                          <button
+                            type="button"
+                            onClick={() => handleToggleDynamic(m.id, !m.is_active)}
+                            className={`w-10 h-6 rounded-full transition-all relative cursor-pointer ${
+                              m.is_active ? 'bg-indigo-500' : 'bg-slate-200 dark:bg-slate-700'
+                            }`}
+                          >
+                            <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full transition-all shadow-md ${
+                              m.is_active ? 'right-0.5' : 'left-0.5'
+                            }`}></div>
+                          </button>
+                          {/* Delete button */}
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteDynamic(m.id)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-500/10 transition-colors cursor-pointer"
+                            title="Remover aprendizado"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
             )}

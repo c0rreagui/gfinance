@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
 import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
 import crypto from 'crypto';
+import fs from 'fs/promises';
+import path from 'path';
 
 export const maxDuration = 300;
 
@@ -135,17 +137,57 @@ ${tr.content.substring(0, 2500)}${tr.content.length > 2500 ? '...' : ''}
     const uniqueProjectIds = Array.from(new Set(projectIds));
     const finalProjectId = uniqueProjectIds.length === 1 ? uniqueProjectIds[0] : null;
 
+    // Load static memory templates
+    let personaContent = '';
+    let almaContent = '';
+    let funcoesContent = '';
+    try {
+      const memoryDir = path.join(process.cwd(), 'src/lib/gwork/memory');
+      personaContent = await fs.readFile(path.join(memoryDir, 'persona.md'), 'utf-8');
+      almaContent = await fs.readFile(path.join(memoryDir, 'alma.md'), 'utf-8');
+      funcoesContent = await fs.readFile(path.join(memoryDir, 'funcoes.md'), 'utf-8');
+    } catch (err) {
+      console.warn('[Consolidate Gemini] Falha ao ler arquivos estáticos de memória, usando defaults.');
+    }
+
+    // Fetch active dynamic memories from database
+    const { data: dbMemories, error: memoriesError } = await supabase
+      .from('agent_memories')
+      .select('content')
+      .eq('user_id', user.id)
+      .eq('is_active', true);
+    
+    const activeMemoriesText = dbMemories && dbMemories.length > 0
+      ? dbMemories.map((m: any, idx: number) => `${idx + 1}. ${m.content}`).join('\n')
+      : 'Nenhuma diretriz de memória ativa no momento.';
+
     // 3. Call Gemini API to perform consolidation and return structured JSON
     const genAI = getGeminiClient();
     const systemPrompt = `
       Você é o G-Work Consolidation Engine, a mente analítica estratégica de inteligência do Guilherme, fundador & CTO.
-      Sua persona é de altíssimo nível técnico, direta, focada e pragmática (padrão Linear e Stripe).
-      Sua missão é receber os resumos e conteúdos de várias reuniões/gravações e elaborar a **Análise Geral das Análises Individuais**.
-      Diferente de analisar uma gravação isolada, você deve conectar os pontos entre as reuniões, identificar redundâncias, remover tarefas duplicadas, e criar um **Plano de Trabalho Consolidado e Sinérgico** no padrão Azure DevOps (Epic -> Feature -> Story -> Task).
       
-      Para cada item mapeado, escolha a prioridade ideal (critical, high, medium, low, none) e daysFromNow correspondente com prazos unificados (ex: "até amanhã" = 1, "fim de semana" = 4). Caso não cite, use o bom senso.
+      Sua identidade, princípios e regras de execução estão definidos nas seções a seguir.
       
-      Gere também insights estratégicos consolidados (insight_type: action_suggestion, deadline_warning, pattern_detected, priority_shift) com gravidade (info, warning, critical), resumo geral consolidado, decisões unificadas, pessoas citadas e datas integradas.
+      ---
+      ## PERSONA (COMO VOCÊ SE COMPORTA E FALA)
+      ${personaContent || 'Você é focado, pragmático, direto e técnico. Padrão Stripe/Linear.'}
+      
+      ---
+      ## ALMA (DIRETRIZES DE QUALIDADE DO PROJETO)
+      ${almaContent || 'Padrão world-class em todas as camadas. Sem mocks ou placeholders.'}
+      
+      ---
+      ## FUNÇÕES E FLUXOS (COMO ESTRUTURAR TAREFAS)
+      ${funcoesContent || 'Kanban hierárquico Epic -> Feature -> Story -> Task.'}
+      
+      ---
+      ## DIRETRIZES DE MEMÓRIA APRENDIDAS (INSTRUÇÕES DO GUILHERME)
+      Estas são regras, preferências ou fatos específicos aprendidos nas reuniões anteriores que você DEVE respeitar:
+      ${activeMemoriesText}
+      
+      ---
+      Mapeie as metas, prazos e decisões consolidados sem redundâncias.
+      Além de tudo isso, extraia NOVAS diretrizes de memória consolidadas se houver novas preferências, regras unificadas de arquitetura, decisões importantes de design ou fatos novos aprendidos nestas gravações. Retorne-as no campo "extracted_memories" (apenas novas regras consolidadas relevantes para o futuro, sem repetir as já aprendidas).
     `;
 
     const textPrompt = `
@@ -255,9 +297,14 @@ ${tr.content.substring(0, 2500)}${tr.content.length > 2500 ? '...' : ''}
             required: ['title', 'type', 'priority']
           },
           description: 'Estrutura consolidada de tarefas sem redundâncias: Epic -> Feature -> Story -> Task.'
+        },
+        extracted_memories: {
+          type: SchemaType.ARRAY,
+          items: { type: SchemaType.STRING },
+          description: 'Diretrizes de preferência, fatos ou regras técnicas consolidadas que o Guilherme determinou nestas reuniões e que devem ser gravadas na memória do agente para o futuro (ex: Guilherme prefere Tailwind v4).'
         }
       },
-      required: ['summary', 'work_items', 'insights', 'key_decisions', 'mentioned_people', 'mentioned_dates']
+      required: ['summary', 'work_items', 'insights', 'key_decisions', 'mentioned_people', 'mentioned_dates', 'extracted_memories']
     };
 
     let result = null;
@@ -354,7 +401,8 @@ ${(t.extracted_entities as any)?.key_decisions?.map((kd: string) => `- ${kd}`).j
           summary: parsedJson.summary,
           key_decisions: parsedJson.key_decisions,
           mentioned_people: parsedJson.mentioned_people,
-          mentioned_dates: parsedJson.mentioned_dates
+          mentioned_dates: parsedJson.mentioned_dates,
+          extracted_memories: parsedJson.extracted_memories || []
         },
         processed_at: new Date().toISOString(),
         gemini_model: selectedModel,

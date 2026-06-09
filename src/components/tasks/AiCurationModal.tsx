@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Sparkles, Check, Brain, Calendar, Users, HelpCircle, FileText, ChevronRight, Layers } from 'lucide-react';
 import { TypeBadge, PriorityBadge } from './Badges';
 import { WorkItemType, WorkItemPriority } from '@/types/gwork';
@@ -19,6 +19,7 @@ interface ExtractionResult {
   mentioned_dates: { label: string; daysFromNow: number }[];
   insights: { insight_type: string; title: string; body: string; severity: string }[];
   work_items: HierarchicalItem[];
+  extracted_memories?: string[];
 }
 
 interface AiCurationModalProps {
@@ -26,6 +27,7 @@ interface AiCurationModalProps {
   onClose: () => void;
   fileName: string;
   result: ExtractionResult | null;
+  onSave?: (approvedMemories: string[]) => Promise<void>;
 }
 
 // Tree view renderer for the generated work items
@@ -59,18 +61,49 @@ export const AiCurationModal: React.FC<AiCurationModalProps> = ({
   isOpen,
   onClose,
   fileName,
-  result
+  result,
+  onSave
 }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'items' | 'insights'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'items' | 'insights' | 'memories'>('overview');
+  const [memories, setMemories] = useState<{ content: string; checked: boolean }[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (isOpen && result) {
+      setActiveTab('overview');
+      if (result.extracted_memories) {
+        setMemories(result.extracted_memories.map(m => ({ content: m, checked: true })));
+      } else {
+        setMemories([]);
+      }
+    }
+  }, [isOpen, result]);
 
   if (!isOpen || !result) return null;
+
+  const handleSaveAndClose = async () => {
+    setSaving(true);
+    try {
+      if (onSave) {
+        const approved = memories
+          .filter(m => m.checked && m.content.trim())
+          .map(m => m.content.trim());
+        await onSave(approved);
+      }
+      onClose();
+    } catch (e) {
+      console.error('[AiCurationModal Save Error]:', e);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Backdrop */}
       <div 
         className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm transition-opacity duration-300"
-        onClick={onClose}
+        onClick={saving ? undefined : onClose}
       />
 
       {/* Modal Container */}
@@ -93,7 +126,8 @@ export const AiCurationModal: React.FC<AiCurationModalProps> = ({
           </div>
           <button 
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-white/5 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
+            disabled={saving}
+            className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-white/5 hover:text-slate-600 dark:hover:text-slate-200 transition-colors disabled:opacity-50"
           >
             <X className="w-5 h-5" />
           </button>
@@ -130,6 +164,16 @@ export const AiCurationModal: React.FC<AiCurationModalProps> = ({
             }`}
           >
             Insights Gerados ({result.insights?.length || 0})
+          </button>
+          <button
+            onClick={() => setActiveTab('memories')}
+            className={`px-4 py-2 border-b-2 transition-colors ${
+              activeTab === 'memories' 
+                ? 'border-blue-500 text-blue-500' 
+                : 'border-transparent text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+            }`}
+          >
+            Aprendizado & Memória ({memories.length})
           </button>
         </div>
 
@@ -260,16 +304,79 @@ export const AiCurationModal: React.FC<AiCurationModalProps> = ({
               )}
             </div>
           )}
+
+          {activeTab === 'memories' && (
+            <div className="space-y-4">
+              <div className="p-3 bg-blue-500/5 border border-blue-500/10 text-blue-500 rounded-lg text-[10px] font-semibold flex items-center gap-1.5">
+                <Brain className="w-3.5 h-3.5" />
+                <span>As regras e fatos marcados serão gravados na memória do agente para as próximas reuniões.</span>
+              </div>
+              
+              {memories.length === 0 ? (
+                <p className="text-xs text-slate-400 dark:text-slate-500 italic text-center py-8">
+                  Nenhuma nova diretriz de memória extraída desta gravação.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {memories.map((m, idx) => (
+                    <div 
+                      key={idx}
+                      className={`p-4 rounded-2xl border transition-all duration-250 flex items-start gap-3.5 ${
+                        m.checked 
+                          ? 'bg-slate-50 dark:bg-slate-950/40 border-slate-200 dark:border-white/5 shadow-sm' 
+                          : 'bg-transparent border-transparent opacity-50'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={m.checked}
+                        disabled={saving}
+                        onChange={() => {
+                          const updated = [...memories];
+                          updated[idx].checked = !updated[idx].checked;
+                          setMemories(updated);
+                        }}
+                        className="rounded border-slate-300 dark:border-white/10 text-blue-500 focus:ring-blue-500/30 w-4.5 h-4.5 bg-slate-950 mt-0.5 cursor-pointer"
+                      />
+                      <div className="flex-1">
+                        <input
+                          type="text"
+                          value={m.content}
+                          disabled={saving || !m.checked}
+                          onChange={(e) => {
+                            const updated = [...memories];
+                            updated[idx].content = e.target.value;
+                            setMemories(updated);
+                          }}
+                          className="w-full bg-transparent border-none p-0 text-xs text-slate-800 dark:text-slate-200 focus:ring-0 focus:outline-none font-bold"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Footer Actions */}
         <div className="flex items-center justify-end pt-4 border-t border-slate-200 dark:border-white/5">
           <button
-            onClick={onClose}
-            className="px-5 py-2.5 rounded-xl bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold shadow-lg shadow-blue-500/20 transition-all flex items-center gap-1.5"
+            onClick={handleSaveAndClose}
+            disabled={saving}
+            className="px-5 py-2.5 rounded-xl bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold shadow-lg shadow-blue-500/20 transition-all flex items-center gap-1.5 disabled:opacity-50"
           >
-            <Check className="w-4 h-4" />
-            <span>Entendido, ver no Kanban</span>
+            {saving ? (
+              <>
+                <div className="animate-spin rounded-full h-3 w-3 border-t-2 border-white"></div>
+                <span>Gravando Aprendizados...</span>
+              </>
+            ) : (
+              <>
+                <Check className="w-4 h-4" />
+                <span>Salvar e ir para o Kanban</span>
+              </>
+            )}
           </button>
         </div>
       </div>
