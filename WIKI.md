@@ -15,7 +15,7 @@ O **G-Finance** é o módulo de controle patrimonial do ecossistema G-Hub. Integ
 - **Styling:** Tailwind CSS v4
 - **Banco de dados:** Supabase (PostgreSQL + Row-Level Security)
 - **IA:** Google Gemini 2.5 Pro (CFO Persona, temporal awareness)
-- **Deploy:** Vercel — `https://gfinance-lovat.vercel.app`
+- **Deploy:** Vercel — `https://ghub-ia.vercel.app`
 - **Supabase Project ID:** `jdliepgseoyoxfygmdet`
 
 ---
@@ -229,12 +229,12 @@ Criptografia de PIN via `bcrypt` para armazenamento seguro.
 > O Google Client Secret **não está** neste arquivo por segurança. Está salvo no gerenciador de senhas e configurado nas variáveis de ambiente Vercel/Supabase.
 
 - **Google Client ID:** `47747863323-cmkdq8t20cuov1ddnhkgqemol13hleqg.apps.googleusercontent.com`
-- **Origens JS autorizadas:** `http://localhost:3000`, `https://gfinance-lovat.vercel.app`
+- **Origens JS autorizadas:** `http://localhost:3000`, `https://ghub-ia.vercel.app`
 - **URI de redirect:** `https://jdliepgseoyoxfygmdet.supabase.co/auth/v1/callback`
 
 ### Supabase Dashboard — URL Configuration
-- **Site URL:** `https://gfinance-lovat.vercel.app`
-- **Redirect URLs:** `http://localhost:3000/*`, `https://gfinance-lovat.vercel.app/*`
+- **Site URL:** `https://ghub-ia.vercel.app`
+- **Redirect URLs:** `http://localhost:3000/*`, `https://ghub-ia.vercel.app/*`
 
 ### Variáveis de Ambiente (`.env.local` + Vercel)
 

@@ -195,7 +195,7 @@ export default function AuthPage() {
           <div className="w-12 h-12 bg-emerald-500 rounded-2xl flex items-center justify-center text-white text-3xl font-black shadow-lg shadow-emerald-500/20 mb-4">
             G
           </div>
-          <h2 className="text-2xl font-black dark:text-white tracking-tight">G-Finance</h2>
+          <h2 className="text-2xl font-black dark:text-white tracking-tight">G-Hub</h2>
           <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mt-1">
             {showPinScreen ? 'Acesso rápido via PIN' : isSignUp ? 'Criar Conta Premium' : 'Central de Controle'}
           </p>
