@@ -15,6 +15,7 @@ interface WorkItemCardProps {
   innerRef?: React.Ref<HTMLDivElement>;
   style?: React.CSSProperties;
   isDragging?: boolean;
+  isOverlay?: boolean;
 }
 
 export const WorkItemCard: React.FC<WorkItemCardProps> = ({
@@ -27,7 +28,8 @@ export const WorkItemCard: React.FC<WorkItemCardProps> = ({
   attributes,
   innerRef,
   style,
-  isDragging
+  isDragging,
+  isOverlay
 }) => {
   const formattedDate = item.due_date
     ? new Date(item.due_date).toLocaleDateString('pt-BR', {
@@ -41,8 +43,14 @@ export const WorkItemCard: React.FC<WorkItemCardProps> = ({
       ref={innerRef}
       style={style}
       onClick={onClick}
-      className={`glass group relative flex flex-col p-4 rounded-xl border border-slate-200 dark:border-white/5 bg-white/40 dark:bg-slate-900/40 hover:bg-white/60 dark:hover:bg-slate-900/60 transition-all duration-300 shadow-sm hover:shadow-md cursor-pointer select-none ${
-        isDragging ? 'opacity-50 ring-2 ring-blue-500 scale-[1.02] shadow-2xl z-50' : ''
+      {...attributes}
+      {...listeners}
+      className={`glass group relative flex flex-col p-4 rounded-xl border transition-all duration-300 select-none ${
+        isOverlay
+          ? 'bg-white/80 dark:bg-slate-900/80 border-blue-500/50 shadow-2xl ring-2 ring-blue-500/30 scale-[1.03] -rotate-1 cursor-grabbing z-[9999]'
+          : isDragging
+          ? 'opacity-25 border-dashed border-slate-300 dark:border-white/10 bg-slate-100/10 dark:bg-slate-950/10 shadow-none pointer-events-none'
+          : 'border-slate-200 dark:border-white/5 bg-white/40 dark:bg-slate-900/40 hover:bg-white/60 dark:hover:bg-slate-900/60 shadow-sm hover:shadow-md cursor-grab active:cursor-grabbing'
       }`}
     >
       {/* Top Section: Badges & Drag Handle */}
@@ -54,11 +62,11 @@ export const WorkItemCard: React.FC<WorkItemCardProps> = ({
         
         {/* Drag handle visible on hover or if dragging */}
         <div
-          {...attributes}
-          {...listeners}
           {...dragHandleProps}
-          className="opacity-0 group-hover:opacity-100 hover:bg-white/10 p-1 rounded transition-opacity cursor-grab active:cursor-grabbing"
-          onClick={(e) => e.stopPropagation()} // Prevent clicking the card when dragging
+          className={`p-1 rounded hover:bg-slate-200/50 dark:hover:bg-white/10 transition-opacity ${
+            isOverlay ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+          }`}
+          onClick={(e) => e.stopPropagation()} // Prevent clicking the card when clicking the grip icon
         >
           <GripVertical className="w-4 h-4 text-slate-400" />
         </div>

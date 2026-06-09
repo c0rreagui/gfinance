@@ -300,6 +300,8 @@ Para evitar acoplamento acidental e regressões em futuras sessões de IA ou ref
   - `[PASS]` Compilação: Next.js build e strict typecheck 100% verdes (zero erros).
   - `[PASS]` Análise de IA e Resiliência: Adicionada resiliência na análise de IA para arquivos grandes (Vercel timeout estendido para 300s via `maxDuration`). Corrigido fallback automático para múltiplos modelos do Gemini (`gemini-2.5-flash-lite` prioritário, evitando erros 503 e 429 de limites de cota da free tier).
   - `[PASS]` UX/UI: Implementada prevenção contra crashes ao receber erros HTML no parsing de JSON, e reset automático de mensagens de erro ao alternar gravações selecionadas.
+  - `[PASS]` Kanban Drag-and-Drop: Reestruturada a funcionalidade de movimentação com o uso de `@dnd-kit/core` `<DragOverlay>` para evitar quebras de layout (layout shift) e lentidão. Expandimos o arrastar para a área inteira do card com z-index configurado, leve rotação (-1deg) e sombras durante o movimento, gerando uma experiência tátil, fluida e de altíssimo padrão visual.
+  - `[PASS]` Ações em Massa (Transcrições): Implementado modo de seleção em massa na aba de gravações, permitindo exclusão em lote, alteração de projeto em lote e processamento sequencial de IA com espaçamento temporal (800ms) para respeitar cotas de requisições da API do Gemini. Exibido via barra de controle flutuante glassmorphic no rodapé.
 - **Status de Deploy:** Pushed to GitHub. Deploy ativo na Vercel.
 
 

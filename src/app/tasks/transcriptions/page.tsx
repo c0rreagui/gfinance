@@ -40,6 +40,11 @@ export default function TranscriptionsPage() {
   const [errorMsg, setErrorMsg] = useState('');
   const [copied, setCopied] = useState(false);
 
+  // Bulk selection states
+  const [isBulkMode, setIsBulkMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkActionLoading, setBulkActionLoading] = useState(false);
+
   // Sync selected transcription when list updates
   useEffect(() => {
     if (transcriptions.length > 0) {
@@ -161,6 +166,143 @@ export default function TranscriptionsPage() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  // Bulk Selection Handlers
+  const handleToggleSelect = (id: string) => {
+    setSelectedIds(prev => 
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleBulkUpdateProject = async (projId: string) => {
+    if (!projId) return;
+    const finalProjId = projId === 'none' ? null : projId;
+    setBulkActionLoading(true);
+    setErrorMsg('');
+    try {
+      const { error } = await supabase
+        .from('transcriptions')
+        .update({ project_id: finalProjId })
+        .in('id', selectedIds);
+      
+      if (error) throw error;
+      
+      await refreshData();
+      
+      // Update selectedTr project_id inline if it was updated
+      if (selectedTr && selectedIds.includes(selectedTr.id)) {
+        setSelectedTr(prev => prev ? { ...prev, project_id: finalProjId } : prev);
+      }
+      setSelectedIds([]);
+      setIsBulkMode(false);
+    } catch (err: any) {
+      console.error(err);
+      setErrorMsg(err.message || 'Erro ao atualizar projetos em lote.');
+    } finally {
+      setBulkActionLoading(false);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    const confirmMsg = selectedIds.length === 1 
+      ? 'Deseja excluir permanentemente a gravação selecionada?'
+      : `Deseja excluir permanentemente as ${selectedIds.length} gravações selecionadas?`;
+    if (!confirm(confirmMsg)) return;
+
+    setBulkActionLoading(true);
+    setErrorMsg('');
+    try {
+      const { error } = await supabase
+        .from('transcriptions')
+        .delete()
+        .in('id', selectedIds);
+      
+      if (error) throw error;
+      
+      // Deselect selectedTr if it was deleted
+      if (selectedTr && selectedIds.includes(selectedTr.id)) {
+        setSelectedTr(null);
+      }
+      
+      setSelectedIds([]);
+      setIsBulkMode(false);
+      await refreshData();
+    } catch (err: any) {
+      console.error(err);
+      setErrorMsg(err.message || 'Erro ao excluir gravações em lote.');
+    } finally {
+      setBulkActionLoading(false);
+    }
+  };
+
+  const handleBulkTriggerAI = async () => {
+    // Only analyze files that are not already processed
+    const pendingIds = transcriptions
+      .filter(tr => selectedIds.includes(tr.id) && !tr.processed_at)
+      .map(tr => tr.id);
+
+    if (pendingIds.length === 0) {
+      alert('Nenhuma das gravações selecionadas está pendente de análise.');
+      return;
+    }
+
+    const confirmMsg = pendingIds.length === 1
+      ? 'Deseja iniciar a análise de IA da gravação pendente?'
+      : `Deseja iniciar a análise de IA de ${pendingIds.length} gravações pendentes em lote? (O processo será executado sequencialmente)`;
+    if (!confirm(confirmMsg)) return;
+
+    setBulkActionLoading(true);
+    setErrorMsg('');
+    
+    let processedCount = 0;
+    let failedCount = 0;
+
+    for (const id of pendingIds) {
+      try {
+        const response = await fetch('/api/tasks/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ transcriptionId: id })
+        });
+
+        let result: any = null;
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          result = await response.json();
+        } else {
+          const text = await response.text();
+          const cleanText = text.replace(/<[^>]*>/g, '').substring(0, 120).trim();
+          throw new Error(cleanText || `Erro HTTP ${response.status}`);
+        }
+
+        if (!response.ok) throw new Error(result.error || `Erro Status ${response.status}`);
+        processedCount++;
+      } catch (err: any) {
+        console.error(`[Bulk AI] Erro ao processar transcrição ${id}:`, err);
+        failedCount++;
+      }
+      
+      // Delay to avoid Gemini API free-tier concurrent spikes
+      await new Promise(resolve => setTimeout(resolve, 800));
+    }
+
+    try {
+      // Force refresh data in layout context
+      await Promise.all([refreshData(), refreshInsights()]);
+      setSelectedIds([]);
+      setIsBulkMode(false);
+      
+      if (failedCount === 0) {
+        alert(`Sucesso! ${processedCount} gravações foram analisadas e estruturadas no Kanban.`);
+      } else {
+        alert(`Processamento em lote finalizado: ${processedCount} sucessos, ${failedCount} falhas. Verifique os erros no console.`);
+      }
+    } catch (err: any) {
+      console.error(err);
+    } finally {
+      setBulkActionLoading(false);
+    }
+  };
+
   // Resolvers
   const getProjectName = (projId: string | null) => projects.find(p => p.id === projId)?.name;
 
@@ -182,6 +324,24 @@ export default function TranscriptionsPage() {
       {/* Left Pane: Audio recordings list */}
       <div className="w-full lg:w-[380px] border-r border-slate-200 dark:border-white/5 flex flex-col overflow-hidden bg-white/10 dark:bg-slate-900/10 flex-shrink-0">
         
+        {/* Gravações header & Bulk selection toggle */}
+        <div className="p-5 pb-2 border-b border-slate-200 dark:border-white/5 flex justify-between items-center bg-white/20 dark:bg-slate-900/20">
+          <h3 className="font-bold text-xs uppercase dark:text-white tracking-wider">Gravações</h3>
+          <button
+            onClick={() => {
+              setIsBulkMode(!isBulkMode);
+              setSelectedIds([]);
+            }}
+            className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+              isBulkMode 
+                ? 'bg-blue-500 text-white shadow-sm' 
+                : 'border border-slate-200 dark:border-white/5 hover:bg-slate-50 dark:hover:bg-white/5 text-slate-500 dark:text-slate-400'
+            }`}
+          >
+            {isBulkMode ? 'Sair da Seleção' : 'Seleção em Massa'}
+          </button>
+        </div>
+
         {/* Search, Filter & Sort */}
         <div className="p-5 border-b border-slate-200 dark:border-white/5 space-y-3 bg-white/20 dark:bg-slate-900/20">
           <div className="relative">
@@ -227,42 +387,67 @@ export default function TranscriptionsPage() {
           ) : (
             filteredTranscriptions.map(tr => {
               const isSelected = selectedTr?.id === tr.id;
+              const isChecked = selectedIds.includes(tr.id);
               return (
                 <div
                   key={tr.id}
-                  onClick={() => setSelectedTr(tr)}
-                  className={`p-4 flex flex-col gap-1.5 cursor-pointer transition-all duration-200 ${
+                  onClick={() => {
+                    if (isBulkMode) {
+                      handleToggleSelect(tr.id);
+                    }
+                    setSelectedTr(tr);
+                  }}
+                  className={`p-4 flex gap-3 cursor-pointer transition-all duration-200 ${
                     isSelected 
                       ? 'bg-blue-500/10 dark:bg-blue-500/10 border-l-4 border-blue-500' 
                       : 'hover:bg-slate-50 dark:hover:bg-white/[0.02]'
                   }`}
                 >
-                  <div className="flex justify-between items-start gap-2">
-                    <h5 className={`font-bold text-xs truncate max-w-[220px] ${isSelected ? 'text-blue-500 dark:text-blue-400' : 'text-slate-800 dark:text-white'}`}>
-                      {tr.file_name}
-                    </h5>
-                    <span className="text-[9px] font-medium text-slate-400 whitespace-nowrap">
-                      {new Date(tr.transcribed_at).toLocaleDateString('pt-BR')}
-                    </span>
-                  </div>
+                  {isBulkMode && (
+                    <div 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleToggleSelect(tr.id);
+                      }}
+                      className="flex items-center justify-center pt-0.5"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        readOnly
+                        className="rounded border-slate-300 dark:border-white/10 text-blue-500 focus:ring-blue-500/30 w-3.5 h-3.5 bg-slate-950 cursor-pointer"
+                      />
+                    </div>
+                  )}
 
-                  <p className="text-[10px] text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
-                    {tr.ai_summary || tr.content}
-                  </p>
+                  <div className="flex-1 flex flex-col gap-1.5 min-w-0">
+                    <div className="flex justify-between items-start gap-2">
+                      <h5 className={`font-bold text-xs truncate ${isSelected ? 'text-blue-500 dark:text-blue-400' : 'text-slate-800 dark:text-white'}`}>
+                        {tr.file_name}
+                      </h5>
+                      <span className="text-[9px] font-medium text-slate-400 whitespace-nowrap">
+                        {new Date(tr.transcribed_at).toLocaleDateString('pt-BR')}
+                      </span>
+                    </div>
 
-                  <div className="flex items-center justify-between mt-1 text-[9px] font-bold">
-                    <span className="text-slate-400 dark:text-slate-500">
-                      {getProjectName(tr.project_id) || 'Sem projeto'}
-                    </span>
-                    {tr.processed_at ? (
-                      <span className="inline-flex items-center gap-0.5 text-emerald-500">
-                        <CheckCircle className="w-3 h-3" /> Auditado
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
+                      {tr.ai_summary || tr.content}
+                    </p>
+
+                    <div className="flex items-center justify-between mt-1 text-[9px] font-bold">
+                      <span className="text-slate-400 dark:text-slate-500">
+                        {getProjectName(tr.project_id) || 'Sem projeto'}
                       </span>
-                    ) : (
-                      <span className="text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded">
-                        Pendente
-                      </span>
-                    )}
+                      {tr.processed_at ? (
+                        <span className="inline-flex items-center gap-0.5 text-emerald-500">
+                          <CheckCircle className="w-3 h-3" /> Auditado
+                        </span>
+                      ) : (
+                        <span className="text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded">
+                          Pendente
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               );
@@ -516,6 +701,64 @@ export default function TranscriptionsPage() {
         fileName={selectedTr ? selectedTr.file_name : ''}
         result={curationResult}
       />
+
+      {/* Floating Bulk Actions Bar */}
+      {isBulkMode && selectedIds.length > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-4 px-6 py-3 bg-slate-900/90 dark:bg-slate-950/90 border border-white/10 rounded-2xl shadow-2xl backdrop-blur-md animate-in fade-in slide-in-from-bottom-4 duration-300">
+          <div className="text-[10px] font-black text-white uppercase tracking-wider whitespace-nowrap">
+            {selectedIds.length} {selectedIds.length === 1 ? 'Selecionado' : 'Selecionados'}
+          </div>
+
+          <div className="h-4 w-px bg-white/10" />
+
+          {/* Action: Bulk Project Change */}
+          <div className="flex items-center gap-2">
+            <select
+              value=""
+              onChange={(e) => handleBulkUpdateProject(e.target.value)}
+              disabled={bulkActionLoading}
+              className="bg-white/5 border border-white/10 hover:border-white/20 text-white text-[9px] font-bold uppercase tracking-wider rounded-lg px-2.5 py-1.5 cursor-pointer focus:outline-none focus:ring-0 disabled:opacity-50"
+            >
+              <option value="" className="bg-slate-900 text-white">Mudar Projeto</option>
+              <option value="none" className="bg-slate-900 text-white">Remover Projeto</option>
+              {projects.map(p => (
+                <option key={p.id} value={p.id} className="bg-slate-900 text-white">{p.name}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Action: Bulk AI Process */}
+          <button
+            onClick={handleBulkTriggerAI}
+            disabled={bulkActionLoading}
+            className="flex items-center gap-1 bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-white text-[9px] font-bold uppercase tracking-wider rounded-lg px-3 py-1.5 shadow-md shadow-blue-500/20 cursor-pointer transition-all"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>{bulkActionLoading ? 'Processando...' : 'Analisar com IA'}</span>
+          </button>
+
+          {/* Action: Bulk Delete */}
+          <button
+            onClick={handleBulkDelete}
+            disabled={bulkActionLoading}
+            className="flex items-center gap-1 bg-red-500/10 hover:bg-red-500/20 disabled:opacity-50 text-red-500 text-[9px] font-bold uppercase tracking-wider border border-red-500/20 rounded-lg px-3 py-1.5 cursor-pointer transition-all"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>Excluir</span>
+          </button>
+
+          <div className="h-4 w-px bg-white/10" />
+
+          {/* Cancel Selection */}
+          <button
+            onClick={() => setSelectedIds([])}
+            disabled={bulkActionLoading}
+            className="text-white/60 hover:text-white text-[9px] font-bold uppercase tracking-wider cursor-pointer"
+          >
+            Limpar
+          </button>
+        </div>
+      )}
     </main>
   );
 }

@@ -16,7 +16,7 @@ import { TypeBadge, PriorityBadge, StatusBadge } from '@/components/tasks/Badges
 import { WorkItemCard } from '@/components/tasks/WorkItemCard';
 import { QuickCreateModal } from '@/components/tasks/QuickCreateModal';
 import { supabase } from '@/lib/supabase';
-import { DndContext, PointerSensor, useSensor, useSensors, DragEndEvent, useDroppable, useDraggable } from '@dnd-kit/core';
+import { DndContext, PointerSensor, useSensor, useSensors, DragEndEvent, useDroppable, useDraggable, DragOverlay } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { 
   Search, 
@@ -40,16 +40,9 @@ const DraggableCard: React.FC<{
   parentTitle?: string;
   onClick: () => void;
 }> = ({ item, projectName, parentTitle, onClick }) => {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: item.id,
   });
-
-  const style = transform
-    ? {
-        transform: CSS.Translate.toString(transform),
-        zIndex: isDragging ? 9999 : undefined,
-      }
-    : undefined;
 
   return (
     <WorkItemCard
@@ -58,7 +51,6 @@ const DraggableCard: React.FC<{
       parentTitle={parentTitle}
       onClick={onClick}
       innerRef={setNodeRef}
-      style={style}
       isDragging={isDragging}
       listeners={listeners}
       attributes={attributes}
@@ -152,6 +144,9 @@ export default function KanbanPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProject, setSelectedProject] = useState<string>('');
   
+  // Drag and Drop active states
+  const [activeId, setActiveId] = useState<string | null>(null);
+
   // Modals & Editor states
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [createColumn, setCreateColumn] = useState<WorkItemStatus>('todo');
@@ -172,12 +167,21 @@ export default function KanbanPage() {
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
-        distance: 8, // Allow regular clicks to fire normally without drag interference
+        distance: 5, // Responsive activation distance (5px) to support smooth dragging
       },
     })
   );
 
+  const handleDragStart = (event: any) => {
+    setActiveId(event.active.id as string);
+  };
+
+  const handleDragCancel = () => {
+    setActiveId(null);
+  };
+
   const handleDragEnd = async (event: DragEndEvent) => {
+    setActiveId(null);
     const { active, over } = event;
     if (!over) return;
 
@@ -325,7 +329,12 @@ export default function KanbanPage() {
 
       {/* Kanban Board Container */}
       <div className="flex-1 overflow-x-auto p-6 lg:p-8">
-        <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+        <DndContext
+          sensors={sensors}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+          onDragCancel={handleDragCancel}
+        >
           <div className="flex gap-6 min-w-[1000px] h-full items-start">
             {STATUS_COLUMNS.map(colId => {
               const colConfig = WORK_ITEM_STATUS_CONFIG[colId] || { label: colId, dotColor: 'bg-slate-500' };
@@ -350,6 +359,17 @@ export default function KanbanPage() {
               );
             })}
           </div>
+
+          <DragOverlay adjustScale={false}>
+            {activeId ? (
+              <WorkItemCard
+                item={workItems.find(w => w.id === activeId)!}
+                projectName={getProjectName(workItems.find(w => w.id === activeId)!.project_id)}
+                parentTitle={getParentTitle(workItems.find(w => w.id === activeId)!.parent_id)}
+                isOverlay
+              />
+            ) : null}
+          </DragOverlay>
         </DndContext>
       </div>
 
