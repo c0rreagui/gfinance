@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useGWork } from '@/app/tasks/layout';
 import { Transcription } from '@/types/gwork';
 import { AiCurationModal } from '@/components/tasks/AiCurationModal';
+import { BulkEditModal, BulkEditUpdates } from '@/components/tasks/BulkEditModal';
 import { supabase } from '@/lib/supabase';
 import { 
   FileText, 
@@ -44,6 +45,7 @@ export default function TranscriptionsPage() {
   const [isBulkMode, setIsBulkMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
+  const [isBulkEditOpen, setIsBulkEditOpen] = useState(false);
 
   // Sync selected transcription when list updates
   useEffect(() => {
@@ -303,6 +305,117 @@ export default function TranscriptionsPage() {
     }
   };
 
+  const handleBulkEditSave = async (updates: BulkEditUpdates) => {
+    setBulkActionLoading(true);
+    setErrorMsg('');
+
+    try {
+      // 1. Reset AI Status if requested
+      if (updates.resetAi) {
+        const { error } = await supabase
+          .from('transcriptions')
+          .update({
+            processed_at: null,
+            extracted_entities: null,
+            ai_summary: null,
+            ai_insights: null,
+            gemini_model: null,
+            token_count: null
+          })
+          .in('id', selectedIds);
+        
+        if (error) throw error;
+      }
+
+      // 2. Mark manually as audited/processed if requested
+      if (updates.markAsAudited) {
+        const { error } = await supabase
+          .from('transcriptions')
+          .update({
+            processed_at: new Date().toISOString()
+          })
+          .in('id', selectedIds);
+        
+        if (error) throw error;
+      }
+
+      // 3. Update project if requested
+      if (updates.updateProject) {
+        const { error } = await supabase
+          .from('transcriptions')
+          .update({
+            project_id: updates.project_id
+          })
+          .in('id', selectedIds);
+        
+        if (error) throw error;
+      }
+
+      // 4. Update date if requested
+      if (updates.updateDate && updates.transcribed_at) {
+        const { error } = await supabase
+          .from('transcriptions')
+          .update({
+            transcribed_at: new Date(updates.transcribed_at).toISOString()
+          })
+          .in('id', selectedIds);
+        
+        if (error) throw error;
+      }
+
+      // 5. Rename files if requested
+      if (updates.doRename) {
+        const { data: itemsToRename, error: fetchError } = await supabase
+          .from('transcriptions')
+          .select('id, file_name')
+          .in('id', selectedIds);
+        
+        if (fetchError) throw fetchError;
+
+        if (itemsToRename) {
+          const updatePromises = itemsToRename.map(item => {
+            let newName = item.file_name;
+            
+            if (updates.renamePrefix) {
+              newName = updates.renamePrefix + newName;
+            }
+            
+            if (updates.renameSuffix) {
+              const extIndex = newName.lastIndexOf('.');
+              if (extIndex !== -1) {
+                newName = newName.substring(0, extIndex) + updates.renameSuffix + newName.substring(extIndex);
+              } else {
+                newName = newName + updates.renameSuffix;
+              }
+            }
+
+            if (updates.renameFind) {
+              newName = newName.replaceAll(updates.renameFind, updates.renameReplace || '');
+            }
+
+            return supabase
+              .from('transcriptions')
+              .update({ file_name: newName })
+              .eq('id', item.id);
+          });
+
+          const results = await Promise.all(updatePromises);
+          const firstError = results.find(r => r.error)?.error;
+          if (firstError) throw firstError;
+        }
+      }
+
+      await refreshData();
+      setSelectedIds([]);
+      setIsBulkMode(false);
+    } catch (err: any) {
+      console.error(err);
+      setErrorMsg(err.message || 'Erro ao realizar edições em lote.');
+    } finally {
+      setBulkActionLoading(false);
+    }
+  };
+
   // Resolvers
   const getProjectName = (projId: string | null) => projects.find(p => p.id === projId)?.name;
 
@@ -317,6 +430,21 @@ export default function TranscriptionsPage() {
     const dateB = new Date(b.transcribed_at).getTime();
     return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
   });
+
+  const filteredIds = filteredTranscriptions.map(t => t.id);
+  const allSelected = filteredIds.length > 0 && filteredIds.every(id => selectedIds.includes(id));
+  const someSelected = filteredIds.length > 0 && filteredIds.some(id => selectedIds.includes(id)) && !allSelected;
+
+  const handleSelectAllToggle = () => {
+    if (allSelected) {
+      setSelectedIds(prev => prev.filter(id => !filteredIds.includes(id)));
+    } else {
+      setSelectedIds(prev => {
+        const otherSelected = prev.filter(id => !filteredIds.includes(id));
+        return [...otherSelected, ...filteredIds];
+      });
+    }
+  };
 
   return (
     <main className="flex-1 overflow-hidden flex flex-col lg:flex-row h-full bg-slate-50/10 dark:bg-slate-950/10">
@@ -377,6 +505,31 @@ export default function TranscriptionsPage() {
             </select>
           </div>
         </div>
+
+        {/* Bulk select all bar */}
+        {isBulkMode && filteredTranscriptions.length > 0 && (
+          <div className="px-5 py-2.5 border-b border-slate-200 dark:border-white/5 bg-slate-50/55 dark:bg-slate-950/20 flex items-center justify-between">
+            <label className="flex items-center gap-2.5 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                ref={(el) => {
+                  if (el) {
+                    el.indeterminate = someSelected;
+                  }
+                }}
+                onChange={handleSelectAllToggle}
+                className="rounded border-slate-300 dark:border-white/10 text-blue-500 focus:ring-blue-500/30 w-3.5 h-3.5 bg-slate-950 cursor-pointer"
+              />
+              <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Selecionar Tudo ({filteredTranscriptions.length})
+              </span>
+            </label>
+            <span className="text-[9px] font-bold text-slate-400">
+              {selectedIds.length} selecionados
+            </span>
+          </div>
+        )}
 
         {/* List items */}
         <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-white/5 no-scrollbar">
@@ -702,6 +855,15 @@ export default function TranscriptionsPage() {
         result={curationResult}
       />
 
+      {/* Bulk Edit Modal */}
+      <BulkEditModal
+        isOpen={isBulkEditOpen}
+        onClose={() => setIsBulkEditOpen(false)}
+        selectedCount={selectedIds.length}
+        projects={projects}
+        onSave={handleBulkEditSave}
+      />
+
       {/* Floating Bulk Actions Bar */}
       {isBulkMode && selectedIds.length > 0 && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-4 px-6 py-3 bg-slate-900/90 dark:bg-slate-950/90 border border-white/10 rounded-2xl shadow-2xl backdrop-blur-md animate-in fade-in slide-in-from-bottom-4 duration-300">
@@ -710,6 +872,16 @@ export default function TranscriptionsPage() {
           </div>
 
           <div className="h-4 w-px bg-white/10" />
+
+          {/* Action: Bulk Edit */}
+          <button
+            onClick={() => setIsBulkEditOpen(true)}
+            disabled={bulkActionLoading}
+            className="flex items-center gap-1 bg-white/5 border border-white/10 hover:bg-white/10 disabled:opacity-50 text-white text-[9px] font-bold uppercase tracking-wider rounded-lg px-3 py-1.5 cursor-pointer transition-all"
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+            <span>Editar</span>
+          </button>
 
           {/* Action: Bulk Project Change */}
           <div className="flex items-center gap-2">
