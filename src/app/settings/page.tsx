@@ -55,7 +55,7 @@ export default function Settings() {
   const [folderSearch, setFolderSearch] = useState('');
 
   // AI Agent Memory states
-  const [activeAiTab, setActiveAiTab] = useState<'persona' | 'alma' | 'funcoes' | 'dynamic'>('persona');
+  const [activeAiTab, setActiveAiTab] = useState<'persona' | 'alma' | 'funcoes' | 'contexto' | 'dynamic'>('persona');
   const [staticContent, setStaticContent] = useState('');
   const [staticLoading, setStaticLoading] = useState(false);
   const [staticSuccess, setStaticSuccess] = useState('');
@@ -828,6 +828,17 @@ export default function Settings() {
                 }`}
               >
                 Funções (.md)
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveAiTab('contexto')}
+                className={`pb-3 border-b-2 transition-colors cursor-pointer ${
+                  activeAiTab === 'contexto' 
+                    ? 'border-indigo-500 text-indigo-500' 
+                    : 'border-transparent text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+                }`}
+              >
+                Guilherme (.md)
               </button>
               <button
                 type="button"

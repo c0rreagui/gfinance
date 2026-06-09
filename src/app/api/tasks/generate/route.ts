@@ -125,11 +125,17 @@ export async function POST(req: NextRequest) {
     let personaContent = '';
     let almaContent = '';
     let funcoesContent = '';
+    let contextoContent = '';
     try {
       const memoryDir = path.join(process.cwd(), 'src/lib/gwork/memory');
       personaContent = await fs.readFile(path.join(memoryDir, 'persona.md'), 'utf-8');
       almaContent = await fs.readFile(path.join(memoryDir, 'alma.md'), 'utf-8');
       funcoesContent = await fs.readFile(path.join(memoryDir, 'funcoes.md'), 'utf-8');
+      try {
+        contextoContent = await fs.readFile(path.join(memoryDir, 'contexto.md'), 'utf-8');
+      } catch (cErr) {
+        console.warn('[Gemini Tasks API] contexto.md não encontrado, usando default.');
+      }
     } catch (err) {
       console.warn('[Gemini Tasks API] Falha ao ler arquivos estáticos de memória, usando defaults.');
     }
@@ -151,6 +157,10 @@ export async function POST(req: NextRequest) {
       Você é o G-Work Intelligence Engine, a mente analítica tática de inteligência do Guilherme, fundador & CTO.
       
       Sua identidade, princípios e regras de execução estão definidos nas seções a seguir.
+      
+      ---
+      ## CONTEXTO DO USUÁRIO (QUEM É O GUILHERME E NO QUE TRABALHA)
+      ${contextoContent || 'O usuário é o Guilherme Corrêa, fundador, CTO e arquiteto de software.'}
       
       ---
       ## PERSONA (COMO VOCÊ SE COMPORTA E FALA)

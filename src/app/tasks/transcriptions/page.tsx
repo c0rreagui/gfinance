@@ -22,7 +22,9 @@ import {
   Trash2,
   Copy,
   Check,
-  AlertCircle
+  AlertCircle,
+  Loader2,
+  X
 } from 'lucide-react';
 
 export default function TranscriptionsPage() {
@@ -47,6 +49,14 @@ export default function TranscriptionsPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
   const [isBulkEditOpen, setIsBulkEditOpen] = useState(false);
+  const [processingId, setProcessingId] = useState<string | null>(null);
+  const [processingIndex, setProcessingIndex] = useState<number>(0);
+  const [processingTotal, setProcessingTotal] = useState<number>(0);
+  const [bulkResultNotify, setBulkResultNotify] = useState<{
+    successCount: number;
+    failedCount: number;
+    errors: { fileName: string; error: string }[];
+  } | null>(null);
 
   // Sync selected transcription when list updates
   useEffect(() => {
@@ -282,22 +292,27 @@ export default function TranscriptionsPage() {
       .map(tr => tr.id);
 
     if (pendingIds.length === 0) {
-      alert('Nenhuma das gravações selecionadas está pendente de análise.');
+      setBulkResultNotify({
+        successCount: 0,
+        failedCount: 0,
+        errors: [{ fileName: 'Seleção em Lote', error: 'Nenhuma das gravações selecionadas está pendente de análise.' }]
+      });
       return;
     }
 
-    const confirmMsg = pendingIds.length === 1
-      ? 'Deseja iniciar a análise de IA da gravação pendente?'
-      : `Deseja iniciar a análise de IA de ${pendingIds.length} gravações pendentes em lote? (O processo será executado sequencialmente)`;
-    if (!confirm(confirmMsg)) return;
-
     setBulkActionLoading(true);
     setErrorMsg('');
+    setProcessingTotal(pendingIds.length);
+    setProcessingIndex(0);
     
     let processedCount = 0;
     let failedCount = 0;
+    const batchErrors: { fileName: string; error: string }[] = [];
 
-    for (const id of pendingIds) {
+    for (let idx = 0; idx < pendingIds.length; idx++) {
+      const id = pendingIds[idx];
+      setProcessingId(id);
+      setProcessingIndex(idx + 1);
       try {
         const response = await fetch('/api/tasks/generate', {
           method: 'POST',
@@ -319,6 +334,8 @@ export default function TranscriptionsPage() {
         processedCount++;
       } catch (err: any) {
         console.error(`[Bulk AI] Erro ao processar transcrição ${id}:`, err);
+        const fName = transcriptions.find(t => t.id === id)?.file_name || id;
+        batchErrors.push({ fileName: fName, error: err.message || 'Erro de análise' });
         failedCount++;
       }
       
@@ -332,15 +349,18 @@ export default function TranscriptionsPage() {
       setSelectedIds([]);
       setIsBulkMode(false);
       
-      if (failedCount === 0) {
-        alert(`Sucesso! ${processedCount} gravações foram analisadas e estruturadas no Kanban.`);
-      } else {
-        alert(`Processamento em lote finalizado: ${processedCount} sucessos, ${failedCount} falhas. Verifique os erros no console.`);
-      }
+      setBulkResultNotify({
+        successCount: processedCount,
+        failedCount,
+        errors: batchErrors
+      });
     } catch (err: any) {
       console.error(err);
     } finally {
       setBulkActionLoading(false);
+      setProcessingId(null);
+      setProcessingIndex(0);
+      setProcessingTotal(0);
     }
   };
 
@@ -349,20 +369,17 @@ export default function TranscriptionsPage() {
       tr => selectedIds.includes(tr.id) && !tr.processed_at
     );
 
-    const confirmMsg = `Deseja consolidar as ${selectedIds.length} gravações selecionadas? ${
-      pendingItems.length > 0 
-        ? `(As ${pendingItems.length} gravações pendentes serão analisadas individualmente primeiro)` 
-        : ''
-    }`;
-    if (!confirm(confirmMsg)) return;
-
     setBulkActionLoading(true);
     setErrorMsg('');
+    setProcessingTotal(pendingItems.length);
+    setProcessingIndex(0);
 
     try {
       // 1. Process pending items sequentially
       for (let i = 0; i < pendingItems.length; i++) {
         const item = pendingItems[i];
+        setProcessingId(item.id);
+        setProcessingIndex(i + 1);
         
         const response = await fetch('/api/tasks/generate', {
           method: 'POST',
@@ -379,6 +396,8 @@ export default function TranscriptionsPage() {
         await new Promise(resolve => setTimeout(resolve, 800));
       }
 
+      setProcessingId(null); // Finished individual analyses phase
+      
       // Refresh data so the individual summaries are updated
       await refreshData();
 
@@ -400,12 +419,23 @@ export default function TranscriptionsPage() {
       // Force refresh data in layout context
       await Promise.all([refreshData(), refreshInsights()]);
 
-      alert('Sucesso! As gravações foram consolidadas e uma nova Análise Geral foi elaborada com as tarefas consolidadas.');
+      setBulkResultNotify({
+        successCount: selectedIds.length,
+        failedCount: 0,
+        errors: []
+      });
     } catch (err: any) {
       console.error(err);
-      setErrorMsg(err.message || 'Falha ao consolidar gravações.');
+      setBulkResultNotify({
+        successCount: 0,
+        failedCount: selectedIds.length,
+        errors: [{ fileName: 'Consolidação Geral', error: err.message || 'Falha na consolidação' }]
+      });
     } finally {
       setBulkActionLoading(false);
+      setProcessingId(null);
+      setProcessingIndex(0);
+      setProcessingTotal(0);
     }
   };
 
@@ -695,7 +725,11 @@ export default function TranscriptionsPage() {
                       <span className="text-slate-400 dark:text-slate-500">
                         {getProjectName(tr.project_id) || 'Sem projeto'}
                       </span>
-                      {tr.processed_at ? (
+                      {tr.id === processingId ? (
+                        <span className="inline-flex items-center gap-1 text-blue-500 bg-blue-500/10 border border-blue-500/20 px-1.5 py-0.5 rounded animate-pulse font-bold">
+                          <Loader2 className="w-3 h-3 animate-spin" /> Analisando...
+                        </span>
+                      ) : tr.processed_at ? (
                         <span className="inline-flex items-center gap-1 text-emerald-500 font-bold">
                           <CheckCircle className="w-3 h-3" /> Auditado
                         </span>
@@ -719,6 +753,59 @@ export default function TranscriptionsPage() {
 
       {/* Right Pane: Selected transcription details & AI Command Panel */}
       <div className="flex-1 overflow-y-auto no-scrollbar flex flex-col bg-white/20 dark:bg-slate-900/10">
+        
+        {bulkResultNotify && (
+          <div className="p-6 lg:p-8 pb-0 flex-shrink-0">
+            <div className={`p-4 rounded-2xl border flex flex-col gap-2.5 animate-in fade-in slide-in-from-top-4 duration-300 ${
+              bulkResultNotify.failedCount > 0 
+                ? 'bg-red-500/10 border-red-500/20 text-red-600 dark:text-red-400' 
+                : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+            }`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 font-black text-xs uppercase tracking-wider">
+                  {bulkResultNotify.failedCount > 0 ? (
+                    <>
+                      <AlertCircle className="w-4 h-4 text-red-500" />
+                      <span>Processamento concluído com falhas</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle className="w-4 h-4 text-emerald-500" />
+                      <span>Processamento concluído com sucesso</span>
+                    </>
+                  )}
+                </div>
+                <button 
+                  onClick={() => setBulkResultNotify(null)}
+                  className="p-1 hover:bg-slate-100/10 rounded cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              
+              <p className="text-xs font-semibold leading-relaxed">
+                Lote processado: {bulkResultNotify.successCount} sucessos e {bulkResultNotify.failedCount} falhas.
+              </p>
+              
+              {bulkResultNotify.errors.length > 0 && (
+                <div className="mt-2.5 border-t border-red-500/10 pt-2.5">
+                  <div className="text-[10px] font-bold text-red-500 dark:text-red-400 uppercase tracking-wider mb-2">
+                    Visualizador de Erros do Console do Lote:
+                  </div>
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto no-scrollbar font-mono text-[10px] leading-relaxed bg-black/40 border border-red-500/20 rounded-xl p-3.5 text-red-400/95 shadow-inner select-text">
+                    {bulkResultNotify.errors.map((item, idx) => (
+                      <div key={idx} className="border-b border-red-500/5 pb-1.5 last:border-b-0 last:pb-0">
+                        <span className="font-extrabold text-red-500 underline uppercase tracking-tight">[Arquivo: {item.fileName}]</span>
+                        <div className="mt-1 font-medium whitespace-pre-wrap">{item.error}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {selectedTr ? (
           <div className="p-6 lg:p-8 flex-1 flex flex-col h-full gap-6">
             
@@ -1075,8 +1162,18 @@ export default function TranscriptionsPage() {
             disabled={bulkActionLoading}
             className="flex items-center gap-1 bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-white text-[9px] font-bold uppercase tracking-wider rounded-lg px-3 py-1.5 shadow-md shadow-blue-500/20 cursor-pointer transition-all"
           >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>{bulkActionLoading ? 'Processando...' : 'Analisar com IA'}</span>
+            {processingTotal > 0 && processingId ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Sparkles className="w-3.5 h-3.5" />
+            )}
+            <span>
+              {bulkActionLoading 
+                ? processingTotal > 0 
+                  ? `Processando (${processingIndex}/${processingTotal})...`
+                  : 'Processando...'
+                : 'Analisar com IA'}
+            </span>
           </button>
 
           {/* Action: Bulk Consolidate AI */}
@@ -1086,8 +1183,18 @@ export default function TranscriptionsPage() {
               disabled={bulkActionLoading}
               className="flex items-center gap-1 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 disabled:opacity-50 text-white text-[9px] font-black uppercase tracking-wider rounded-lg px-3 py-1.5 shadow-md shadow-indigo-500/20 cursor-pointer transition-all animate-in fade-in zoom-in-95 duration-200"
             >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>{bulkActionLoading ? 'Consolidando...' : 'Consolidar com IA'}</span>
+              {bulkActionLoading && processingTotal > 0 && processingId ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="w-3.5 h-3.5" />
+              )}
+              <span>
+                {bulkActionLoading 
+                  ? processingTotal > 0 && processingId
+                    ? `Analisando (${processingIndex}/${processingTotal})...`
+                    : 'Consolidando...'
+                  : 'Consolidar com IA'}
+              </span>
             </button>
           )}
 

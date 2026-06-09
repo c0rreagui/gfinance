@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const type = searchParams.get('type'); // 'persona', 'alma', 'funcoes'
 
-    if (!type || !['persona', 'alma', 'funcoes'].includes(type)) {
+    if (!type || !['persona', 'alma', 'funcoes', 'contexto'].includes(type)) {
       return NextResponse.json({ error: 'Tipo inválido de memória estática.' }, { status: 400 });
     }
 
@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { type, content } = body;
 
-    if (!type || !['persona', 'alma', 'funcoes'].includes(type)) {
+    if (!type || !['persona', 'alma', 'funcoes', 'contexto'].includes(type)) {
       return NextResponse.json({ error: 'Tipo inválido de memória estática.' }, { status: 400 });
     }
 

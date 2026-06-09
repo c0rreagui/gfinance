@@ -62,11 +62,13 @@ export async function POST(req: NextRequest) {
     let personaContent = '';
     let almaContent = '';
     let funcoesContent = '';
+    let contextoContent = '';
     try {
       const memoryDir = path.join(process.cwd(), 'src/lib/gwork/memory');
       personaContent = await fs.readFile(path.join(memoryDir, 'persona.md'), 'utf-8');
       almaContent = await fs.readFile(path.join(memoryDir, 'alma.md'), 'utf-8');
       funcoesContent = await fs.readFile(path.join(memoryDir, 'funcoes.md'), 'utf-8');
+      contextoContent = await fs.readFile(path.join(memoryDir, 'contexto.md'), 'utf-8');
     } catch (err) {
       console.warn('[Curation Chat API] Falha ao ler arquivos estáticos de memória.');
     }
@@ -80,7 +82,7 @@ export async function POST(req: NextRequest) {
     
     const activeMemoriesText = dbMemories && dbMemories.length > 0
       ? dbMemories.map((m: any, idx: number) => `${idx + 1}. ${m.content}`).join('\n')
-      : 'Nenhuma diretriz de memória ativa no momento.';
+      : 'Nenhuma diretriz de memória activa no momento.';
 
     // Initialize Gemini API
     const genAI = getGeminiClient();
@@ -103,6 +105,10 @@ export async function POST(req: NextRequest) {
       ---
       ## FUNÇÕES E FLUXOS (COMO ESTRUTURAR TAREFAS)
       ${funcoesContent || 'Kanban hierárquico Epic -> Feature -> Story -> Task.'}
+      
+      ---
+      ## CONTEXTO DO USUÁRIO (QUEM É O GUILHERME E PROJETOS)
+      ${contextoContent || 'Nome: Guilherme Corrêa. Fundador & CTO.'}
       
       ---
       ## DIRETRIZES DE MEMÓRIA APRENDIDAS (INSTRUÇÕES DO GUILHERME)
