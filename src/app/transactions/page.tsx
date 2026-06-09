@@ -45,6 +45,7 @@ interface Transaction {
   amount: number;
   icon: string;
   reminder_id?: string | null;
+  card_id?: string | null;
   reminders?: {
     id: string;
     title: string;
@@ -232,7 +233,7 @@ export default function Transactions() {
       const remWords = r.title.toLowerCase().split(/[\s*._-]+/);
       let commonWords = 0;
       txWords.forEach(w => {
-        if (w && w.length > 2 && remWords.some(rw => rw.includes(w) || w.includes(rw))) {
+        if (w && w.length > 2 && remWords.some((rw: string) => rw.includes(w) || w.includes(rw))) {
           commonWords++;
         }
       });
@@ -598,7 +599,7 @@ export default function Transactions() {
               <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest hidden sm:inline">Vínculo:</span>
               <select
                 value={filterLink}
-                onChange={(e) => setFilterLink(e.target.value)}
+                onChange={(e) => setFilterLink(e.target.value as 'all' | 'linked' | 'unlinked')}
                 className="px-3.5 py-2 bg-slate-100 dark:bg-slate-900/60 border border-slate-200/50 dark:border-white/5 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500/20 dark:text-white cursor-pointer font-bold"
               >
                 <option value="all">Todos os Vínculos</option>

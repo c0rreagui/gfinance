@@ -19,7 +19,12 @@ import {
   Mic,
   CornerUpLeft,
   Wallet,
-  Calendar
+  Calendar,
+  LayoutDashboard,
+  Columns3,
+  GitBranch,
+  FolderKanban,
+  FileText
 } from 'lucide-react';
 
 interface SidebarItem {
@@ -58,9 +63,11 @@ export const Sidebar: React.FC = () => {
   ];
 
   const taskItems: SidebarItem[] = [
-    { name: 'Quadro Kanban', icon: Briefcase, path: '/tasks' },
-    { name: 'Projetos', icon: Target, path: '/tasks?tab=projects' },
-    { name: 'Gravações & Transcrições', icon: Mic, path: '/tasks?tab=transcriptions' },
+    { name: 'Dashboard', icon: LayoutDashboard, path: '/tasks' },
+    { name: 'Kanban', icon: Columns3, path: '/tasks/kanban' },
+    { name: 'Hierarquia', icon: GitBranch, path: '/tasks/hierarchy' },
+    { name: 'Projetos', icon: FolderKanban, path: '/tasks/projects' },
+    { name: 'Transcrições', icon: FileText, path: '/tasks/transcriptions' },
     { name: 'Ajustes', icon: Settings, path: '/settings?module=work' },
   ];
 
@@ -107,8 +114,13 @@ export const Sidebar: React.FC = () => {
                   isActive = pathname === url.pathname && (moduleParam === pathModule || (!moduleParam && pathModule === 'finance'));
                 }
               } else {
+                // For sub-routes like /tasks/kanban, /tasks/hierarchy, etc.
                 if (item.path === '/tasks') {
+                  // Dashboard: only active on exact /tasks (not sub-routes)
                   isActive = pathname === '/tasks' && !currentTab;
+                } else if (item.path.startsWith('/tasks/')) {
+                  // Sub-routes: active on exact match
+                  isActive = pathname === item.path;
                 } else {
                   isActive = pathname === item.path;
                 }

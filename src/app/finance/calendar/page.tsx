@@ -32,6 +32,7 @@ interface Transaction {
   amount: number;
   icon: string;
   reminder_id?: string | null;
+  card_id?: string | null;
 }
 
 interface Reminder {
@@ -44,6 +45,7 @@ interface Reminder {
   frequency?: string;
   category_icon?: string;
   brand_color?: string;
+  card_id?: string | null;
 }
 
 interface CalendarEvent {
@@ -55,6 +57,7 @@ interface CalendarEvent {
   icon?: string;
   paid?: boolean;
   meta?: any;
+  card_id?: string | null;
 }
 
 // 2. Synthetic Haptic Click using Web Audio API
