@@ -242,6 +242,8 @@ Criptografia de PIN via `bcrypt` para armazenamento seguro.
 NEXT_PUBLIC_SUPABASE_URL=https://jdliepgseoyoxfygmdet.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 GEMINI_API_KEY=<salvo no gerenciador — não commitar>
+GOOGLE_CLIENT_ID=<salvo no gerenciador — não commitar>
+GOOGLE_CLIENT_SECRET=<salvo no gerenciador — não commitar>
 ```
 
 ---
