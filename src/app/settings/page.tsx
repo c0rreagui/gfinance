@@ -52,6 +52,7 @@ export default function Settings() {
   const [syncing, setSyncing] = useState(false);
   const [syncSuccessMsg, setSyncSuccessMsg] = useState('');
   const [syncErrorMsg, setSyncErrorMsg] = useState('');
+  const [folderSearch, setFolderSearch] = useState('');
 
   const fetchProfile = async () => {
     try {
@@ -134,11 +135,11 @@ export default function Settings() {
     fetchProfile();
   }, []);
 
-  const fetchFolders = async () => {
+  const fetchFolders = async (search = '') => {
     setFoldersLoading(true);
     setFoldersError('');
     try {
-      const res = await fetch('/api/auth/google-drive/folders');
+      const res = await fetch(`/api/auth/google-drive/folders?search=${encodeURIComponent(search)}`);
       if (!res.ok) {
         throw new Error('Falha ao obter pastas do Google Drive');
       }
@@ -153,10 +154,14 @@ export default function Settings() {
 
   useEffect(() => {
     const hasGoogle = identities.some((id: any) => id.provider === 'google');
-    if (hasGoogle) {
-      fetchFolders();
-    }
-  }, [identities]);
+    if (!hasGoogle) return;
+
+    const delayDebounce = setTimeout(() => {
+      fetchFolders(folderSearch);
+    }, 500);
+
+    return () => clearTimeout(delayDebounce);
+  }, [folderSearch, identities]);
 
   const handleFolderChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const folderId = e.target.value;
@@ -594,12 +599,21 @@ export default function Settings() {
                 )}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Pasta do Drive para Monitorar</label>
+                    
+                    <input
+                      type="text"
+                      placeholder="Pesquisar pasta pelo nome... (Ex: Drive Local)"
+                      value={folderSearch}
+                      onChange={(e) => setFolderSearch(e.target.value)}
+                      className="w-full px-5 py-3 border border-slate-200 dark:border-white/5 bg-white/20 dark:bg-slate-950/20 rounded-xl text-xs focus:ring-2 focus:ring-emerald-500/20 focus:outline-none dark:text-white font-medium"
+                    />
+
                     {foldersLoading ? (
                       <div className="w-full px-6 py-4 bg-white/40 dark:bg-slate-800/40 border border-slate-200 dark:border-white/5 rounded-2xl text-xs text-slate-400 font-bold flex items-center gap-2">
                         <div className="animate-spin rounded-full h-3 w-3 border-t-2 border-emerald-500"></div>
-                        Carregando pastas do seu Drive...
+                        Buscando pastas no seu Drive...
                       </div>
                     ) : foldersError ? (
                       <div className="w-full px-6 py-4 bg-red-500/5 border border-red-500/10 rounded-2xl text-xs text-red-500 font-bold">

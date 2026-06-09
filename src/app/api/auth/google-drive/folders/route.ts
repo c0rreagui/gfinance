@@ -1,16 +1,16 @@
 /**
  * src/app/api/auth/google-drive/folders/route.ts
  *
- * Endpoint para listar pastas do Google Drive do usuário autenticado.
+ * Endpoint para listar e buscar pastas do Google Drive do usuário autenticado.
  */
 
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
 import { getValidGoogleToken } from '@/lib/google-auth';
 
 export const runtime = 'nodejs';
 
-export async function GET(): Promise<NextResponse> {
+export async function GET(req: NextRequest): Promise<NextResponse> {
   const supabase = await createSupabaseServerClient();
   const { data: { session } } = await supabase.auth.getSession();
   const user = session?.user;
@@ -24,10 +24,20 @@ export async function GET(): Promise<NextResponse> {
     return NextResponse.json({ error: 'Conta do Google não vinculada ou token inválido' }, { status: 403 });
   }
 
+  const { searchParams } = new URL(req.url);
+  const search = searchParams.get('search') || '';
+
   try {
     // Listar apenas pastas que não estão na lixeira, ordenadas por nome
-    const q = "mimeType='application/vnd.google-apps.folder' and trashed=false";
-    const driveUrl = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)&orderBy=name&pageSize=200`;
+    let q = "mimeType='application/vnd.google-apps.folder' and trashed=false";
+    if (search) {
+      const escapedSearch = search.replace(/'/g, "\\'");
+      q += ` and name contains '${escapedSearch}'`;
+    }
+
+    // Aumentamos o pageSize para 1000 para capturar mais diretórios se não houver busca
+    // Incluímos supportsAllDrives e includeItemsFromAllDrives para buscar em pastas compartilhadas e computadores sincronizados.
+    const driveUrl = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)&orderBy=name&pageSize=1000&includeItemsFromAllDrives=true&supportsAllDrives=true`;
 
     const response = await fetch(driveUrl, {
       headers: {

@@ -48,7 +48,7 @@ export async function POST(): Promise<NextResponse> {
     // 3. Listar arquivos .md dentro da pasta
     // Google Drive query: 'folderId' in parents and name contains '.md' and trashed = false
     const q = `'${folderId}' in parents and name contains '.md' and trashed = false`;
-    const driveListUrl = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,modifiedTime)&pageSize=100`;
+    const driveListUrl = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,modifiedTime)&pageSize=100&includeItemsFromAllDrives=true&supportsAllDrives=true`;
 
     const listResponse = await fetch(driveListUrl, {
       headers: {
