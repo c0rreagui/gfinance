@@ -42,7 +42,20 @@ export async function GET(): Promise<NextResponse> {
     }
 
     const data = await response.json();
-    return NextResponse.json({ folders: data.files || [] });
+    const allFiles = data.files || [];
+
+    // Filtrar diretórios ocultos e pastas de desenvolvimento redundantes
+    const filteredFolders = allFiles.filter((f: any) => {
+      const name = f.name || '';
+      const lowerName = name.toLowerCase();
+      return (
+        !name.startsWith('.') &&
+        !name.startsWith('_') &&
+        !['node_modules', 'bin', 'obj', 'dist', 'build', 'public', 'temp', 'tmp', 'venv', 'env', 'git', 'github'].includes(lowerName)
+      );
+    });
+
+    return NextResponse.json({ folders: filteredFolders });
   } catch (err: any) {
     console.error('[Google Drive API Error]:', err.message);
     return NextResponse.json({ error: 'Erro interno ao consultar Google Drive' }, { status: 500 });
