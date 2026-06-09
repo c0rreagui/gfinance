@@ -404,7 +404,7 @@ ${(t.extracted_entities as any)?.key_decisions?.map((kd: string) => `- ${kd}`).j
           mentioned_dates: parsedJson.mentioned_dates,
           extracted_memories: parsedJson.extracted_memories || []
         },
-        processed_at: new Date().toISOString(),
+        processed_at: null, // Draft state (needs curation and approval)
         gemini_model: selectedModel,
         token_count: totalTokenCount
       })
@@ -416,38 +416,6 @@ ${(t.extracted_entities as any)?.key_decisions?.map((kd: string) => `- ${kd}`).j
     }
 
     const newTranscriptionId = newTr.id;
-
-    // 5. Insert the consolidated hierarchical work items recursively into database
-    const allInsertedWorkItemIds = await insertWorkItemsRecursive(
-      supabase,
-      user.id,
-      finalProjectId,
-      newTranscriptionId,
-      hierarchicalWorkItems
-    );
-
-    // 6. Insert consolidated insights into the ai_insights database
-    if (insights && Array.isArray(insights) && insights.length > 0) {
-      const insightsToInsert = insights.map((insight: any) => ({
-        user_id: user.id,
-        insight_type: insight.insight_type,
-        title: insight.title,
-        body: insight.body,
-        severity: insight.severity || 'info',
-        related_work_items: allInsertedWorkItemIds,
-        related_transcriptions: [newTranscriptionId],
-        dismissed: false,
-        acted_on: false
-      }));
-
-      const { error: insightsError } = await supabase
-        .from('ai_insights')
-        .insert(insightsToInsert);
-
-      if (insightsError) {
-        console.error('[Consolidate Gemini] Failed to insert consolidated insights:', insightsError);
-      }
-    }
 
     return NextResponse.json({
       success: true,

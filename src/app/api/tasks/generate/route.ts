@@ -340,44 +340,12 @@ export async function POST(req: NextRequest) {
     const parsedJson = JSON.parse(responseText);
     const { summary, insights, work_items: hierarchicalWorkItems } = parsedJson;
 
-    // 3. Insert the hierarchical work items recursively into database
-    const allInsertedWorkItemIds = await insertWorkItemsRecursive(
-      supabase,
-      user.id,
-      transcription.project_id,
-      transcriptionId,
-      hierarchicalWorkItems
-    );
-
-    // 4. Insert extracted insights into the ai_insights database
-    if (insights && Array.isArray(insights) && insights.length > 0) {
-      const insightsToInsert = insights.map((insight: any) => ({
-        user_id: user.id,
-        insight_type: insight.insight_type,
-        title: insight.title,
-        body: insight.body,
-        severity: insight.severity || 'info',
-        related_work_items: allInsertedWorkItemIds,
-        related_transcriptions: [transcriptionId],
-        dismissed: false,
-        acted_on: false
-      }));
-
-      const { error: insightsError } = await supabase
-        .from('ai_insights')
-        .insert(insightsToInsert);
-
-      if (insightsError) {
-        console.error('[Gemini Tasks API Error] Failed to insert insights:', insightsError);
-      }
-    }
-
     // Format legacy insights text for backwards compatibility in UI
     const formattedInsightsText = insights && Array.isArray(insights)
       ? insights.map((ins: any) => `* **[${ins.severity.toUpperCase()}] ${ins.title}**: ${ins.body}`).join('\n')
       : null;
 
-    // 5. Update the transcription record with AI Results and metadata
+    // 3. Update the transcription record with AI Results as a Draft (processed_at = null)
     const { error: updateError } = await supabase
       .from('transcriptions')
       .update({
@@ -393,7 +361,7 @@ export async function POST(req: NextRequest) {
           mentioned_dates: parsedJson.mentioned_dates,
           extracted_memories: parsedJson.extracted_memories || []
         },
-        processed_at: new Date().toISOString(),
+        processed_at: null, // Draft state (not approved yet)
         gemini_model: selectedModel,
         token_count: totalTokenCount
       })
@@ -408,7 +376,8 @@ export async function POST(req: NextRequest) {
       success: true,
       summary,
       insights,
-      work_items: hierarchicalWorkItems
+      work_items: hierarchicalWorkItems,
+      extracted_memories: parsedJson.extracted_memories || []
     });
 
   } catch (err: any) {

@@ -39,6 +39,7 @@ export default function TranscriptionsPage() {
 
   // UX Premium states
   const [errorMsg, setErrorMsg] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
   const [copied, setCopied] = useState(false);
 
   // Bulk selection states
@@ -113,7 +114,7 @@ export default function TranscriptionsPage() {
   };
 
   const handleOpenCurationDetails = () => {
-    if (!selectedTr || !selectedTr.processed_at) return;
+    if (!selectedTr) return;
 
     // Retrieve data from extracted_entities object
     const entities = selectedTr.extracted_entities as any;
@@ -125,9 +126,26 @@ export default function TranscriptionsPage() {
       insights: entities.insights || [],
       key_decisions: entities.key_decisions || [],
       mentioned_people: entities.mentioned_people || [],
-      mentioned_dates: entities.mentioned_dates || []
+      mentioned_dates: entities.mentioned_dates || [],
+      chat_history: entities.chat_history || []
     });
     setIsCurationOpen(true);
+  };
+
+  const handleApproveCurationCallback = async () => {
+    await Promise.all([refreshData(), refreshInsights()]);
+    setSuccessMsg('Plano de tarefas e insights criados no Kanban com sucesso!');
+    setTimeout(() => setSuccessMsg(''), 12000); // 12 seconds
+    if (selectedTr) {
+      const { data: updated } = await supabase
+        .from('transcriptions')
+        .select('*')
+        .eq('id', selectedTr.id)
+        .single();
+      if (updated) {
+        setSelectedTr(updated);
+      }
+    }
   };
 
   const handleUpdateProject = async (trId: string, projectId: string) => {
@@ -678,12 +696,16 @@ export default function TranscriptionsPage() {
                         {getProjectName(tr.project_id) || 'Sem projeto'}
                       </span>
                       {tr.processed_at ? (
-                        <span className="inline-flex items-center gap-0.5 text-emerald-500">
+                        <span className="inline-flex items-center gap-1 text-emerald-500 font-bold">
                           <CheckCircle className="w-3 h-3" /> Auditado
                         </span>
+                      ) : tr.extracted_entities ? (
+                        <span className="inline-flex items-center gap-1 text-purple-500 bg-purple-500/10 border border-purple-500/20 px-1.5 py-0.5 rounded">
+                          <Sparkles className="w-3 h-3 animate-pulse" /> Rascunho
+                        </span>
                       ) : (
-                        <span className="text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded">
-                          Pendente
+                        <span className="inline-flex items-center gap-1 text-amber-500 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded">
+                          <Clock className="w-3 h-3" /> Pendente
                         </span>
                       )}
                     </div>
@@ -699,6 +721,21 @@ export default function TranscriptionsPage() {
       <div className="flex-1 overflow-y-auto no-scrollbar flex flex-col bg-white/20 dark:bg-slate-900/10">
         {selectedTr ? (
           <div className="p-6 lg:p-8 flex-1 flex flex-col h-full gap-6">
+            
+            {successMsg && (
+              <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-2xl flex items-center justify-between text-xs font-bold animate-in fade-in slide-in-from-top-4 duration-300">
+                <div className="flex items-center gap-2">
+                  <CheckCircle className="w-4 h-4 text-emerald-500 flex-shrink-0 animate-pulse" />
+                  <span>{successMsg}</span>
+                </div>
+                <a 
+                  href="/tasks/kanban" 
+                  className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg transition-colors uppercase tracking-wider text-[10px] cursor-pointer"
+                >
+                  Visualizar Kanban
+                </a>
+              </div>
+            )}
             
             {/* Header / Info Row */}
             <div className="flex flex-col md:flex-row md:items-center justify-between pb-6 border-b border-slate-200 dark:border-white/5 gap-4">
@@ -848,26 +885,22 @@ export default function TranscriptionsPage() {
                         </div>
                       </div>
                     </div>
-                    <div className="mt-6 p-4 rounded-xl bg-blue-500/5 border border-blue-500/10 flex items-center justify-between text-[10px] font-black uppercase tracking-wider text-blue-400">
-                      <span>Mapeando decisões & entregáveis...</span>
-                      <span className="animate-pulse">Aguarde</span>
-                    </div>
                   </div>
                 ) : selectedTr.processed_at ? (
-                  <div className="flex-1 p-5 rounded-2xl border border-blue-500/10 bg-blue-500/[0.02] dark:bg-blue-500/[0.01] space-y-5 overflow-y-auto no-scrollbar min-h-[300px]">
+                  <div className="flex-1 p-5 rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.01] dark:bg-emerald-500/[0.005] space-y-5 overflow-y-auto no-scrollbar min-h-[300px]">
                     
                     {/* Model Details Footnote */}
                     <div className="flex items-center gap-4 text-[9px] font-bold text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-white/5 p-2 rounded-lg">
                       <span>IA: {selectedTr.gemini_model || 'gemini-2.5-flash'}</span>
                       {selectedTr.token_count && <span>Tamanho: {selectedTr.token_count} tokens</span>}
-                      <span>Processado em: {new Date(selectedTr.processed_at).toLocaleString('pt-BR')}</span>
+                      <span>Auditado em: {new Date(selectedTr.processed_at).toLocaleString('pt-BR')}</span>
                     </div>
 
                     {/* Summary */}
                     <div>
                       <h5 className="flex items-center gap-1.5 font-bold text-xs text-slate-800 dark:text-white uppercase tracking-wider mb-2">
-                        <FileText className="w-3.5 h-3.5 text-blue-500" />
-                        Resumo do Plano
+                        <FileText className="w-3.5 h-3.5 text-emerald-500" />
+                        Resumo Aprovado
                       </h5>
                       <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed font-semibold">
                         {selectedTr.ai_summary}
@@ -879,7 +912,7 @@ export default function TranscriptionsPage() {
                       <div>
                         <h5 className="flex items-center gap-1.5 font-bold text-xs text-slate-800 dark:text-white uppercase tracking-wider mb-2">
                           <Brain className="w-3.5 h-3.5 text-emerald-500" />
-                          Principais Decisões
+                          Decisões Mapeadas
                         </h5>
                         <ul className="space-y-1.5">
                           {(selectedTr.extracted_entities as any).key_decisions.slice(0, 3).map((dec: string, i: number) => (
@@ -895,9 +928,57 @@ export default function TranscriptionsPage() {
                     {/* Button link to full view */}
                     <button
                       onClick={handleOpenCurationDetails}
-                      className="w-full py-2.5 bg-blue-500/10 hover:bg-blue-500/25 border border-blue-500/30 text-blue-500 font-bold text-xs rounded-xl transition-all cursor-pointer uppercase tracking-wider"
+                      className="w-full py-2.5 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-500 font-bold text-xs rounded-xl transition-all cursor-pointer uppercase tracking-wider"
                     >
-                      Inspecionar Todas as Metas & Insights
+                      Visualizar Plano de Ação
+                    </button>
+                  </div>
+                ) : selectedTr.extracted_entities ? (
+                  <div className="flex-1 p-5 rounded-2xl border border-purple-500/25 bg-purple-500/[0.02] dark:bg-purple-500/[0.01] space-y-5 overflow-y-auto no-scrollbar min-h-[300px]">
+                    
+                    {/* Model Details Footnote */}
+                    <div className="flex items-center gap-4 text-[9px] font-bold text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-white/5 p-2 rounded-lg">
+                      <span>IA: {selectedTr.gemini_model || 'gemini-2.5-flash'}</span>
+                      {selectedTr.token_count && <span>Tamanho: {selectedTr.token_count} tokens</span>}
+                      <span className="text-purple-400">Rascunho pendente de aprovação</span>
+                    </div>
+
+                    {/* Summary */}
+                    <div>
+                      <h5 className="flex items-center gap-1.5 font-bold text-xs text-slate-800 dark:text-white uppercase tracking-wider mb-2">
+                        <FileText className="w-3.5 h-3.5 text-purple-500 animate-pulse" />
+                        Proposta da IA
+                      </h5>
+                      <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed font-semibold">
+                        {selectedTr.ai_summary}
+                      </p>
+                    </div>
+
+                    {/* Key decisions preview */}
+                    {selectedTr.extracted_entities && (selectedTr.extracted_entities as any).key_decisions?.length > 0 && (
+                      <div>
+                        <h5 className="flex items-center gap-1.5 font-bold text-xs text-slate-800 dark:text-white uppercase tracking-wider mb-2">
+                          <Brain className="w-3.5 h-3.5 text-purple-400" />
+                          Sugestões de Decisão
+                        </h5>
+                        <ul className="space-y-1.5">
+                          {(selectedTr.extracted_entities as any).key_decisions.slice(0, 3).map((dec: string, i: number) => (
+                            <li key={i} className="flex gap-2 text-xs text-slate-600 dark:text-slate-400 items-start">
+                              <span className="w-1.5 h-1.5 rounded-full bg-purple-500 mt-2 flex-shrink-0 animate-pulse" />
+                              <span className="font-semibold">{dec}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Button link to curation/revisar proposal */}
+                    <button
+                      onClick={handleOpenCurationDetails}
+                      className="w-full py-2.5 bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/30 text-purple-500 dark:text-purple-400 font-bold text-xs rounded-xl transition-all cursor-pointer uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-lg shadow-purple-500/5"
+                    >
+                      <Sparkles className="w-4 h-4 text-purple-400" />
+                      <span>Revisar Proposta & Conversar</span>
                     </button>
                   </div>
                 ) : (
@@ -938,8 +1019,10 @@ export default function TranscriptionsPage() {
         isOpen={isCurationOpen}
         onClose={() => setIsCurationOpen(false)}
         fileName={selectedTr ? selectedTr.file_name : ''}
+        transcriptionId={selectedTr ? selectedTr.id : ''}
         result={curationResult}
-        onSave={handleSaveMemories}
+        processedAt={selectedTr ? selectedTr.processed_at : null}
+        onApprove={handleApproveCurationCallback}
       />
 
       {/* Bulk Edit Modal */}
