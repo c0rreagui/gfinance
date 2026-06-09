@@ -11,7 +11,7 @@ import { createHash } from 'crypto';
 
 export const runtime = 'nodejs';
 
-export async function POST(): Promise<NextResponse> {
+export async function POST(req: Request): Promise<NextResponse> {
   const supabase = await createSupabaseServerClient();
   const { data: { session } } = await supabase.auth.getSession();
   const user = session?.user;
@@ -20,21 +20,45 @@ export async function POST(): Promise<NextResponse> {
     return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
   }
 
-  // 1. Obter a pasta configurada no perfil do usuário
-  const { data: profile, error: profileErr } = await supabase
-    .from('profiles')
-    .select('google_drive_folder_id, google_drive_folder_name')
-    .eq('id', user.id)
-    .single();
+  let folderId = '';
+  let folderName = '';
 
-  if (profileErr || !profile?.google_drive_folder_id) {
-    return NextResponse.json({ 
-      success: false, 
-      message: 'Nenhuma pasta do Google Drive configurada para monitoramento nas configurações.' 
-    });
+  try {
+    const body = await req.json();
+    folderId = body.folderId || '';
+    folderName = body.folderName || '';
+  } catch (e) {
+    // Corpo da requisição vazio ou sem JSON válido
   }
 
-  const folderId = profile.google_drive_folder_id;
+  // Se não foi passado no corpo, buscar do banco de dados
+  if (!folderId) {
+    const { data: profile, error: profileErr } = await supabase
+      .from('profiles')
+      .select('google_drive_folder_id, google_drive_folder_name')
+      .eq('id', user.id)
+      .single();
+
+    if (profileErr || !profile?.google_drive_folder_id) {
+      return NextResponse.json({ 
+        success: false, 
+        message: 'Nenhuma pasta do Google Drive configurada para monitoramento nas configurações.' 
+      });
+    }
+
+    folderId = profile.google_drive_folder_id;
+    folderName = profile.google_drive_folder_name || '';
+  } else {
+    // Se foi fornecido no corpo, salvar/atualizar no perfil para persistir a configuração
+    await supabase
+      .from('profiles')
+      .update({
+        google_drive_folder_id: folderId,
+        google_drive_folder_name: folderName,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', user.id);
+  }
 
   // 2. Obter token de acesso válido do Google
   const googleToken = await getValidGoogleToken(user.id);
@@ -137,7 +161,7 @@ export async function POST(): Promise<NextResponse> {
 
     return NextResponse.json({
       success: true,
-      folderName: profile.google_drive_folder_name,
+      folderName: folderName,
       filesScanned: files.length,
       filesImported: importedCount,
       lastSyncAt

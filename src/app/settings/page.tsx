@@ -163,11 +163,29 @@ export default function Settings() {
     return () => clearTimeout(delayDebounce);
   }, [folderSearch, identities]);
 
-  const handleFolderChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+  const handleFolderChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
     const folderId = e.target.value;
     const folderName = folders.find(f => f.id === folderId)?.name || '';
     setDriveFolderId(folderId);
     setDriveFolderName(folderName);
+
+    // Auto-salvar no banco de dados imediatamente ao alterar a pasta
+    if (profile.id && folderId) {
+      try {
+        const { error } = await supabase
+          .from('profiles')
+          .update({
+            google_drive_folder_id: folderId,
+            google_drive_folder_name: folderName,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', profile.id);
+
+        if (error) throw error;
+      } catch (err: any) {
+        console.error('[Google Drive settings] Erro ao auto-salvar pasta:', err.message);
+      }
+    }
   };
 
   const handleSyncDrive = async () => {
@@ -177,7 +195,14 @@ export default function Settings() {
     setSyncErrorMsg('');
     try {
       const res = await fetch('/api/tasks/sync-drive', {
-        method: 'POST'
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          folderId: driveFolderId,
+          folderName: driveFolderName,
+        }),
       });
       const result = await res.json();
       if (!res.ok) {
