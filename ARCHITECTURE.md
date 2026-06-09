@@ -92,4 +92,14 @@ O script lerá todas as migrations em `supabase/migrations` e verificará a exis
 
 ---
 
-*Última atualização: 29 de maio de 2026.*
+## 📡 5. Fluxos de Sincronização e Webhook SMS (iOS Shortcuts)
+
+Para manter as transações atualizadas em tempo real sem depender de APIs abertas restritas do Open Finance, foi arquitetado um pipeline flexível e automatizado:
+1. **Captura via iOS Shortcuts**: Um atalho de automação no iOS intercepta SMS de operadoras de cartão e conta (ex: Itaú) e envia um POST seguro para a Edge Function `/functions/v1/sms-webhook`.
+2. **Cálculo de Transações Internacionais**: O webhook compara a variação do limite disponível (`available_limit`) do cartão antes e depois da transação. Caso a compra seja internacional (USD), o valor debitado em reais (BRL) é obtido pela diferença (`prevLimit - newLimit`), garantindo precisão matemática contra taxas e IOF.
+3. **Deduplicação Determinística**: Utiliza um hash SHA-256 (`source_hash`) derivado do ID do usuário, descrição, valor e data da transação para descartar envios duplicados no banco de dados.
+4. **Resolução de Faturas e Triggers**: Triggers reativos no Postgres gerenciam o ciclo de vida. O trigger `trigger_clear_manual_invoice_on_payment` liquida o valor de fatura manual (`manual_invoice_amount`) automaticamente no cartão quando um pagamento é detectado. O trigger `handle_reminder_paid_change` sincroniza o status de contas a pagar (`reminders`) sem duplicar transações existentes.
+
+---
+
+*Última atualização: 09 de junho de 2026.*

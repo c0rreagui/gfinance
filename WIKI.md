@@ -66,7 +66,7 @@ Todas as tabelas possuem Row-Level Security (RLS) ativo: `USING (auth.uid() = us
 | `public.reminders` | `UUID` | Pagamentos futuros (dívidas e assinaturas). Usa `is_recurring`, `paid`, `urgency`, `frequency`, `category_icon`, `brand_color`. |
 | `public.goals` | `UUID` | Metas de investimento/patrimônio com `target_amount` e `current_amount`. |
 | `public.balances` | `UUID` | Cache recalculado automaticamente. Tipos: `total`, `income`, `expense`. |
-| `public.credit_cards` | `UUID` | Metadados do cartão: `card_name`, `last_four`, `expiration_date`, `card_limit`, `spline_url`. |
+| public.credit_cards | UUID | Metadados do cartão: card_name, last_four, expiration_date, card_limit, available_limit, spline_url. |
 | `public.crypto_wallets` | `UUID` | Endereço da carteira crypto, provider e saldos de BTC/ETH/SOL. |
 | `public.chat_sessions` | `UUID` | Sessões de conversa com o Gemini Brain. |
 | `public.chat_messages` | `UUID` | Mensagens persistidas por sessão. |
@@ -82,8 +82,11 @@ Para garantir integridade de dados absoluta independente da origem da mutação 
 2. **Propagação de Lembretes Pagos (`trigger_reminder_paid_change`):**
    - **Tabela:** `public.reminders` (AFTER INSERT OR UPDATE OR DELETE).
    - **Lógica:** Executa `public.handle_reminder_paid_change()`. 
-     - Quando um lembrete muda de estado para `paid = true` (pago), insere automaticamente uma transação espelho em `transactions` com o valor sinalizado correto, vinculada via `reminder_id`.
-     - Se o lembrete volta para `paid = false` (não pago) ou é excluído, remove automaticamente a transação correspondente da base, mantendo o balanço íntegro.
+     - **Compatibilidade com Vínculo Manual**: Se a transação já estiver vinculada (`reminder_id` correspondente existe em `transactions`), o trigger não insere uma nova transação duplicada ao marcar o lembrete como pago (`paid = true`).
+     - **Preservação de Dados Reais/Modificados**: Se o lembrete voltar para `paid = false` ou for excluído, o trigger verifica se a transação é real (`source_type = 'sms'`) ou foi modificada manualmente pelo usuário (descrição ou valor divergentes). Em caso afirmativo, apenas remove a associação definindo `reminder_id = NULL` (desvincular), mantendo o lançamento financeiro intacto. Caso contrário (se for a transação padrão auto-gerada), remove o registro da base para manter a integridade matemática.
+3. **Limpeza de Fatura Manual em Pagamentos (`trigger_clear_manual_invoice_on_payment`):**
+   - **Tabela:** `public.transactions` (AFTER INSERT).
+   - **Lógica:** Executa `public.clear_manual_invoice_on_payment()` quando uma transação de pagamento de cartão sem `card_id` associado é inserida (`category = 'Cartão'` e `description` contém 'pagamento'). O trigger resolve o cartão correspondente no perfil do usuário (através do nome do cartão, últimos 4 dígitos ou caso especial Itaú) e atualiza seu `manual_invoice_amount` para `NULL`, sincronizando automaticamente o dashboard após a quitação da fatura.
 
 ### Tabelas G-Work
 
@@ -117,13 +120,9 @@ Criptografia de PIN via `bcrypt` para armazenamento seguro.
 
 ## 🧠 Gemini AI Brain
 
-- **Modelo:** `gemini-2.5-pro-preview-05-06`
-- **Rota API:** `/api/ai/chat` (POST)
-- **Sessões:** `/api/ai/sessions` (GET/POST)
-- **System Prompt:** CFO Persona com acesso temporal, histórico de transações do Supabase injetado no contexto, awareness de metas e saldos
-- **Formato:** Histórico de `ChatMessage[]` com `role: 'user' | 'model'` e `parts: [{ text }]`
-- **Parser:** Remoção de `**` via `formatMessageText()`
-- **Persistência:** Todas as mensagens e sessões são salvas nas tabelas `chat_sessions` e `chat_messages`
+- **Modelo:** `gemini-2.5-pro` — dinâmico
+- **Formatação:** `formatMessageText()` remove `**` corretamente
+- **Histórico:** Dropdown com lista de sessões, "Nova Conversa", auto-load da última sessão
 
 ### Capacidades Implementadas
 - Consulta de saldo e transações recentes
@@ -157,10 +156,15 @@ Criptografia de PIN via `bcrypt` para armazenamento seguro.
 - **Histórico:** Dropdown com lista de sessões, "Nova Conversa", auto-load da última sessão
 
 ### ✅ Transações (`/transactions`)
-- **Dados:** 100% via `transactions` table com filtro `user_id` + ordering por data
-- **Real-time:** Subscription ativa via `supabase.channel('schema-db-changes')`
-- **Adição:** Modal com form completo — description, category, amount, type, icon
-- **Trigger:** Após mutação, chama `fetchTransactions()` para re-sincronizar a lista
+- **Dados:** 100% via `transactions` table com filtro `user_id` + ordering por data.
+- **Real-time:** Subscription ativa via `supabase.channel('schema-db-changes')`.
+- **Adição:** Modal com form completo — description, category, amount, type, icon (com suporte a compras parceladas que auto-provisionam lembretes).
+- **Vínculo Manual (Nova Funcionalidade)**: Coluna "Vínculo" na tabela de lançamentos permite associar transações reais (como capturas automáticas por SMS) a lembretes e assinaturas existentes em `reminders`. A interface exibe o vínculo ativo (`🔗 Título do Lembrete`) com botão de desvinculação em um clique (`handleUnlinkTransaction`).
+- **Algoritmo de Matching Score**: Ao abrir o modal de vínculo, os lembretes são ordenados em tempo real por um algoritmo de proximidade:
+  - **Diferença de Valor**: Lembretes com valores idênticos ou com até 5% de variação recebem `+100` pontos. Variações de até 20% recebem `+50` pontos.
+  - **Proximidade Semântica**: O algoritmo divide a descrição da transação e o título do lembrete em palavras e atribui `+40` pontos para cada palavra em comum (com comprimento superior a 2 caracteres).
+  - **Penalidade de Pago**: Se o lembrete já estiver marcado como pago, sofre uma penalidade de `-10` pontos para priorizar lembretes em aberto.
+- **Trigger:** Após mutação ou vínculo, chama `fetchTransactions()` para re-sincronizar a lista.
 
 ### ✅ Cartões (`/cards`)
 - **Dados:** `credit_cards` (metadados do cartão) + `transactions` filtradas por `category = 'Cartão'`
@@ -204,7 +208,9 @@ Criptografia de PIN via `bcrypt` para armazenamento seguro.
 ### ✅ Fontes de Dados (`/integrations`)
 - **Dados:** Histórico de logs de sincronização lidos diretamente da tabela `public.itau_sync_logs`.
 - **Webhook SMS:** URL dinâmica contendo o `user_id` do usuário conectado para fácil setup no Atalhos do iOS.
-- **Edge Function SMS Parser:** Recebe payloads JSON ou texto simples de SMS, identifica o tipo (Pix Recebido, Compra aprovada no cartão Itaúcard/genérica, Pix Enviado), gera hash de deduplicação SHA-256 e persiste na base.
+- **Edge Function SMS Parser**: Recebe payloads JSON ou texto simples de SMS, identifica o tipo (Pix Recebido, Compra aprovada no cartão Itaúcard/genérica, Pix Enviado), gera hash de deduplicação SHA-256 e persiste na base.
+  - **Sincronização de Limite Disponível**: Se o SMS contém a string de limite disponível (regex `limite\s+(?:disponivel|disponível)...`), a Edge Function extrai este valor e atualiza a coluna `available_limit` do respectivo cartão na tabela `credit_cards`.
+  - **Cálculo de Valor BRL por Diferença de Limite**: Para compras de cartão (não pagamentos de fatura), se houver um limite disponível anterior armazenado e o SMS trouxer o novo limite disponível, o valor final da compra em reais (BRL) é calculado pela diferença (`prevLimit - newLimit`). Isso soluciona de forma elegante a conversão e captura exata de compras em moeda estrangeira (USD) na fatura local.
 - **Processamento de Extratos:** Upload de arquivos PDF/OFX/CSV com parser regex estruturado e fallback automático para processador semântico de IA da API Gemini.
 
 ### ✅ Ajustes (`/settings`)

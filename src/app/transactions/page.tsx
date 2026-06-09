@@ -20,7 +20,8 @@ import {
   Calendar,
   Repeat,
   Link2,
-  Link2Off
+  Link2Off,
+  Pencil
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
@@ -82,6 +83,68 @@ export default function Transactions() {
   const [reminders, setReminders] = useState<any[]>([]);
   const [linkingTransaction, setLinkingTransaction] = useState<Transaction | null>(null);
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
+
+  // Filtering State
+  const [filterType, setFilterType] = useState<'all' | 'expense' | 'income'>('all');
+  const [filterCategory, setFilterCategory] = useState<string>('all');
+  const [filterLink, setFilterLink] = useState<'all' | 'linked' | 'unlinked'>('all');
+
+  // Sorting State
+  const [sortField, setSortField] = useState<'date' | 'description' | 'category' | 'reminder' | 'amount'>('date');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+
+  // Editing State
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [editDescription, setEditDescription] = useState('');
+  const [editCategory, setEditCategory] = useState('Lazer');
+  const [editIcon, setEditIcon] = useState('Tv');
+  const [editAmount, setEditAmount] = useState('');
+  const [editType, setEditType] = useState<'expense' | 'income'>('expense');
+  const [editCardId, setEditCardId] = useState('');
+  const [editModalError, setEditModalError] = useState('');
+
+  const handleSort = (field: 'date' | 'description' | 'category' | 'reminder' | 'amount') => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection(field === 'amount' ? 'desc' : 'asc');
+    }
+  };
+
+  const handleUpdateTransaction = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTransaction || !editDescription || !editAmount) return;
+    setEditModalError('');
+
+    try {
+      const numericAmount = parseFloat(editAmount) * (editType === 'expense' ? -1 : 1);
+      if (isNaN(numericAmount)) {
+        setEditModalError('Por favor, insira um valor numérico válido.');
+        return;
+      }
+
+      const { error } = await supabase
+        .from('transactions')
+        .update({
+          description: editDescription,
+          category: editCategory,
+          icon: editIcon,
+          amount: numericAmount,
+          card_id: editCategory === 'Cartão' ? (editCardId || null) : null
+        })
+        .eq('id', editingTransaction.id);
+
+      if (error) throw error;
+
+      setIsEditModalOpen(false);
+      setEditingTransaction(null);
+      fetchTransactions();
+    } catch (err: any) {
+      setEditModalError(err.message || 'Erro ao atualizar transação.');
+    }
+  };
 
   const fetchRemindersForLinking = async () => {
     try {
@@ -409,11 +472,45 @@ export default function Transactions() {
     }
   };
 
-  const filtered = transactions.filter(
-    (t) =>
-      t.description.toLowerCase().includes(search.toLowerCase()) ||
-      t.category.toLowerCase().includes(search.toLowerCase())
-  );
+  const sortedAndFiltered = [...transactions]
+    .filter((t) => {
+      const matchesSearch = 
+        t.description.toLowerCase().includes(search.toLowerCase()) ||
+        t.category.toLowerCase().includes(search.toLowerCase());
+      
+      const matchesType = 
+        filterType === 'all' || 
+        (filterType === 'expense' && t.amount < 0) || 
+        (filterType === 'income' && t.amount > 0);
+      
+      const matchesCategory = 
+        filterCategory === 'all' || 
+        t.category === filterCategory;
+      
+      const matchesLink = 
+        filterLink === 'all' || 
+        (filterLink === 'linked' && t.reminder_id !== null && t.reminder_id !== undefined) || 
+        (filterLink === 'unlinked' && (t.reminder_id === null || t.reminder_id === undefined));
+      
+      return matchesSearch && matchesType && matchesCategory && matchesLink;
+    })
+    .sort((a, b) => {
+      let comparison = 0;
+      if (sortField === 'date') {
+        comparison = new Date(a.date).getTime() - new Date(b.date).getTime();
+      } else if (sortField === 'description') {
+        comparison = a.description.localeCompare(b.description);
+      } else if (sortField === 'category') {
+        comparison = a.category.localeCompare(b.category);
+      } else if (sortField === 'reminder') {
+        const aRem = a.reminders?.title || '';
+        const bRem = b.reminders?.title || '';
+        comparison = aRem.localeCompare(bRem);
+      } else if (sortField === 'amount') {
+        comparison = a.amount - b.amount;
+      }
+      return sortDirection === 'asc' ? comparison : -comparison;
+    });
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden relative h-full">
@@ -438,19 +535,97 @@ export default function Transactions() {
             </button>
           </div>
 
+          {/* Filter Controls Row */}
+          <div className="flex flex-wrap gap-4 items-center bg-white/40 dark:bg-slate-800/40 p-4 rounded-[24px] border border-white/30 dark:border-white/5 backdrop-blur-md animate-in">
+            {/* Type Filter */}
+            <div className="flex items-center bg-slate-100 dark:bg-slate-900/60 p-1 rounded-xl border border-slate-200/50 dark:border-white/5">
+              <button
+                onClick={() => setFilterType('all')}
+                className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                  filterType === 'all'
+                    ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
+                }`}
+              >
+                Todos
+              </button>
+              <button
+                onClick={() => setFilterType('expense')}
+                className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                  filterType === 'expense'
+                    ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
+                }`}
+              >
+                Despesas
+              </button>
+              <button
+                onClick={() => setFilterType('income')}
+                className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                  filterType === 'income'
+                    ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
+                }`}
+              >
+                Receitas
+              </button>
+            </div>
+
+            {/* Category Filter */}
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest hidden sm:inline">Categoria:</span>
+              <select
+                value={filterCategory}
+                onChange={(e) => setFilterCategory(e.target.value)}
+                className="px-3.5 py-2 bg-slate-100 dark:bg-slate-900/60 border border-slate-200/50 dark:border-white/5 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500/20 dark:text-white cursor-pointer font-bold"
+              >
+                <option value="all">Todas as Categorias</option>
+                <option value="Lazer">Lazer</option>
+                <option value="Alimentação">Alimentação</option>
+                <option value="Salário">Salário</option>
+                <option value="Transporte">Transporte</option>
+                <option value="Saúde">Saúde</option>
+                <option value="Cartão">Cartão</option>
+                <option value="Assinaturas">Assinaturas</option>
+                <option value="Boleto">Boleto</option>
+                <option value="Utilidades">Utilidades</option>
+                <option value="Outros">Outros</option>
+              </select>
+            </div>
+
+            {/* Vínculo Filter */}
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest hidden sm:inline">Vínculo:</span>
+              <select
+                value={filterLink}
+                onChange={(e) => setFilterLink(e.target.value)}
+                className="px-3.5 py-2 bg-slate-100 dark:bg-slate-900/60 border border-slate-200/50 dark:border-white/5 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500/20 dark:text-white cursor-pointer font-bold"
+              >
+                <option value="all">Todos os Vínculos</option>
+                <option value="linked">Vinculados</option>
+                <option value="unlinked">Não Vinculados</option>
+              </select>
+            </div>
+          </div>
+
           <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md rounded-[40px] border border-white/50 dark:border-white/5 shadow-sm overflow-hidden animate-in">
             {loading ? (
               <div className="flex justify-center items-center py-20">
                 <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-emerald-500"></div>
               </div>
-            ) : filtered.length === 0 ? (
+            ) : sortedAndFiltered.length === 0 ? (
               <div className="text-center py-20 text-slate-400 flex flex-col items-center justify-center">
-                <p className="mb-4">Nenhuma transação encontrada para a busca atual.</p>
+                <p className="mb-4">Nenhuma transação encontrada para os filtros atuais.</p>
                 <button 
-                  onClick={() => setSearch('')}
+                  onClick={() => {
+                    setSearch('');
+                    setFilterType('all');
+                    setFilterCategory('all');
+                    setFilterLink('all');
+                  }}
                   className="px-5 py-2.5 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 dark:text-white text-xs font-black rounded-xl uppercase tracking-widest transition-all cursor-pointer shadow-sm"
                 >
-                  Limpar Busca
+                  Limpar Filtros
                 </button>
               </div>
             ) : (
@@ -458,15 +633,46 @@ export default function Transactions() {
                 <table className="w-full text-left">
                   <thead>
                     <tr className="border-b border-slate-100 dark:border-white/5">
-                      <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Descrição</th>
-                      <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Categoria</th>
-                      <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Vínculo</th>
-                      <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Valor</th>
+                      <th 
+                        onClick={() => handleSort(sortField === 'date' ? 'description' : 'date')}
+                        className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest cursor-pointer hover:text-white transition-colors select-none"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          Descrição / Data 
+                          <span className="text-emerald-500/80 font-bold">
+                            {sortField === 'date' ? (sortDirection === 'asc' ? '📅 ↑' : '📅 ↓') : (sortField === 'description' ? (sortDirection === 'asc' ? '🔤 A-Z' : '🔤 Z-A') : '')}
+                          </span>
+                        </div>
+                      </th>
+                      <th 
+                        onClick={() => handleSort('category')}
+                        className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest cursor-pointer hover:text-white transition-colors select-none"
+                      >
+                        <div className="flex items-center gap-1">
+                          Categoria {sortField === 'category' && (sortDirection === 'asc' ? '↑' : '↓')}
+                        </div>
+                      </th>
+                      <th 
+                        onClick={() => handleSort('reminder')}
+                        className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest cursor-pointer hover:text-white transition-colors select-none"
+                      >
+                        <div className="flex items-center gap-1">
+                          Vínculo {sortField === 'reminder' && (sortDirection === 'asc' ? '↑' : '↓')}
+                        </div>
+                      </th>
+                      <th 
+                        onClick={() => handleSort('amount')}
+                        className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest cursor-pointer hover:text-white transition-colors text-right select-none"
+                      >
+                        <div className="flex items-center justify-end gap-1">
+                          Valor {sortField === 'amount' && (sortDirection === 'asc' ? '↑' : '↓')}
+                        </div>
+                      </th>
                       <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Ações</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                    {filtered.map((tx) => {
+                    {sortedAndFiltered.map((tx) => {
                       const IconComponent = iconMap[tx.icon] || Wallet;
                       const isIncome = tx.amount > 0;
                       return (
@@ -523,7 +729,23 @@ export default function Transactions() {
                             </span>
                           </td>
                           <td className="px-8 py-5 text-right">
-                            <div className="flex items-center justify-end">
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                onClick={() => {
+                                  setEditingTransaction(tx);
+                                  setEditDescription(tx.description);
+                                  setEditCategory(tx.category);
+                                  setEditIcon(tx.icon);
+                                  setEditAmount(Math.abs(tx.amount).toString());
+                                  setEditType(tx.amount > 0 ? 'income' : 'expense');
+                                  setEditCardId(tx.card_id || '');
+                                  setIsEditModalOpen(true);
+                                }}
+                                className="w-7 h-7 bg-indigo-500/10 hover:bg-indigo-500/25 border border-indigo-500/20 text-indigo-400 rounded-lg flex items-center justify-center cursor-pointer transition-colors opacity-0 group-hover:opacity-100"
+                                title="Editar Transação"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
                               <button
                                 onClick={() => handleDeleteTransaction(tx.id, tx.description)}
                                 className="w-7 h-7 bg-red-500/10 hover:bg-red-500/25 border border-red-500/20 text-red-400 rounded-lg flex items-center justify-center cursor-pointer transition-colors opacity-0 group-hover:opacity-100"
@@ -838,18 +1060,14 @@ export default function Transactions() {
                         </div>
                         
                         {isLinkedToOther ? (
-                          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">
+                          <span className="text-[9px] font-bold text-slate-400 uppercase bg-slate-100 dark:bg-slate-800 px-2.5 py-1.5 rounded-xl font-sans">
                             Já Vinculado
-                          </span>
-                        ) : isSelected ? (
-                          <span className="text-[9px] font-bold text-violet-400 uppercase tracking-widest">
-                            Vinculado
                           </span>
                         ) : (
                           <button
                             type="button"
                             onClick={() => handleLinkTransaction(r.id)}
-                            className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white text-[10px] font-black rounded-xl uppercase tracking-widest transition-all cursor-pointer"
+                            className="px-3.5 py-2 bg-violet-600 hover:bg-violet-700 text-white text-[10px] font-bold rounded-xl uppercase tracking-wider transition-colors cursor-pointer font-sans"
                           >
                             Vincular
                           </button>
@@ -860,6 +1078,147 @@ export default function Transactions() {
                 })
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Transaction Modal */}
+      {isEditModalOpen && editingTransaction && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl max-w-md w-full p-8 border border-white/20 shadow-2xl relative animate-in">
+            <button 
+              onClick={() => {
+                setIsEditModalOpen(false);
+                setEditingTransaction(null);
+                setEditModalError('');
+              }}
+              className="absolute right-6 top-6 text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer"
+            >
+              <X className="w-6 h-6" />
+            </button>
+            <h3 className="text-xl font-black mb-6 dark:text-white">Editar Transação</h3>
+
+            {editModalError && (
+              <div className="p-4 bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 rounded-2xl flex items-start gap-2 mb-6 text-sm">
+                <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+                <span>{editModalError}</span>
+              </div>
+            )}
+            
+            <form onSubmit={handleUpdateTransaction} className="space-y-6">
+              {/* Type Switcher */}
+              <div className="grid grid-cols-2 gap-2 bg-slate-100 dark:bg-slate-900 p-1.5 rounded-2xl">
+                <button
+                  type="button"
+                  onClick={() => setEditType('expense')}
+                  className={`py-3 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                    editType === 'expense' 
+                      ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-md' 
+                      : 'text-slate-400 hover:text-slate-600'
+                  }`}
+                >
+                  <TrendingDown className="w-4 h-4" /> Despesa
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditType('income')}
+                  className={`py-3 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                    editType === 'income' 
+                      ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-md' 
+                      : 'text-slate-400 hover:text-slate-600'
+                  }`}
+                >
+                  <TrendingUp className="w-4 h-4" /> Receita
+                </button>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Descrição</label>
+                <input 
+                  type="text" 
+                  required
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  className="w-full px-4 py-3.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/5 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:text-white"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Categoria</label>
+                  <select
+                    value={editCategory}
+                    onChange={(e) => setEditCategory(e.target.value)}
+                    className="w-full px-4 py-3.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/5 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:text-white cursor-pointer font-bold"
+                  >
+                    <option value="Lazer">Lazer</option>
+                    <option value="Alimentação">Alimentação</option>
+                    <option value="Salário">Salário</option>
+                    <option value="Transporte">Transporte</option>
+                    <option value="Saúde">Saúde</option>
+                    <option value="Cartão">Cartão</option>
+                    <option value="Assinaturas">Assinaturas</option>
+                    <option value="Boleto">Boleto</option>
+                    <option value="Utilidades">Utilidades</option>
+                    <option value="Outros">Outros</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Ícone</label>
+                  <select
+                    value={editIcon}
+                    onChange={(e) => setEditIcon(e.target.value)}
+                    className="w-full px-4 py-3.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/5 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:text-white cursor-pointer font-bold"
+                  >
+                    <option value="Tv">Lazer (Tv)</option>
+                    <option value="ShoppingCart">Compras (Carrinho)</option>
+                    <option value="ArrowDownLeft">Salário (Seta)</option>
+                    <option value="Zap">Utilidades (Raio)</option>
+                    <option value="Activity">Saúde (Gráfico)</option>
+                    <option value="CreditCard">Cartão (Cartão)</option>
+                    <option value="FileText">Boleto (Documento)</option>
+                  </select>
+                </div>
+              </div>
+
+              {editCategory === 'Cartão' && creditCards.length > 0 && (
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Associar ao Cartão</label>
+                  <select
+                    value={editCardId}
+                    onChange={(e) => setEditCardId(e.target.value)}
+                    className="w-full px-4 py-3.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/5 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:text-white cursor-pointer font-bold"
+                  >
+                    <option value="">Sem cartão específico</option>
+                    {creditCards.map((card) => (
+                      <option key={card.id} value={card.id}>
+                        {card.card_name} (•••• {card.last_four})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Valor (R$)</label>
+                <input 
+                  type="number" 
+                  step="0.01"
+                  required
+                  value={editAmount}
+                  onChange={(e) => setEditAmount(e.target.value)}
+                  placeholder="0,00"
+                  className="w-full px-4 py-3.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/5 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:text-white"
+                />
+              </div>
+
+              <button 
+                type="submit"
+                className="w-full py-4 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-black rounded-xl uppercase tracking-widest shadow-xl shadow-emerald-500/20 transition-all cursor-pointer font-sans"
+              >
+                Salvar Alterações
+              </button>
+            </form>
           </div>
         </div>
       )}
