@@ -96,33 +96,26 @@ export default function TranscriptionsPage() {
     setErrorMsg('');
 
     try {
-      const response = await fetch('/api/tasks/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transcriptionId: trId })
+      const { data, error } = await supabase.functions.invoke('process-transcriptions', {
+        body: { action: 'generate', transcriptionId: trId }
       });
 
-      let result: any = null;
-      const contentType = response.headers.get('content-type');
-      if (contentType && contentType.includes('application/json')) {
-        result = await response.json();
-      } else {
-        const text = await response.text();
-        // Extract plain text or simple description if it's a HTML response
-        const cleanText = text.replace(/<[^>]*>/g, '').substring(0, 120).trim();
-        throw new Error(cleanText || `Erro HTTP ${response.status}`);
+      if (error) {
+        throw new Error(getErrorMessage(error) || 'Erro ao processar transcrição com Edge Function.');
       }
 
-      if (!response.ok) throw new Error(getErrorMessage(result) || `Erro ao processar transcrição (Status ${response.status}).`);
+      if (!data || !data.success) {
+        throw new Error('Falha ao processar transcrição: Resposta inválida.');
+      }
 
       // Format result for curation modal
       const mappedResult = {
-        summary: result.summary,
-        work_items: result.work_items || [],
-        insights: result.insights || [],
-        key_decisions: result.key_decisions || [],
-        mentioned_people: result.mentioned_people || [],
-        mentioned_dates: result.mentioned_dates || []
+        summary: data.summary,
+        work_items: data.work_items || [],
+        insights: data.insights || [],
+        key_decisions: data.key_decisions || [],
+        mentioned_people: data.mentioned_people || [],
+        mentioned_dates: data.mentioned_dates || []
       };
 
       setCurationResult(mappedResult);
@@ -329,23 +322,18 @@ export default function TranscriptionsPage() {
       setProcessingId(id);
       setProcessingIndex(idx + 1);
       try {
-        const response = await fetch('/api/tasks/generate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ transcriptionId: id })
+        const { data, error } = await supabase.functions.invoke('process-transcriptions', {
+          body: { action: 'generate', transcriptionId: id }
         });
 
-        let result: any = null;
-        const contentType = response.headers.get('content-type');
-        if (contentType && contentType.includes('application/json')) {
-          result = await response.json();
-        } else {
-          const text = await response.text();
-          const cleanText = text.replace(/<[^>]*>/g, '').substring(0, 120).trim();
-          throw new Error(cleanText || `Erro HTTP ${response.status}`);
+        if (error) {
+          throw new Error(getErrorMessage(error) || 'Erro ao processar com Edge Function.');
         }
 
-        if (!response.ok) throw new Error(getErrorMessage(result) || `Erro Status ${response.status}`);
+        if (!data || !data.success) {
+          throw new Error('Falha ao processar transcrição: Resposta inválida.');
+        }
+
         processedCount++;
       } catch (err: any) {
         console.error(`[Bulk AI] Erro ao processar transcrição ${id}:`, err);
@@ -396,22 +384,16 @@ export default function TranscriptionsPage() {
         setProcessingId(item.id);
         setProcessingIndex(i + 1);
         
-        const response = await fetch('/api/tasks/generate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ transcriptionId: item.id })
+        const { data, error } = await supabase.functions.invoke('process-transcriptions', {
+          body: { action: 'generate', transcriptionId: item.id }
         });
 
-        if (!response.ok) {
-          let errData: any = null;
-          const contentType = response.headers.get('content-type');
-          if (contentType && contentType.includes('application/json')) {
-            errData = await response.json();
-          } else {
-            const text = await response.text();
-            errData = { error: text.replace(/<[^>]*>/g, '').substring(0, 120).trim() || `Erro HTTP ${response.status}` };
-          }
-          throw new Error(`Erro ao analisar a gravação ${item.file_name}: ${getErrorMessage(errData) || response.status}`);
+        if (error) {
+          throw new Error(`Erro ao analisar a gravação ${item.file_name}: ${getErrorMessage(error)}`);
+        }
+
+        if (!data || !data.success) {
+          throw new Error(`Erro ao analisar a gravação ${item.file_name}: Resposta inválida.`);
         }
 
         // Delay to avoid Gemini API free-tier concurrent spikes
@@ -424,23 +406,16 @@ export default function TranscriptionsPage() {
       await refreshData();
 
       // 2. Call consolidation API
-      const consolidateResponse = await fetch('/api/tasks/consolidate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transcriptionIds: selectedIds })
+      const { data: consolidateResult, error: consolidateError } = await supabase.functions.invoke('process-transcriptions', {
+        body: { action: 'consolidate', transcriptionIds: selectedIds }
       });
 
-      let consolidateResult: any = null;
-      const contentType = consolidateResponse.headers.get('content-type');
-      if (contentType && contentType.includes('application/json')) {
-        consolidateResult = await consolidateResponse.json();
-      } else {
-        const text = await consolidateResponse.text();
-        consolidateResult = { error: text.replace(/<[^>]*>/g, '').substring(0, 120).trim() || `Erro HTTP ${consolidateResponse.status}` };
+      if (consolidateError) {
+        throw new Error(getErrorMessage(consolidateError) || 'Erro ao consolidar gravações.');
       }
 
-      if (!consolidateResponse.ok) {
-        throw new Error(getErrorMessage(consolidateResult) || 'Erro ao consolidar gravações.');
+      if (!consolidateResult || !consolidateResult.success) {
+        throw new Error('Falha ao consolidar gravações: Resposta inválida.');
       }
 
       setSelectedIds([]);

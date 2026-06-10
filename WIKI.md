@@ -49,6 +49,7 @@ O **G-Finance** é o módulo de controle patrimonial do ecossistema G-Hub. Integ
 | `/api/finance/reconcile` | POST | Força o recálculo dos saldos `total`, `income` e `expense` para o usuário ativo (ignora transações futuras). |
 | `/api/finance/calendar/export` | GET | Retorna um arquivo `.ics` RFC 5545 com os lançamentos de lembretes e assinaturas para sincronização externa. |
 | `/functions/v1/sms-webhook` | POST | Supabase Edge Function que processa mensagens de transações Itaú/genéricas via iOS Shortcuts. |
+| `/functions/v1/process-transcriptions` | POST | Supabase Edge Function que executa a análise e consolidação de transcrições via Gemini (evita timeout de 10s da Vercel). |
 
 
 ---
@@ -313,5 +314,14 @@ Para evitar acoplamento acidental e regressões em futuras sessões de IA ou ref
   - `[PASS]` Memória Híbrida do Agente IA (G-Work): Implementado o motor de memória dinâmica e estática. O núcleo estático utiliza arquivos locais no repositório (`src/lib/gwork/memory/` contendo `persona.md`, `alma.md` e `funcoes.md`), e o dinâmico persistido na nova tabela `public.agent_memories`. O Gemini extrai fatos/regras (`extracted_memories`), exibidos para revisão e salvamento na nova aba "Aprendizado & Memória" do `AiCurationModal`. Criada aba de gerenciamento integrado em `/settings` com editor de Markdown para os arquivos locais e controle de ligar/desligar/deletar regras da memória dinâmica.
   - `[PASS]` Curadoria Interativa & Chat (Curation Chat): Criado pipeline de 3 estados para transcrições: Pendente (Amber), Rascunho (Purple) e Auditado (Emerald). Separamos a análise de IA da persistência direta no Kanban: toda análise gera um rascunho de IA (Draft) gravado temporariamente em `extracted_entities` (com `processed_at = null`), sem poluir o banco de dados. Desenvolvemos uma interface de curadoria com layout side-by-side (`max-w-5xl`): a proposta à esquerda e um chat de refinamento à direita, permitindo que o usuário converse diretamente com a IA para corrigir, deletar ou priorizar tarefas. O chat é processado pelo Gemini na nova rota `/api/tasks/curate/chat`, persistindo o progresso e o histórico de mensagens no banco em tempo real. A persistência definitiva no Kanban (tarefas recursivas, insights e memórias) e o fechamento do áudio (`processed_at = now()`) são executados com um único clique via `/api/tasks/curate/approve`.
 - **Status de Deploy:** Pushed to GitHub. Deploy ativo na Vercel.
+
+### 🗓️ 10 de Junho de 2026 — Migração para Supabase Edge Functions
+- **Veredicto:** PRODUCTION-DEPLOYED
+- **Implementações:**
+  - `[PASS]` Edge Function `process-transcriptions`: Criada e implantada com sucesso no Supabase (`jdliepgseoyoxfygmdet`). Concentra toda a lógica de geração de análise de transcrição (`generate`) e consolidação de lotes (`consolidate`).
+  - `[PASS]` Resolução de Timeout: Ao invocar a Edge Function diretamente a partir do cliente Supabase no navegador do usuário, eliminamos o limite de 10 segundos do servidor Vercel Hobby, viabilizando análises de áudios de grande porte de até 150 segundos sem falhas.
+  - `[PASS]` Segurança de Secrets: Mantivemos as restrições inegociáveis de segurança ao hospedar a chave `GEMINI_API_KEY` apenas como segredo criptografado no Supabase Vault (`supabase secrets set`), sem expô-la ao frontend.
+  - `[PASS]` Limpeza de Código: Removidas com segurança as rotas do Next.js depreciadas `/api/tasks/generate` e `/api/tasks/consolidate`. Compilação local e build de produção Next.js 100% verdes.
+
 
 
