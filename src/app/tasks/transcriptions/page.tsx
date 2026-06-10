@@ -27,6 +27,21 @@ import {
   X
 } from 'lucide-react';
 
+const getErrorMessage = (errObj: any): string => {
+  if (!errObj) return '';
+  if (typeof errObj === 'string') return errObj;
+  if (typeof errObj === 'object') {
+    if (errObj.error) {
+      if (typeof errObj.error === 'string') return errObj.error;
+      if (typeof errObj.error === 'object' && errObj.error.message) return errObj.error.message;
+      return JSON.stringify(errObj.error);
+    }
+    if (errObj.message) return errObj.message;
+    return JSON.stringify(errObj);
+  }
+  return String(errObj);
+};
+
 export default function TranscriptionsPage() {
   const { projects, transcriptions, refreshData, refreshInsights } = useGWork();
   const [selectedTr, setSelectedTr] = useState<Transcription | null>(null);
@@ -98,7 +113,7 @@ export default function TranscriptionsPage() {
         throw new Error(cleanText || `Erro HTTP ${response.status}`);
       }
 
-      if (!response.ok) throw new Error(result.error || `Erro ao processar transcrição (Status ${response.status}).`);
+      if (!response.ok) throw new Error(getErrorMessage(result) || `Erro ao processar transcrição (Status ${response.status}).`);
 
       // Format result for curation modal
       const mappedResult = {
@@ -209,7 +224,7 @@ export default function TranscriptionsPage() {
       });
       const data = await response.json();
       if (!response.ok) {
-        throw new Error(data.error || 'Erro ao gravar memórias no banco.');
+        throw new Error(getErrorMessage(data) || 'Erro ao gravar memórias no banco.');
       }
     } catch (err: any) {
       console.error(err);
@@ -330,7 +345,7 @@ export default function TranscriptionsPage() {
           throw new Error(cleanText || `Erro HTTP ${response.status}`);
         }
 
-        if (!response.ok) throw new Error(result.error || `Erro Status ${response.status}`);
+        if (!response.ok) throw new Error(getErrorMessage(result) || `Erro Status ${response.status}`);
         processedCount++;
       } catch (err: any) {
         console.error(`[Bulk AI] Erro ao processar transcrição ${id}:`, err);
@@ -388,8 +403,15 @@ export default function TranscriptionsPage() {
         });
 
         if (!response.ok) {
-          const errData = await response.json();
-          throw new Error(`Erro ao analisar a gravação ${item.file_name}: ${errData.error || response.status}`);
+          let errData: any = null;
+          const contentType = response.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            errData = await response.json();
+          } else {
+            const text = await response.text();
+            errData = { error: text.replace(/<[^>]*>/g, '').substring(0, 120).trim() || `Erro HTTP ${response.status}` };
+          }
+          throw new Error(`Erro ao analisar a gravação ${item.file_name}: ${getErrorMessage(errData) || response.status}`);
         }
 
         // Delay to avoid Gemini API free-tier concurrent spikes
@@ -408,9 +430,17 @@ export default function TranscriptionsPage() {
         body: JSON.stringify({ transcriptionIds: selectedIds })
       });
 
-      const consolidateResult = await consolidateResponse.json();
+      let consolidateResult: any = null;
+      const contentType = consolidateResponse.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        consolidateResult = await consolidateResponse.json();
+      } else {
+        const text = await consolidateResponse.text();
+        consolidateResult = { error: text.replace(/<[^>]*>/g, '').substring(0, 120).trim() || `Erro HTTP ${consolidateResponse.status}` };
+      }
+
       if (!consolidateResponse.ok) {
-        throw new Error(consolidateResult.error || 'Erro ao consolidar gravações.');
+        throw new Error(getErrorMessage(consolidateResult) || 'Erro ao consolidar gravações.');
       }
 
       setSelectedIds([]);
