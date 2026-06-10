@@ -96,8 +96,13 @@ export default function TranscriptionsPage() {
     setErrorMsg('');
 
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
       const { data, error } = await supabase.functions.invoke('process-transcriptions', {
-        body: { action: 'generate', transcriptionId: trId }
+        body: { action: 'generate', transcriptionId: trId },
+        headers
       });
 
       if (error) {
@@ -317,13 +322,18 @@ export default function TranscriptionsPage() {
     let failedCount = 0;
     const batchErrors: { fileName: string; error: string }[] = [];
 
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
     for (let idx = 0; idx < pendingIds.length; idx++) {
       const id = pendingIds[idx];
       setProcessingId(id);
       setProcessingIndex(idx + 1);
       try {
         const { data, error } = await supabase.functions.invoke('process-transcriptions', {
-          body: { action: 'generate', transcriptionId: id }
+          body: { action: 'generate', transcriptionId: id },
+          headers
         });
 
         if (error) {
@@ -378,6 +388,10 @@ export default function TranscriptionsPage() {
     setProcessingIndex(0);
 
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
       // 1. Process pending items sequentially
       for (let i = 0; i < pendingItems.length; i++) {
         const item = pendingItems[i];
@@ -385,7 +399,8 @@ export default function TranscriptionsPage() {
         setProcessingIndex(i + 1);
         
         const { data, error } = await supabase.functions.invoke('process-transcriptions', {
-          body: { action: 'generate', transcriptionId: item.id }
+          body: { action: 'generate', transcriptionId: item.id },
+          headers
         });
 
         if (error) {
@@ -407,7 +422,8 @@ export default function TranscriptionsPage() {
 
       // 2. Call consolidation API
       const { data: consolidateResult, error: consolidateError } = await supabase.functions.invoke('process-transcriptions', {
-        body: { action: 'consolidate', transcriptionIds: selectedIds }
+        body: { action: 'consolidate', transcriptionIds: selectedIds },
+        headers
       });
 
       if (consolidateError) {
