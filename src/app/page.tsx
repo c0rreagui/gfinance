@@ -52,6 +52,7 @@ export default function HubPortal() {
       <div className="flex-1 min-h-screen flex flex-col items-center justify-center p-8 no-scrollbar relative overflow-hidden z-10">
         <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-emerald-500/5 rounded-full blur-[120px] pointer-events-none"></div>
         <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-blue-500/5 rounded-full blur-[120px] pointer-events-none"></div>
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-indigo-500/5 rounded-full blur-[120px] pointer-events-none"></div>
         
         <div className="max-w-5xl w-full space-y-12 text-center flex flex-col items-center animate-pulse">
           {/* Logo Skeleton */}
@@ -105,18 +106,19 @@ export default function HubPortal() {
       {/* Dynamic light bursts in background */}
       <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-emerald-500/5 rounded-full blur-[120px] pointer-events-none"></div>
       <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-blue-500/5 rounded-full blur-[120px] pointer-events-none"></div>
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-indigo-500/5 rounded-full blur-[120px] pointer-events-none"></div>
 
       <div className="max-w-5xl w-full space-y-12 animate-in text-center flex flex-col items-center">
         {/* Logo and Greeting Header */}
         <div className="space-y-4">
-          <div className="w-16 h-16 bg-gradient-to-tr from-emerald-500 to-blue-500 rounded-3xl flex items-center justify-center text-white text-4xl font-black shadow-2xl shadow-emerald-500/25 shadow-blue-500/25 mx-auto hover:scale-110 transition-transform duration-500">
+          <div className="w-16 h-16 bg-gradient-to-tr from-indigo-500 via-emerald-500 to-blue-500 rounded-3xl flex items-center justify-center text-white text-4xl font-black shadow-2xl shadow-indigo-500/25 shadow-emerald-500/25 shadow-blue-500/25 mx-auto hover:scale-110 transition-transform duration-500">
             G
           </div>
           <h1 className="text-4xl sm:text-5xl font-black tracking-[-0.03em] text-white mt-6">
-            G-Hub <span className="bg-gradient-to-r from-emerald-400 to-blue-400 bg-clip-text text-transparent">Command Center</span>
+            G-Hub <span className="bg-gradient-to-r from-indigo-400 via-emerald-400 to-blue-400 bg-clip-text text-transparent">Command Center</span>
           </h1>
           <p className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center justify-center gap-2 mt-2">
-            Olá, {user?.user_metadata?.full_name || user?.email?.split('@')[0]} <Sparkles className="w-4 h-4 text-emerald-400 animate-pulse" />
+            Olá, {user?.user_metadata?.full_name || user?.email?.split('@')[0]} <Sparkles className="w-4 h-4 text-indigo-400 animate-pulse" />
           </p>
         </div>
 

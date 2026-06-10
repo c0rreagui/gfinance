@@ -250,12 +250,16 @@ GOOGLE_CLIENT_SECRET=<salvo no gerenciador — não commitar>
 
 ## 📐 Design System
 
-- **Paleta:** Dark-first. `slate-950` base, `emerald-500` accent principal
+- **Paleta:** Dark-first. `slate-950` base com cores de acento exclusivas por módulo:
+  - **G-Hub (Ecosistema Central & Login):** Indigo/Violeta (`indigo-500` / `violet-600`) - simbolizando a central neural e controle geral.
+  - **G-Finance (Finanças & Patrimônio):** Emerald (`emerald-500` / `emerald-600`) - simbolizando riqueza e crescimento.
+  - **G-Work (Operações & Tarefas):** Electric Blue (`blue-500` / `blue-600`) - simbolizando foco e execução profissional.
 - **Glassmorphism:** `bg-white/5`, `backdrop-blur-md`, `border-white/10`
 - **Tipografia:** Tailwind default (Inter via Google Fonts no layout global)
 - **Bordas:** `rounded-[32px]` e `rounded-[40px]` para cards principais
 - **Animações:** `animate-in`, `chart-path` (SVG draw), stagger delay por `animationDelay`
 - **Referências visuais:** Apple, Stripe, Linear, Airbnb — dark editorial cinematográfico
+- **Isolamento Cromático:** A identidade de cor de cada módulo reflete-se dinamicamente na barra lateral, no cabeçalho (Header theme toggle e avatar) e nos acentos interativos da interface.
 
 ---
 

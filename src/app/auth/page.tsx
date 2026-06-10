@@ -188,11 +188,11 @@ export default function AuthPage() {
       <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md p-10 rounded-[48px] border border-white/50 dark:border-white/5 shadow-2xl max-w-md w-full animate-in relative overflow-hidden">
         
         {/* Glow effects */}
-        <div className="absolute -right-20 -top-20 w-48 h-48 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none"></div>
-        <div className="absolute -left-20 -bottom-20 w-48 h-48 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none"></div>
+        <div className="absolute -right-20 -top-20 w-48 h-48 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none"></div>
+        <div className="absolute -left-20 -bottom-20 w-48 h-48 bg-violet-500/10 rounded-full blur-3xl pointer-events-none"></div>
 
         <div className="flex flex-col items-center mb-8">
-          <div className="w-12 h-12 bg-emerald-500 rounded-2xl flex items-center justify-center text-white text-3xl font-black shadow-lg shadow-emerald-500/20 mb-4">
+          <div className="w-12 h-12 bg-indigo-500 rounded-2xl flex items-center justify-center text-white text-3xl font-black shadow-lg shadow-indigo-500/20 mb-4">
             G
           </div>
           <h2 className="text-2xl font-black dark:text-white tracking-tight">G-Hub</h2>
@@ -231,14 +231,14 @@ export default function AuthPage() {
                     key={index}
                     className={`w-4 h-4 rounded-full border-2 transition-all duration-200 ${
                       pinDigits[index] !== undefined
-                        ? 'bg-emerald-500 border-emerald-500 scale-110 shadow-lg shadow-emerald-500/20'
+                        ? 'bg-indigo-500 border-indigo-500 scale-110 shadow-lg shadow-indigo-500/20'
                         : 'border-slate-300 dark:border-slate-600'
                     }`}
                   />
                 ))}
               </div>
               {loading && (
-                <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest animate-pulse">
+                <p className="text-[10px] font-black text-indigo-500 uppercase tracking-widest animate-pulse">
                   Descriptografando Sessão Segura...
                 </p>
               )}
@@ -252,7 +252,7 @@ export default function AuthPage() {
                   type="button"
                   onClick={() => handlePinKey(num)}
                   disabled={loading}
-                  className="w-16 h-16 rounded-full glass bg-white/40 dark:bg-slate-700/40 dark:text-white font-black text-xl hover:bg-emerald-500 hover:text-white transition-all duration-250 active:scale-95 flex items-center justify-center cursor-pointer disabled:opacity-50"
+                  className="w-16 h-16 rounded-full glass bg-white/40 dark:bg-slate-700/40 dark:text-white font-black text-xl hover:bg-indigo-500 hover:text-white transition-all duration-250 active:scale-95 flex items-center justify-center cursor-pointer disabled:opacity-50"
                 >
                   {num}
                 </button>
@@ -260,7 +260,7 @@ export default function AuthPage() {
               <button
                 type="button"
                 onClick={handleSwitchToPassword}
-                className="w-16 h-16 rounded-full dark:text-white font-bold text-xs hover:text-emerald-500 transition-all flex items-center justify-center text-center cursor-pointer"
+                className="w-16 h-16 rounded-full dark:text-white font-bold text-xs hover:text-indigo-500 transition-all flex items-center justify-center text-center cursor-pointer"
               >
                 Senha
               </button>
@@ -268,7 +268,7 @@ export default function AuthPage() {
                 type="button"
                 onClick={() => handlePinKey('0')}
                 disabled={loading}
-                className="w-16 h-16 rounded-full glass bg-white/40 dark:bg-slate-700/40 dark:text-white font-black text-xl hover:bg-emerald-500 hover:text-white transition-all duration-250 active:scale-95 flex items-center justify-center cursor-pointer disabled:opacity-50"
+                className="w-16 h-16 rounded-full glass bg-white/40 dark:bg-slate-700/40 dark:text-white font-black text-xl hover:bg-indigo-500 hover:text-white transition-all duration-250 active:scale-95 flex items-center justify-center cursor-pointer disabled:opacity-50"
               >
                 0
               </button>
@@ -285,7 +285,7 @@ export default function AuthPage() {
             <div className="text-center">
               <button
                 onClick={handleSwitchToPassword}
-                className="text-xs font-bold text-emerald-500 hover:underline cursor-pointer"
+                className="text-xs font-bold text-indigo-500 hover:underline cursor-pointer"
               >
                 Entrar com e-mail e senha
               </button>
@@ -305,7 +305,7 @@ export default function AuthPage() {
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
                     placeholder="Seu nome"
-                    className="w-full pl-12 pr-4 py-3.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/5 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:text-white"
+                    className="w-full pl-12 pr-4 py-3.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/5 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:text-white"
                   />
                 </div>
               </div>
@@ -321,7 +321,7 @@ export default function AuthPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="seu-email@exemplo.com"
-                  className="w-full pl-12 pr-4 py-3.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/5 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:text-white"
+                  className="w-full pl-12 pr-4 py-3.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/5 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:text-white"
                 />
               </div>
             </div>
@@ -336,7 +336,7 @@ export default function AuthPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Sua senha secreta"
-                  className="w-full pl-12 pr-4 py-3.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/5 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:text-white"
+                  className="w-full pl-12 pr-4 py-3.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/5 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:text-white"
                 />
               </div>
             </div>
@@ -344,7 +344,7 @@ export default function AuthPage() {
             <button 
               type="submit"
               disabled={loading}
-              className="w-full py-4 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-black rounded-2xl uppercase tracking-widest shadow-xl shadow-emerald-500/20 transition-all cursor-pointer flex justify-center items-center gap-2"
+              className="w-full py-4 bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-black rounded-2xl uppercase tracking-widest shadow-xl shadow-indigo-500/20 transition-all cursor-pointer flex justify-center items-center gap-2"
             >
               {loading ? (
                 <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></div>
@@ -381,7 +381,7 @@ export default function AuthPage() {
               <button
                 type="button"
                 onClick={() => setIsSignUp(!isSignUp)}
-                className="text-xs font-bold text-emerald-500 hover:underline cursor-pointer block mx-auto"
+                className="text-xs font-bold text-indigo-500 hover:underline cursor-pointer block mx-auto"
               >
                 {isSignUp ? 'Já tem uma conta? Faça login' : 'Primeira vez? Crie sua conta grátis'}
               </button>
@@ -389,7 +389,7 @@ export default function AuthPage() {
                 <button
                   type="button"
                   onClick={() => setShowPinScreen(true)}
-                  className="text-xs font-bold text-slate-400 hover:text-emerald-500 hover:underline cursor-pointer block mx-auto"
+                  className="text-xs font-bold text-slate-400 hover:text-indigo-500 hover:underline cursor-pointer block mx-auto"
                 >
                   Voltar para login via PIN
                 </button>

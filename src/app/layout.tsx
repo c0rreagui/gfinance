@@ -52,7 +52,9 @@ export default function RootLayout({
               <Sidebar />
             </Suspense>
             <div className="flex-1 flex flex-col overflow-hidden">
-              <Header />
+              <Suspense fallback={<div className="h-20 bg-slate-950/20 border-b border-slate-800/80 backdrop-blur-xl"></div>}>
+                <Header />
+              </Suspense>
               <div className="flex-1 overflow-hidden">
                 {children}
               </div>
