@@ -252,7 +252,8 @@ serve(async (req: Request) => {
     );
 
     // Retrieve and verify the user
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    const cleanToken = authHeader.replace("Bearer ", "");
+    const { data: { user }, error: authError } = await supabase.auth.getUser(cleanToken);
     if (authError || !user) {
       return new Response(JSON.stringify({ error: "Sessão inválida ou expirada." }), {
         status: 401,
