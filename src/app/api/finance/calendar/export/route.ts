@@ -78,7 +78,7 @@ export async function GET(request: Request) {
       const eventStart = formatICSDate(rem.due_date);
 
       icsContent.push('BEGIN:VEVENT');
-      icsContent.push(`UID:reminder-${rem.id}@gfinance.hub`);
+      icsContent.push(`UID:reminder-${rem.id}@ghub.hub`);
       icsContent.push(`DTSTAMP:${stamp}`);
       icsContent.push(`DTSTART;VALUE=DATE:${eventStart}`);
       icsContent.push(`SUMMARY:[${status}] ${cleanTitle}`);
@@ -97,7 +97,7 @@ export async function GET(request: Request) {
       status: 200,
       headers: {
         'Content-Type': 'text/calendar; charset=utf-8',
-        'Content-Disposition': `attachment; filename="gfinance-calendar-${userId.substring(0, 8)}.ics"`,
+        'Content-Disposition': `attachment; filename="ghub-calendar-${userId.substring(0, 8)}.ics"`,
         'Cache-Control': 'no-cache, no-store, must-revalidate',
       },
     });
