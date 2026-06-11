@@ -16,6 +16,8 @@ interface WorkItemCardProps {
   style?: React.CSSProperties;
   isDragging?: boolean;
   isOverlay?: boolean;
+  isSelected?: boolean;
+  showCheckbox?: boolean;
 }
 
 export const WorkItemCard: React.FC<WorkItemCardProps> = ({
@@ -29,7 +31,9 @@ export const WorkItemCard: React.FC<WorkItemCardProps> = ({
   innerRef,
   style,
   isDragging,
-  isOverlay
+  isOverlay,
+  isSelected,
+  showCheckbox
 }) => {
   const formattedDate = item.due_date
     ? new Date(item.due_date).toLocaleDateString('pt-BR', {
@@ -50,12 +54,22 @@ export const WorkItemCard: React.FC<WorkItemCardProps> = ({
           ? 'bg-white/80 dark:bg-slate-900/80 border-blue-500/50 shadow-2xl ring-2 ring-blue-500/30 scale-[1.03] -rotate-1 cursor-grabbing z-[9999]'
           : isDragging
           ? 'opacity-25 border-dashed border-slate-300 dark:border-white/10 bg-slate-100/10 dark:bg-slate-950/10 shadow-none pointer-events-none'
+          : isSelected
+          ? 'border-blue-500 bg-blue-500/5 dark:bg-blue-500/5 shadow-md shadow-blue-500/5 cursor-pointer'
           : 'border-slate-200 dark:border-white/5 bg-white/40 dark:bg-slate-900/40 hover:bg-white/60 dark:hover:bg-slate-900/60 shadow-sm hover:shadow-md cursor-grab active:cursor-grabbing'
       }`}
     >
       {/* Top Section: Badges & Drag Handle */}
       <div className="flex items-center justify-between gap-2 mb-3">
         <div className="flex items-center gap-1.5 flex-wrap">
+          {showCheckbox && (
+            <input
+              type="checkbox"
+              checked={isSelected}
+              readOnly
+              className="rounded border-slate-300 dark:border-white/10 text-blue-500 focus:ring-blue-500/30 w-3.5 h-3.5 bg-slate-950 mr-1.5 cursor-pointer"
+            />
+          )}
           <TypeBadge value={item.type} />
           <PriorityBadge value={item.priority} />
         </div>

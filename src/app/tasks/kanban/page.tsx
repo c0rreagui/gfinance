@@ -39,9 +39,13 @@ const DraggableCard: React.FC<{
   projectName?: string;
   parentTitle?: string;
   onClick: () => void;
-}> = ({ item, projectName, parentTitle, onClick }) => {
+  isBulkMode?: boolean;
+  isSelected?: boolean;
+  onSelectToggle?: () => void;
+}> = ({ item, projectName, parentTitle, onClick, isBulkMode, isSelected, onSelectToggle }) => {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: item.id,
+    disabled: isBulkMode,
   });
 
   return (
@@ -49,11 +53,13 @@ const DraggableCard: React.FC<{
       item={item}
       projectName={projectName}
       parentTitle={parentTitle}
-      onClick={onClick}
+      onClick={isBulkMode ? onSelectToggle : onClick}
       innerRef={setNodeRef}
       isDragging={isDragging}
-      listeners={listeners}
-      attributes={attributes}
+      listeners={isBulkMode ? {} : listeners}
+      attributes={isBulkMode ? {} : attributes}
+      isSelected={isSelected}
+      showCheckbox={isBulkMode}
     />
   );
 };
@@ -71,6 +77,9 @@ interface KanbanColumnProps {
   parentTitleResolver: (id: string | null) => string | undefined;
   onCardClick: (item: WorkItem) => void;
   onAddTaskClick: () => void;
+  isBulkMode?: boolean;
+  selectedIds?: string[];
+  onSelectToggle?: (id: string) => void;
 }
 
 const KanbanColumn: React.FC<KanbanColumnProps> = ({
@@ -81,7 +90,10 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
   projectNameResolver,
   parentTitleResolver,
   onCardClick,
-  onAddTaskClick
+  onAddTaskClick,
+  isBulkMode,
+  selectedIds,
+  onSelectToggle
 }) => {
   const { setNodeRef, isOver } = useDroppable({
     id: id,
@@ -127,6 +139,9 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
               projectName={projectNameResolver(item.project_id)}
               parentTitle={parentTitleResolver(item.parent_id)}
               onClick={() => onCardClick(item)}
+              isBulkMode={isBulkMode}
+              isSelected={selectedIds?.includes(item.id)}
+              onSelectToggle={() => onSelectToggle?.(item.id)}
             />
           ))
         )}
@@ -143,6 +158,8 @@ export default function KanbanPage() {
   const { user, projects, workItems, refreshData } = useGWork();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProject, setSelectedProject] = useState<string>('');
+  const [selectedType, setSelectedType] = useState<string>('all');
+  const [selectedParent, setSelectedParent] = useState<string>('');
   
   // Drag and Drop active states
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -162,6 +179,11 @@ export default function KanbanPage() {
   const [editDueDate, setEditDueDate] = useState('');
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  // Bulk selection states
+  const [isBulkMode, setIsBulkMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkActionLoading, setBulkActionLoading] = useState(false);
 
   // Setup dnd sensors with activation constraints
   const sensors = useSensors(
@@ -199,7 +221,7 @@ export default function KanbanPage() {
           .eq('id', activeId);
         
         if (error) throw error;
-        // Data refreshes instantly via layout realtime subscription!
+        await refreshData();
       } catch (err) {
         console.error('[Kanban] Failed to move item:', err);
       }
@@ -238,6 +260,7 @@ export default function KanbanPage() {
 
       if (error) throw error;
       setEditingItem(null);
+      await refreshData();
     } catch (err) {
       console.error('[Kanban] Failed to update item:', err);
     } finally {
@@ -269,6 +292,20 @@ export default function KanbanPage() {
   const getProjectName = (projId: string | null) => projects.find(p => p.id === projId)?.name;
   const getParentTitle = (parentId: string | null) => workItems.find(w => w.id === parentId)?.title;
 
+  // Helper to get all descendant IDs of a parent item recursively
+  const getDescendantsList = (parentId: string): string[] => {
+    const list: string[] = [];
+    const traverse = (id: string) => {
+      const children = workItems.filter(w => w.parent_id === id);
+      for (const child of children) {
+        list.push(child.id);
+        traverse(child.id);
+      }
+    };
+    traverse(parentId);
+    return list;
+  };
+
   // Filter items
   const filteredItems = workItems.filter(item => {
     const matchesSearch = item.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -276,8 +313,89 @@ export default function KanbanPage() {
     
     const matchesProject = !selectedProject || item.project_id === selectedProject;
 
-    return matchesSearch && matchesProject;
+    let matchesType = true;
+    if (selectedType === 'actionable') {
+      matchesType = item.type === 'task' || item.type === 'story';
+    } else if (selectedType !== 'all') {
+      matchesType = item.type === selectedType;
+    }
+
+    let matchesParent = true;
+    if (selectedParent) {
+      const descendants = getDescendantsList(selectedParent);
+      matchesParent = descendants.includes(item.id);
+    }
+
+    return matchesSearch && matchesProject && matchesType && matchesParent;
   });
+
+  // Extract all unique parent items (Epics & Features) to display in the filter dropdown
+  const parentItemsForFilter = workItems.filter(item => item.type === 'epic' || item.type === 'feature');
+
+  // Toggle selection for bulk mode
+  const handleSelectToggle = (id: string) => {
+    setSelectedIds(prev => 
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  // Bulk Status Change
+  const handleBulkStatusChange = async (newStatus: WorkItemStatus) => {
+    setBulkActionLoading(true);
+    try {
+      const { error } = await supabase
+        .from('tasks')
+        .update({ status: newStatus })
+        .in('id', selectedIds);
+      if (error) throw error;
+      setSelectedIds([]);
+      setIsBulkMode(false);
+      await refreshData();
+    } catch (err) {
+      console.error('[Kanban] Failed bulk status update:', err);
+    } finally {
+      setBulkActionLoading(false);
+    }
+  };
+
+  // Bulk Priority Change
+  const handleBulkPriorityChange = async (newPriority: WorkItemPriority) => {
+    setBulkActionLoading(true);
+    try {
+      const { error } = await supabase
+        .from('tasks')
+        .update({ priority: newPriority })
+        .in('id', selectedIds);
+      if (error) throw error;
+      setSelectedIds([]);
+      setIsBulkMode(false);
+      await refreshData();
+    } catch (err) {
+      console.error('[Kanban] Failed bulk priority update:', err);
+    } finally {
+      setBulkActionLoading(false);
+    }
+  };
+
+  // Bulk Delete
+  const handleBulkDelete = async () => {
+    if (!confirm(`Deseja realmente excluir permanentemente os ${selectedIds.length} itens de trabalho selecionados?`)) return;
+    setBulkActionLoading(true);
+    try {
+      const { error } = await supabase
+        .from('tasks')
+        .delete()
+        .in('id', selectedIds);
+      if (error) throw error;
+      setSelectedIds([]);
+      setIsBulkMode(false);
+      await refreshData();
+    } catch (err) {
+      console.error('[Kanban] Failed bulk delete:', err);
+    } finally {
+      setBulkActionLoading(false);
+    }
+  };
 
   return (
     <main className="flex-1 overflow-hidden flex flex-col h-full bg-slate-50/10 dark:bg-slate-950/10">
@@ -298,7 +416,7 @@ export default function KanbanPage() {
               placeholder="Buscar..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full md:w-48 pl-9 pr-4 py-2 rounded-xl border border-slate-200 dark:border-white/5 bg-white/50 dark:bg-slate-950/50 text-slate-900 dark:text-white text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+              className="w-full md:w-40 pl-9 pr-4 py-2 rounded-xl border border-slate-200 dark:border-white/5 bg-white/50 dark:bg-slate-950/50 text-slate-900 dark:text-white text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/30"
             />
           </div>
 
@@ -313,6 +431,49 @@ export default function KanbanPage() {
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
           </select>
+
+          {/* Type filter */}
+          <select
+            value={selectedType}
+            onChange={(e) => setSelectedType(e.target.value)}
+            className="px-3 py-2 rounded-xl border border-slate-200 dark:border-white/5 bg-white/50 dark:bg-slate-950/50 text-slate-700 dark:text-slate-300 text-xs focus:outline-none cursor-pointer"
+          >
+            <option value="all">Todos os Tipos</option>
+            <option value="actionable">Itens Acionáveis (Stories/Tasks)</option>
+            <option value="epic">Apenas Épicos</option>
+            <option value="feature">Apenas Features</option>
+            <option value="story">Apenas Stories</option>
+            <option value="task">Apenas Tarefas</option>
+          </select>
+
+          {/* Parent filter */}
+          <select
+            value={selectedParent}
+            onChange={(e) => setSelectedParent(e.target.value)}
+            className="px-3 py-2 rounded-xl border border-slate-200 dark:border-white/5 bg-white/50 dark:bg-slate-950/50 text-slate-700 dark:text-slate-300 text-xs focus:outline-none cursor-pointer max-w-[150px] truncate"
+          >
+            <option value="">Foco (Pai)</option>
+            {parentItemsForFilter.map(item => (
+              <option key={item.id} value={item.id}>
+                {item.type === 'epic' ? '👑' : '✨'} {item.title}
+              </option>
+            ))}
+          </select>
+
+          {/* Bulk select toggle */}
+          <button
+            onClick={() => {
+              setIsBulkMode(!isBulkMode);
+              setSelectedIds([]);
+            }}
+            className={`px-3 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
+              isBulkMode 
+                ? 'bg-blue-500 text-white shadow-md shadow-blue-500/20' 
+                : 'border border-slate-200 dark:border-white/5 bg-white/50 dark:bg-slate-950/50 hover:bg-slate-100 dark:hover:bg-white/5 text-slate-500 dark:text-slate-400'
+            }`}
+          >
+            {isBulkMode ? 'Sair da Seleção' : 'Seleção em Massa'}
+          </button>
 
           {/* Add task button */}
           <button
@@ -354,6 +515,9 @@ export default function KanbanPage() {
                       setCreateColumn(colId);
                       setIsCreateOpen(true);
                     }}
+                    isBulkMode={isBulkMode}
+                    selectedIds={selectedIds}
+                    onSelectToggle={handleSelectToggle}
                   />
                 </div>
               );
@@ -543,6 +707,67 @@ export default function KanbanPage() {
             </div>
 
           </div>
+        </div>
+      )}
+      {/* Floating Bulk Actions Bar */}
+      {isBulkMode && selectedIds.length > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-4 px-6 py-3 bg-slate-900/90 dark:bg-slate-950/90 border border-white/10 rounded-2xl shadow-2xl backdrop-blur-md animate-in fade-in slide-in-from-bottom-4 duration-300">
+          <div className="text-[10px] font-black text-white uppercase tracking-wider whitespace-nowrap">
+            {selectedIds.length} {selectedIds.length === 1 ? 'Selecionado' : 'Selecionados'}
+          </div>
+
+          <div className="h-4 w-px bg-white/10" />
+
+          {/* Action: Bulk Status Change */}
+          <div className="flex items-center gap-2">
+            <select
+              value=""
+              onChange={(e) => handleBulkStatusChange(e.target.value as WorkItemStatus)}
+              disabled={bulkActionLoading}
+              className="bg-white/5 border border-white/10 hover:border-white/20 text-white text-[9px] font-bold uppercase tracking-wider rounded-lg px-2.5 py-1.5 cursor-pointer focus:outline-none focus:ring-0 disabled:opacity-50"
+            >
+              <option value="" className="bg-slate-900 text-white">Mudar Estado</option>
+              {Object.entries(WORK_ITEM_STATUS_CONFIG).map(([key, cfg]) => (
+                <option key={key} value={key} className="bg-slate-900 text-white">{cfg.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Action: Bulk Priority Change */}
+          <div className="flex items-center gap-2">
+            <select
+              value=""
+              onChange={(e) => handleBulkPriorityChange(e.target.value as WorkItemPriority)}
+              disabled={bulkActionLoading}
+              className="bg-white/5 border border-white/10 hover:border-white/20 text-white text-[9px] font-bold uppercase tracking-wider rounded-lg px-2.5 py-1.5 cursor-pointer focus:outline-none focus:ring-0 disabled:opacity-50"
+            >
+              <option value="" className="bg-slate-900 text-white">Mudar Prioridade</option>
+              {Object.entries(WORK_ITEM_PRIORITY_CONFIG).map(([key, cfg]) => (
+                <option key={key} value={key} className="bg-slate-900 text-white">{cfg.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Action: Bulk Delete */}
+          <button
+            onClick={handleBulkDelete}
+            disabled={bulkActionLoading}
+            className="flex items-center gap-1 bg-red-500/10 hover:bg-red-500/20 disabled:opacity-50 text-red-500 text-[9px] font-bold uppercase tracking-wider border border-red-500/20 rounded-lg px-3 py-1.5 cursor-pointer transition-all"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>Excluir</span>
+          </button>
+
+          <div className="h-4 w-px bg-white/10" />
+
+          {/* Cancel Selection */}
+          <button
+            onClick={() => setSelectedIds([])}
+            disabled={bulkActionLoading}
+            className="text-white/60 hover:text-white text-[9px] font-bold uppercase tracking-wider cursor-pointer"
+          >
+            Limpar
+          </button>
         </div>
       )}
     </main>
