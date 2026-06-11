@@ -1,8 +1,10 @@
 /**
  * src/app/api/ai/sessions/route.ts
  *
- * API Route para gerenciar as Sessões de Chat do Analista Financeiro.
- * Permite listar todas as conversas e instanciar uma nova sessão perfeitamente integrada.
+ * API Route para gerenciar Sessões de Chat, isoladas por módulo.
+ * O parâmetro `module` ('finance' | 'work') filtra as sessões para
+ * garantir que o CFO Assistant (G-Finance) e o CPO Assistant (G-Work)
+ * nunca compartilhem histórico de conversas.
  */
 
 import { NextResponse } from 'next/server';
@@ -10,7 +12,7 @@ import { createSupabaseServerClient } from '@/lib/supabase-server';
 
 export const runtime = 'nodejs';
 
-// GET: Listar todas as sessões do usuário
+// GET: Listar sessões do usuário filtradas por módulo
 export async function GET(req: Request): Promise<NextResponse> {
   try {
     const authHeader = req.headers.get('Authorization');
@@ -35,11 +37,16 @@ export async function GET(req: Request): Promise<NextResponse> {
       );
     }
 
-    // Listar apenas sessões ativas (que contêm mensagens) ordenadas pela atualização mais recente
+    // Extrair o módulo da query string (padrão: finance)
+    const url = new URL(req.url);
+    const module = url.searchParams.get('module') === 'work' ? 'work' : 'finance';
+
+    // Listar sessões ativas filtradas por módulo e usuário
     const { data: chatSessions, error: listError } = await supabase
       .from('chat_sessions')
-      .select('id, title, created_at, updated_at, chat_messages!inner(id)')
+      .select('id, title, created_at, updated_at, module, chat_messages!inner(id)')
       .eq('user_id', user.id)
+      .eq('module', module)
       .order('updated_at', { ascending: false });
 
     if (listError) {
@@ -48,7 +55,8 @@ export async function GET(req: Request): Promise<NextResponse> {
 
     return NextResponse.json({
       success: true,
-      sessions: chatSessions || []
+      sessions: chatSessions || [],
+      module
     });
 
   } catch (err: any) {
@@ -60,7 +68,7 @@ export async function GET(req: Request): Promise<NextResponse> {
   }
 }
 
-// POST: Criar uma nova sessão de chat
+// POST: Criar uma nova sessão de chat com módulo
 export async function POST(req: Request): Promise<NextResponse> {
   try {
     const authHeader = req.headers.get('Authorization');
@@ -86,23 +94,23 @@ export async function POST(req: Request): Promise<NextResponse> {
     }
 
     let title = 'Nova Conversa';
+    let module = 'finance';
     try {
       const body = await req.json();
-      if (body && body.title) {
-        title = body.title;
-      }
+      if (body?.title) title = body.title;
+      if (body?.module === 'work') module = 'work';
     } catch {
       // Ignorar corpo ausente
     }
 
-    // Criar a nova sessão
     const { data: newSession, error: createError } = await supabase
       .from('chat_sessions')
       .insert({
         user_id: user.id,
-        title: title
+        title,
+        module
       })
-      .select('id, title, created_at, updated_at')
+      .select('id, title, created_at, updated_at, module')
       .single();
 
     if (createError) {

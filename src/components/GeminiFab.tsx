@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Sparkles, X, Bot } from 'lucide-react';
+import { Sparkles, X } from 'lucide-react';
 import { AiChatHub } from '@/app/components/AiChatHub';
 import { usePathname } from 'next/navigation';
 
@@ -9,18 +9,40 @@ export function GeminiFab() {
   const [isOpen, setIsOpen] = useState(false);
   const pathname = usePathname();
 
-  // Hide the FAB on public pages like Auth
+  // Esconder em páginas públicas
   if (pathname === '/auth') return null;
+
+  // Detectar módulo pelo pathname
+  const isWork = pathname?.startsWith('/tasks');
+  const module = isWork ? 'work' : 'finance';
+
+  // Configuração visual por módulo
+  const cfg = {
+    label: isWork ? 'CPO Assistant' : 'CFO Assistant',
+    // FAB button colors
+    fabBorder: isWork ? 'border-blue-500/30' : 'border-emerald-500/30',
+    fabText: isWork ? 'text-blue-400' : 'text-emerald-400',
+    fabGlow: isWork
+      ? 'shadow-[0_0_20px_rgba(59,130,246,0.15)] hover:shadow-[0_0_30px_rgba(59,130,246,0.3)]'
+      : 'shadow-[0_0_20px_rgba(16,185,129,0.15)] hover:shadow-[0_0_30px_rgba(16,185,129,0.3)]',
+    fabPulse: isWork
+      ? 'from-blue-500 to-indigo-500'
+      : 'from-emerald-500 to-teal-500',
+    // Panel colors
+    panelBorder: isWork ? 'border-blue-500/20' : 'border-emerald-500/20',
+    panelGlow: isWork ? 'shadow-blue-500/5' : 'shadow-emerald-500/5',
+    labelColor: isWork ? 'text-blue-400' : 'text-emerald-400',
+  };
 
   return (
     <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end">
-      {/* Floating Gemini Chat Panel */}
+      {/* Floating Chat Panel */}
       {isOpen && (
-        <div className="mb-4 w-96 rounded-[32px] border border-emerald-500/20 bg-slate-950/95 backdrop-blur-xl shadow-[0_0_50px_rgba(0,0,0,0.8)] shadow-emerald-500/5 overflow-hidden flex flex-col h-[520px] animate-in slide-in-from-bottom-5 duration-300">
+        <div className={`mb-4 w-96 rounded-[32px] border ${cfg.panelBorder} bg-slate-950/95 backdrop-blur-xl shadow-[0_0_50px_rgba(0,0,0,0.8)] ${cfg.panelGlow} overflow-hidden flex flex-col h-[520px] animate-in slide-in-from-bottom-5 duration-300`}>
           <div className="bg-slate-900/40 border-b border-white/5 px-6 py-4 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-2">
-              <Bot className="w-4 h-4 text-emerald-400" />
-              <span className="text-[10px] font-black text-white tracking-widest uppercase">CFO Assistant</span>
+              <Sparkles className={`w-4 h-4 ${cfg.labelColor}`} />
+              <span className="text-[10px] font-black text-white tracking-widest uppercase">{cfg.label}</span>
             </div>
             <button
               onClick={() => setIsOpen(false)}
@@ -38,12 +60,12 @@ export function GeminiFab() {
       {/* Floating Action Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="w-14 h-14 rounded-full bg-slate-950 hover:bg-slate-900 border border-emerald-500/30 text-emerald-400 hover:text-white flex items-center justify-center shadow-[0_0_20px_rgba(16,185,129,0.15)] hover:shadow-[0_0_30px_rgba(16,185,129,0.3)] transition-all duration-300 hover:scale-105 active:scale-95 group relative cursor-pointer"
-        aria-label="Abrir assistente Gemini"
+        className={`w-14 h-14 rounded-full bg-slate-950 hover:bg-slate-900 border ${cfg.fabBorder} ${cfg.fabText} hover:text-white flex items-center justify-center ${cfg.fabGlow} transition-all duration-300 hover:scale-105 active:scale-95 group relative cursor-pointer`}
+        aria-label={`Abrir ${cfg.label}`}
       >
-        {/* Pulsing light behind the FAB */}
-        <span className="absolute -inset-0.5 rounded-full bg-gradient-to-tr from-emerald-500 to-teal-500 blur opacity-30 group-hover:opacity-60 transition duration-300 animate-pulse"></span>
-        
+        {/* Pulsing glow behind the FAB */}
+        <span className={`absolute -inset-0.5 rounded-full bg-gradient-to-tr ${cfg.fabPulse} blur opacity-30 group-hover:opacity-60 transition duration-300 animate-pulse`}></span>
+
         <span className="relative flex items-center justify-center">
           {isOpen ? (
             <X className="w-6 h-6 transition-transform duration-300 rotate-90" />

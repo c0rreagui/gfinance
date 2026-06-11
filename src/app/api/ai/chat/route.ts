@@ -1,21 +1,23 @@
 /**
  * src/app/api/ai/chat/route.ts
  *
- * API Route para o Chat do Analista Financeiro (Gemini AI Brain).
- * Autentica o usuário, recupera seus dados reais do Supabase (respeitando o RLS),
- * gerencia o histórico de sessões persistentes, injeta a memória global perene (profiles.ai_memory)
- * e executa a compactação de histórico (/compact manual e automática).
+ * API Route unificada para o Chat do G-Finance (CFO) e G-Work (CPO).
+ * O parâmetro `module` ('finance' | 'work') determina:
+ * - Qual assistente é invocado (generateFinancialResponse ou generateWorkResponse)
+ * - Qual memória perene é lida/escrita (ai_memory ou ai_memory_work)
+ * - Qual contexto de dados é injetado no prompt
  */
 
 import { NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
 import { generateFinancialResponse } from '@/lib/gemini';
-import { compactSessionHistory } from '@/lib/memory';
+import { generateWorkResponse } from '@/lib/gemini-work';
+import { compactSessionHistory, AppModule } from '@/lib/memory';
 
 export const runtime = 'nodejs';
 
 export async function POST(req: Request): Promise<NextResponse> {
-  // 1. Autenticação via cookies ou Header Authorization com o Supabase Server Client
+  // 1. Autenticação via cookies ou Header Authorization
   const authHeader = req.headers.get('Authorization');
   const supabaseToken = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null;
 
@@ -51,7 +53,9 @@ export async function POST(req: Request): Promise<NextResponse> {
     );
   }
 
-  const { message, sessionId } = body;
+  const { message, sessionId, module: rawModule } = body;
+  const module: AppModule = rawModule === 'work' ? 'work' : 'finance';
+
   if (!message || typeof message !== 'string') {
     return NextResponse.json(
       { error: 'Mensagem inválida. Campo "message" é obrigatório.' },
@@ -60,16 +64,16 @@ export async function POST(req: Request): Promise<NextResponse> {
   }
 
   try {
-    // 3. Gerenciar / Criar Sessão Persistente caso não exista
+    // 3. Gerenciar / Criar Sessão Persistente com módulo correto
     let finalSessionId = sessionId;
 
     if (!finalSessionId) {
-      // Auto-provisionar uma nova sessão de conversa para o usuário
       const { data: newSession, error: createSessionError } = await supabase
         .from('chat_sessions')
         .insert({
           user_id: user.id,
-          title: message.length > 30 ? `${message.substring(0, 27)}...` : message
+          title: message.length > 30 ? `${message.substring(0, 27)}...` : message,
+          module
         })
         .select('id')
         .single();
@@ -80,10 +84,10 @@ export async function POST(req: Request): Promise<NextResponse> {
       finalSessionId = newSession.id;
     }
 
-    // 4. Se a mensagem for o comando estrito de compactação, intercepta e roda o processo
+    // 4. Comando de compactação manual
     if (message.trim() === '/compact') {
       console.info(`[Compact] Executando compactação manual para a sessão: ${finalSessionId}`);
-      const compactResult = await compactSessionHistory(supabase, user.id, finalSessionId);
+      const compactResult = await compactSessionHistory(supabase, user.id, finalSessionId, module);
       
       if (!compactResult.success) {
         return NextResponse.json(
@@ -94,13 +98,13 @@ export async function POST(req: Request): Promise<NextResponse> {
 
       return NextResponse.json({
         success: true,
-        response: 'Consciência consolidada com sucesso! Toda a bagagem de conhecimento e insights desta conversa foram compactados e integrados à sua memória de longo prazo permanente do perfil.',
+        response: 'Consciência consolidada com sucesso! Toda a bagagem de conhecimento e insights desta conversa foram compactados e integrados à sua memória de longo prazo permanente.',
         compacted: true,
         sessionId: finalSessionId
       });
     }
 
-    // 5. Salvar a nova mensagem do usuário no banco de dados para auditoria perene
+    // 5. Salvar a mensagem do usuário
     const { error: insertUserMsgError } = await supabase
       .from('chat_messages')
       .insert({
@@ -114,16 +118,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       throw new Error(`Falha ao registrar mensagem do usuário: ${insertUserMsgError.message}`);
     }
 
-    // 6. Buscar memória perene do usuário do seu perfil Supabase
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('ai_memory')
-      .eq('id', user.id)
-      .single();
-
-    const aiMemory = profile?.ai_memory || '';
-
-    // 7. Buscar histórico ativo da sessão (mensagens que NÃO foram compactadas para sliding window)
+    // 6. Buscar histórico ativo da sessão (sliding window)
     const { data: dbHistory, error: historyError } = await supabase
       .from('chat_messages')
       .select('role, content')
@@ -135,63 +130,93 @@ export async function POST(req: Request): Promise<NextResponse> {
       throw new Error(`Falha ao resgatar histórico de mensagens: ${historyError.message}`);
     }
 
-    // Mapear para o formato esperado pelo generateFinancialResponse
     const chatHistory = (dbHistory || [])
-      .filter((msg) => msg.content !== message) // Excluir a mensagem atual do histórico já inserido para evitar redundância na resposta
+      .filter((msg) => msg.content !== message)
       .map((msg) => ({
         role: msg.role as 'user' | 'model',
         parts: [{ text: msg.content }]
       }));
 
-    // 8. Buscar contexto de finanças reais do Guilherme (RLS do Postgres garante o isolamento)
-    const [
-      { data: dbBalances },
-      { data: dbTransactions },
-      { data: dbGoals },
-      { data: dbReminders },
-      { data: dbCards }
-    ] = await Promise.all([
-      supabase.from('balances').select('label, amount, trend, icon, type').eq('user_id', user.id).limit(20),
-      supabase.from('transactions').select('date, description, amount, category, card_id').eq('user_id', user.id).order('date', { ascending: false }).limit(80),
-      supabase.from('goals').select('name, target_amount, current_amount').eq('user_id', user.id).limit(20),
-      supabase.from('reminders').select('title, due_date, amount, urgency, card_id').eq('user_id', user.id).eq('paid', false).order('due_date', { ascending: true }).limit(5),
-      supabase.from('credit_cards').select('card_name, card_limit, closing_day, due_day, last_four').eq('user_id', user.id)
-    ]);
+    let aiResponse: string;
 
-    const financialContext = {
-      balances: dbBalances || [],
-      transactions: dbTransactions || [],
-      goals: dbGoals || [],
-      reminders: dbReminders || [],
-      creditCards: dbCards || []
-    };
+    if (module === 'work') {
+      // =====================================================================
+      // G-WORK — CPO Assistant
+      // =====================================================================
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('ai_memory_work')
+        .eq('id', user.id)
+        .single();
 
-    // 9. Invocar a IA injetando a Memória Permanente Global
-    let aiResponse = await generateFinancialResponse(
-      message,
-      financialContext,
-      chatHistory,
-      providerToken || undefined,
-      supabase,
-      aiMemory
-    );
+      const aiMemoryWork = profile?.ai_memory_work || '';
 
-    // 10. Auto-Compactação se o histórico estiver ficando longo (evita estouro de tokens)
-    // Contar quantas mensagens ativas temos na sessão agora
-    const activeMsgCount = (dbHistory || []).length + 1; // histórico + mensagem atual do usuário
+      aiResponse = await generateWorkResponse(
+        message,
+        chatHistory,
+        supabase,
+        aiMemoryWork
+      );
+
+    } else {
+      // =====================================================================
+      // G-FINANCE — CFO Assistant
+      // =====================================================================
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('ai_memory')
+        .eq('id', user.id)
+        .single();
+
+      const aiMemory = profile?.ai_memory || '';
+
+      const [
+        { data: dbBalances },
+        { data: dbTransactions },
+        { data: dbGoals },
+        { data: dbReminders },
+        { data: dbCards }
+      ] = await Promise.all([
+        supabase.from('balances').select('label, amount, trend, icon, type').eq('user_id', user.id).limit(20),
+        supabase.from('transactions').select('date, description, amount, category, card_id').eq('user_id', user.id).order('date', { ascending: false }).limit(80),
+        supabase.from('goals').select('name, target_amount, current_amount').eq('user_id', user.id).limit(20),
+        supabase.from('reminders').select('title, due_date, amount, urgency, card_id').eq('user_id', user.id).eq('paid', false).order('due_date', { ascending: true }).limit(5),
+        supabase.from('credit_cards').select('card_name, card_limit, closing_day, due_day, last_four').eq('user_id', user.id)
+      ]);
+
+      const financialContext = {
+        balances: dbBalances || [],
+        transactions: dbTransactions || [],
+        goals: dbGoals || [],
+        reminders: dbReminders || [],
+        creditCards: dbCards || []
+      };
+
+      aiResponse = await generateFinancialResponse(
+        message,
+        financialContext,
+        chatHistory,
+        providerToken || undefined,
+        supabase,
+        aiMemory
+      );
+    }
+
+    // 7. Auto-Compactação se o histórico estiver ficando longo
+    const activeMsgCount = (dbHistory || []).length + 1;
     let autoCompacted = false;
 
     if (activeMsgCount > 12) {
-      console.info(`[Auto-Compaction] Limite atingido (${activeMsgCount} mensagens). Compactando sessão: ${finalSessionId}`);
-      const compactResult = await compactSessionHistory(supabase, user.id, finalSessionId);
+      console.info(`[Auto-Compaction] Limite atingido (${activeMsgCount} msgs). Compactando sessão ${finalSessionId} (${module})...`);
+      const compactResult = await compactSessionHistory(supabase, user.id, finalSessionId, module);
       
       if (compactResult.success) {
         autoCompacted = true;
-        aiResponse += `\n\n*(Nota: Esta conversa estava longa e atingiu o limite de tokens da sessão. Rodei uma auto-compactação e integrei todo o nosso contexto na minha memória perene global permanente para manter as respostas rápidas!)*`;
+        aiResponse += `\n\n*(Esta conversa atingiu o limite de contexto e foi auto-compactada para preservar performance.)*`;
       }
     }
 
-    // 11. Salvar a resposta gerada pela IA na tabela chat_messages
+    // 8. Salvar a resposta da IA
     const { error: insertModelMsgError } = await supabase
       .from('chat_messages')
       .insert({
@@ -202,10 +227,10 @@ export async function POST(req: Request): Promise<NextResponse> {
       });
 
     if (insertModelMsgError) {
-      throw new Error(`Falha ao registrar mensagem do analista: ${insertModelMsgError.message}`);
+      throw new Error(`Falha ao registrar mensagem do assistente: ${insertModelMsgError.message}`);
     }
 
-    // 12. Atualizar o timestamp de modificação da sessão para ordenação na sidebar
+    // 9. Atualizar timestamp da sessão
     await supabase
       .from('chat_sessions')
       .update({ updated_at: new Date().toISOString() })
@@ -215,11 +240,12 @@ export async function POST(req: Request): Promise<NextResponse> {
       success: true,
       response: aiResponse,
       sessionId: finalSessionId,
+      module,
       autoCompacted
     });
 
   } catch (err: any) {
-    console.error('[Gemini Chat API] Erro catastrófico ao gerar resposta:', err);
+    console.error('[AI Chat API] Erro ao gerar resposta:', err);
     return NextResponse.json(
       { error: err.message || 'Erro interno no servidor ao processar chat.' },
       { status: 500 }

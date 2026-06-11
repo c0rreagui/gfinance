@@ -2,8 +2,10 @@
  * src/lib/memory.ts
  *
  * Módulo de Inteligência Personalizada e Compactação de Histórico.
- * Consolida as conversas de sessões ativas na memória perene global do usuário (profiles.ai_memory)
- * e marca as mensagens como compactadas, otimizando o consumo de tokens na API.
+ * Consolida as conversas de sessões ativas na memória perene global do usuário.
+ * Suporta dois módulos isolados:
+ * - 'finance': salva em profiles.ai_memory (CFO Assistant)
+ * - 'work': salva em profiles.ai_memory_work (CPO Assistant)
  */
 
 import { getGeminiClient } from './gemini';
@@ -13,13 +15,16 @@ interface ChatMessageRow {
   content: string;
 }
 
+export type AppModule = 'finance' | 'work';
+
 export async function compactSessionHistory(
   supabaseClient: any,
   userId: string,
-  sessionId: string
+  sessionId: string,
+  module: AppModule = 'finance'
 ): Promise<{ success: boolean; error?: string; newMemory?: string }> {
   try {
-    console.info(`[Memory] Iniciando compactação para sessão ${sessionId} do usuário ${userId}`);
+    console.info(`[Memory] Iniciando compactação (${module}) para sessão ${sessionId} do usuário ${userId}`);
 
     // 1. Buscar todas as mensagens não compactadas desta sessão
     const { data: messages, error: msgError } = await supabaseClient
@@ -38,10 +43,11 @@ export async function compactSessionHistory(
       return { success: true };
     }
 
-    // 2. Buscar a memória permanente global do perfil do usuário
+    // 2. Buscar a memória permanente do perfil do usuário (coluna correta por módulo)
+    const memoryColumn = module === 'work' ? 'ai_memory_work' : 'ai_memory';
     const { data: profile, error: profileError } = await supabaseClient
       .from('profiles')
-      .select('ai_memory')
+      .select(memoryColumn)
       .eq('id', userId)
       .single();
 
@@ -49,25 +55,29 @@ export async function compactSessionHistory(
       throw new Error(`Falha ao buscar perfil do usuário: ${profileError.message}`);
     }
 
-    const currentMemory = profile?.ai_memory || '';
+    const currentMemory = profile?.[memoryColumn] || '';
 
     // 3. Formatamos o histórico para a IA analisar
     const formattedHistory = messages
-      .map((m: ChatMessageRow) => `${m.role === 'user' ? 'Usuário' : 'Gemini Brain'}: ${m.content}`)
+      .map((m: ChatMessageRow) => `${m.role === 'user' ? 'Usuário' : 'Assistente'}: ${m.content}`)
       .join('\n');
 
     // 4. Instanciar o Gemini Client para fazer a fusão e compressão semântica
     const genAI = getGeminiClient();
     const model = genAI.getGenerativeModel({
-      model: 'gemini-2.0-flash', // Utiliza o modelo mais rápido e preciso para summarização
+      model: 'gemini-2.0-flash',
       generationConfig: {
-        temperature: 0.2, // Baixa temperatura para evitar alucinações e prezar por exatidão
+        temperature: 0.2,
         maxOutputTokens: 1024,
       }
     });
 
+    const moduleLabel = module === 'work'
+      ? 'G-Work (tarefas, projetos, execução de produto)'
+      : 'G-Finance (finanças pessoais, gastos, metas)';
+
     const compactionPrompt = `
-      Você é o "Memory Core" do G-Finance, projetado para consolidar conversas ativas na "Memória Permanente de Longo Prazo" do usuário.
+      Você é o "Memory Core" do ${moduleLabel}, projetado para consolidar conversas ativas na "Memória Permanente de Longo Prazo" do usuário.
       Sua tarefa é analisar o Histórico Recente de Diálogo e integrá-lo de forma compacta, inteligente e fluida na Memória Permanente Global Atual.
       
       ---
@@ -81,7 +91,7 @@ export async function compactSessionHistory(
       ---
       
       Regras estritas de consolidação:
-      1. Extraia e conserve fatos financeiros críticos discutidos (metas declaradas, despesas ou orçamentos mencionados, preferências de investimento, dúvidas recorrentes).
+      1. Extraia e conserve fatos críticos discutidos (decisões tomadas, preferências do usuário, contexto de projetos/tarefas ou dados financeiros mencionados).
       2. Mantenha os aprendizados do usuário de forma concisa.
       3. Funda as redundâncias. Se algo já está na Memória Global e se manteve inalterado, não duplique.
       4. Escreva a memória atualizada em português brasileiro (pt-BR) de forma elegante, estruturada e limpa (usando tópicos rápidos se apropriado).
@@ -97,12 +107,12 @@ export async function compactSessionHistory(
       throw new Error('Gemini retornou uma memória de compactação vazia.');
     }
 
-    console.info(`[Memory] Compactação bem sucedida! Tamanho da memória: ${updatedMemory.length} caracteres.`);
+    console.info(`[Memory] Compactação bem sucedida! Módulo: ${module}, tamanho: ${updatedMemory.length} caracteres.`);
 
-    // 5. Salvar a nova memória integrada no perfil do usuário
+    // 5. Salvar a nova memória integrada no perfil do usuário (coluna correta por módulo)
     const { error: updateProfileError } = await supabaseClient
       .from('profiles')
-      .update({ ai_memory: updatedMemory })
+      .update({ [memoryColumn]: updatedMemory })
       .eq('id', userId);
 
     if (updateProfileError) {
@@ -120,22 +130,18 @@ export async function compactSessionHistory(
       throw new Error(`Falha ao atualizar status das mensagens de chat: ${updateMsgError.message}`);
     }
 
-    // 7. Inserir uma mensagem especial de confirmação e conscientização de sistema na conversa
+    // 7. Inserir mensagem de confirmação de sistema na conversa
     const compactionIndicator = `[Histórico compactado! Toda a bagagem de conhecimento e aprendizados desta conversa foi integrada à sua memória perene global permanente.]`;
     
-    const { error: insertSystemMsgError } = await supabaseClient
+    await supabaseClient
       .from('chat_messages')
       .insert({
         session_id: sessionId,
         user_id: userId,
         role: 'model',
         content: compactionIndicator,
-        is_compacted: false // Essa mensagem de aviso de compactação deve ficar legível
+        is_compacted: false
       });
-
-    if (insertSystemMsgError) {
-      console.warn(`[Memory] Não foi possível inserir aviso de compactação na sessão: ${insertSystemMsgError.message}`);
-    }
 
     return {
       success: true,

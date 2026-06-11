@@ -1,9 +1,10 @@
 /**
  * src/app/components/AiChatHub.tsx
  *
- * Painel conversacional inteligente e premium (Gemini AI Brain).
- * Apresenta estética dark-first, glassmorphism, micro-animações,
- * atalhos inteligentes e estado orbital de "pensando".
+ * Painel conversacional inteligente e premium — G-Finance (CFO) e G-Work (CPO).
+ * Detecta o módulo automaticamente pelo pathname:
+ * - Rotas /tasks/* → CPO Assistant (azul, foco em produto e tarefas)
+ * - Outras rotas   → CFO Assistant (verde, foco financeiro)
  */
 
 'use client';
@@ -14,15 +15,18 @@ import {
   Send, 
   Bot, 
   User, 
-  RefreshCw, 
   AlertCircle,
-  HelpCircle,
-  TrendingUp,
-  Wallet,
   ArrowRight,
-  History
+  History,
+  ListTodo,
+  FolderOpen,
+  TrendingUp,
+  Wallet
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { usePathname } from 'next/navigation';
+
+type AppModule = 'finance' | 'work';
 
 interface ChatMessage {
   role: 'user' | 'model';
@@ -34,7 +38,72 @@ const formatMessageText = (text: string): string => {
   return text.replace(/\*\*/g, '');
 };
 
+// Configuração visual por módulo
+const MODULE_CONFIG = {
+  finance: {
+    label: 'CFO Assistant',
+    subtitle: 'Analista Financeiro Pessoal',
+    thinkingText: 'Analisando seus dados financeiros...',
+    emptyTitle: 'Como posso ajudar suas finanças hoje?',
+    emptySubtitle: 'Tenho acesso seguro aos seus saldos, despesas, faturas e metas recentes.',
+    placeholder: 'Pergunte sobre seus saldos ou gastos...',
+    accentColor: 'emerald',
+    suggestions: [
+      { text: 'Qual é o meu saldo total?', icon: Wallet },
+      { text: 'Resuma meus gastos recentes', icon: TrendingUp },
+      { text: 'Como atingir minhas metas?', icon: Sparkles },
+      { text: 'Sugira dicas de economia', icon: ArrowRight }
+    ],
+    // Tailwind classes por módulo
+    fabGlow: 'from-emerald-500 to-teal-500',
+    border: 'border-emerald-500/20',
+    iconBg: 'bg-emerald-500/10',
+    iconText: 'text-emerald-400',
+    iconBorder: 'border-emerald-500/10',
+    activeDot: 'bg-emerald-400',
+    historyIcon: 'text-emerald-400',
+    sessionActive: 'border-emerald-500/25',
+    sessionHover: 'group-hover/item:text-emerald-400',
+    btnPrimary: 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border-emerald-500/20',
+    glowBar: 'from-orange-500 via-amber-400 to-emerald-500',
+    sendBtn: 'from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 shadow-orange-500/10',
+    badge: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/10',
+  },
+  work: {
+    label: 'CPO Assistant',
+    subtitle: 'Chief Product Officer Virtual',
+    thinkingText: 'Analisando seus projetos e tarefas...',
+    emptyTitle: 'Como posso ajudar seu trabalho hoje?',
+    emptySubtitle: 'Posso criar, atualizar e organizar suas tarefas, projetos e insights do G-Work.',
+    placeholder: 'Pergunte sobre tarefas, projetos ou peça ações...',
+    accentColor: 'blue',
+    suggestions: [
+      { text: 'Quais tarefas estão em aberto?', icon: ListTodo },
+      { text: 'Crie uma tarefa com prioridade alta', icon: Sparkles },
+      { text: 'Quais são meus projetos?', icon: FolderOpen },
+      { text: 'Mostre o que está em progresso', icon: ArrowRight }
+    ],
+    fabGlow: 'from-blue-500 to-indigo-500',
+    border: 'border-blue-500/20',
+    iconBg: 'bg-blue-500/10',
+    iconText: 'text-blue-400',
+    iconBorder: 'border-blue-500/10',
+    activeDot: 'bg-blue-400',
+    historyIcon: 'text-blue-400',
+    sessionActive: 'border-blue-500/25',
+    sessionHover: 'group-hover/item:text-blue-400',
+    btnPrimary: 'bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border-blue-500/20',
+    glowBar: 'from-blue-500 via-indigo-400 to-violet-500',
+    sendBtn: 'from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 shadow-blue-500/10',
+    badge: 'bg-blue-500/10 text-blue-400 border-blue-500/10',
+  }
+};
+
 export function AiChatHub({ isFloating = false }: { isFloating?: boolean }) {
+  const pathname = usePathname();
+  const module: AppModule = pathname?.startsWith('/tasks') ? 'work' : 'finance';
+  const cfg = MODULE_CONFIG[module];
+
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -44,15 +113,7 @@ export function AiChatHub({ isFloating = false }: { isFloating?: boolean }) {
   const [errorMsg, setErrorMsg] = useState('');
   const messagesContainerRef = useRef<HTMLDivElement>(null);
 
-  // Sugestões inteligentes e refinadas de perguntas
-  const suggestions = [
-    'Qual é o meu saldo total?',
-    'Resuma meus gastos recentes',
-    'Como atingir minhas metas?',
-    'Sugira dicas de economia'
-  ];
-
-  // Auto-scroll apenas dentro do container do chat (não scrollar a página inteira)
+  // Auto-scroll apenas dentro do container do chat
   const scrollToBottom = () => {
     if (messagesContainerRef.current) {
       messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
@@ -63,82 +124,60 @@ export function AiChatHub({ isFloating = false }: { isFloating?: boolean }) {
     scrollToBottom();
   }, [messages, loading]);
 
-  // Carregar última sessão ativa e seu histórico no mount
+  // Resetar estado quando o módulo mudar (troca de rota)
   useEffect(() => {
-    const loadLatestSession = async () => {
-      setLoading(true);
-      setErrorMsg('');
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        const token = session?.access_token;
-        if (!token) {
-          setLoading(false);
-          return;
-        }
+    setMessages([]);
+    setActiveSessionId(null);
+    setChatSessions([]);
+    setErrorMsg('');
+    setShowHistoryDropdown(false);
+    loadLatestSession(module);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [module]);
 
-        // Buscar sessões de chat ordenadas por atualizada mais recente
-        const response = await fetch('/api/ai/sessions', {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          const sessions = data.sessions || [];
-          setChatSessions(sessions);
-          
-          if (sessions.length > 0) {
-            const latestSession = sessions[0];
-            setActiveSessionId(latestSession.id);
-
-            // Carrega as mensagens da última sessão
-            const msgsResponse = await fetch(`/api/ai/sessions/${latestSession.id}`, {
-              headers: {
-                'Authorization': `Bearer ${token}`
-              }
-            });
-
-            if (msgsResponse.ok) {
-              const msgsData = await msgsResponse.json();
-              const formatted = (msgsData.messages || []).map((m: any) => ({
-                role: m.role,
-                parts: [{ text: m.content }]
-              }));
-              setMessages(formatted);
-            }
-          }
-        }
-      } catch (err: any) {
-        console.error('Erro ao carregar última sessão na Home:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadLatestSession();
-  }, []);
-
-  // Obter token Google válido: primeiro da sessão local (rápido), depois do servidor (robusto)
-  const getGoogleToken = async (supabaseToken: string | null): Promise<string | null> => {
-    // 1. Tentar da sessão client-side (disponível logo após login)
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session?.provider_token) return session.provider_token;
-
-    // 2. Fallback: buscar do servidor (lida com expiração e refresh automático)
-    if (!supabaseToken) return null;
+  const loadLatestSession = async (currentModule: AppModule) => {
+    setLoading(true);
+    setErrorMsg('');
     try {
-      const res = await fetch('/api/auth/google-token', {
-        headers: { 'Authorization': `Bearer ${supabaseToken}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        return data.token || null;
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) {
+        setLoading(false);
+        return;
       }
-    } catch {
-      // Falha silenciosa — o backend tentará sem o token
+
+      const response = await fetch(`/api/ai/sessions?module=${currentModule}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const sessions = data.sessions || [];
+        setChatSessions(sessions);
+
+        if (sessions.length > 0) {
+          const latestSession = sessions[0];
+          setActiveSessionId(latestSession.id);
+
+          const msgsResponse = await fetch(`/api/ai/sessions/${latestSession.id}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+
+          if (msgsResponse.ok) {
+            const msgsData = await msgsResponse.json();
+            const formatted = (msgsData.messages || []).map((m: any) => ({
+              role: m.role,
+              parts: [{ text: m.content }]
+            }));
+            setMessages(formatted);
+          }
+        }
+      }
+    } catch (err: any) {
+      console.error(`[AiChatHub] Erro ao carregar sessão (${currentModule}):`, err);
+    } finally {
+      setLoading(false);
     }
-    return null;
   };
 
   // Enviar mensagem
@@ -154,15 +193,12 @@ export function AiChatHub({ isFloating = false }: { isFloating?: boolean }) {
       parts: [{ text: queryText }]
     };
 
-    // Atualiza a lista local com o input do usuário
     setMessages(prev => [...prev, userMessage]);
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const supabaseToken = session?.access_token || null;
-
-      // Estratégia em cascata para obter token Google válido
-      const providerToken = await getGoogleToken(supabaseToken);
+      const providerToken = session?.provider_token || null;
 
       const response = await fetch('/api/ai/chat', {
         method: 'POST',
@@ -173,7 +209,8 @@ export function AiChatHub({ isFloating = false }: { isFloating?: boolean }) {
         },
         body: JSON.stringify({
           message: queryText,
-          sessionId: activeSessionId
+          sessionId: activeSessionId,
+          module
         })
       });
 
@@ -183,17 +220,14 @@ export function AiChatHub({ isFloating = false }: { isFloating?: boolean }) {
         throw new Error(data.error || 'Falha ao obter resposta da Inteligência Artificial.');
       }
 
-      // Se o backend criou uma nova sessão (ou compactou)
       if (data.sessionId && data.sessionId !== activeSessionId) {
         setActiveSessionId(data.sessionId);
       }
 
-      // Recarrega sessões de chat para manter o título e ordenação atualizados no dropdown
+      // Recarregar sessões (módulo correto)
       if (supabaseToken) {
-        const responseSessions = await fetch('/api/ai/sessions', {
-          headers: {
-            'Authorization': `Bearer ${supabaseToken}`
-          }
+        const responseSessions = await fetch(`/api/ai/sessions?module=${module}`, {
+          headers: { 'Authorization': `Bearer ${supabaseToken}` }
         });
         if (responseSessions.ok) {
           const sessionsData = await responseSessions.json();
@@ -210,13 +244,11 @@ export function AiChatHub({ isFloating = false }: { isFloating?: boolean }) {
 
     } catch (err: any) {
       setErrorMsg(err.message || 'Erro de rede ou cota esgotada. Tente novamente.');
-      // Mantém a última mensagem enviada para que o usuário possa ver o que digitou e ver o erro contextualizado
     } finally {
       setLoading(false);
     }
   };
 
-  // Selecionar sessão do histórico
   const handleSelectSession = async (sid: string) => {
     setActiveSessionId(sid);
     setShowHistoryDropdown(false);
@@ -228,9 +260,7 @@ export function AiChatHub({ isFloating = false }: { isFloating?: boolean }) {
       if (!token) return;
 
       const msgsResponse = await fetch(`/api/ai/sessions/${sid}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+        headers: { 'Authorization': `Bearer ${token}` }
       });
 
       if (msgsResponse.ok) {
@@ -251,7 +281,6 @@ export function AiChatHub({ isFloating = false }: { isFloating?: boolean }) {
     }
   };
 
-  // Instanciar nova sessão limpa (localmente na interface, persistindo apenas no primeiro envio)
   const handleNewSession = () => {
     setActiveSessionId(null);
     setMessages([]);
@@ -271,14 +300,17 @@ export function AiChatHub({ isFloating = false }: { isFloating?: boolean }) {
   };
 
   return (
-    <div className={isFloating ? "flex flex-col h-full w-full bg-transparent relative" : "bg-slate-900/40 backdrop-blur-xl rounded-[40px] border border-white/5 shadow-2xl flex flex-col h-[520px] overflow-hidden relative group hover:border-emerald-500/10 transition-all duration-500"}>
-      
-      {/* Dropdown de Histórico de Conversas (Drawer/Overlay) */}
+    <div className={isFloating
+      ? "flex flex-col h-full w-full bg-transparent relative"
+      : "bg-slate-900/40 backdrop-blur-xl rounded-[40px] border border-white/5 shadow-2xl flex flex-col h-[520px] overflow-hidden relative group hover:border-white/10 transition-all duration-500"
+    }>
+
+      {/* Dropdown de Histórico de Conversas */}
       {showHistoryDropdown && (
         <div className="absolute inset-0 bg-slate-950/95 backdrop-blur-md z-40 p-6 flex flex-col space-y-4 animate-in fade-in zoom-in-95 duration-200">
           <div className="flex justify-between items-center pb-2 border-b border-white/5">
             <div className="flex items-center gap-2">
-              <History className="w-4 h-4 text-emerald-400" />
+              <History className={`w-4 h-4 ${cfg.historyIcon}`} />
               <h5 className="text-[10px] font-black text-white tracking-widest uppercase">Histórico de Sessões</h5>
             </div>
             <button
@@ -289,16 +321,14 @@ export function AiChatHub({ isFloating = false }: { isFloating?: boolean }) {
             </button>
           </div>
 
-          {/* Atalho para Criar Nova Sessão de Conversa */}
           <button
             onClick={handleNewSession}
-            className="w-full p-3.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all duration-300 flex items-center justify-center gap-2 cursor-pointer active:scale-98"
+            className={`w-full p-3.5 border rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all duration-300 flex items-center justify-center gap-2 cursor-pointer active:scale-98 ${cfg.btnPrimary}`}
           >
             <Sparkles className="w-3.5 h-3.5" />
             Nova Conversa
           </button>
 
-          {/* Lista de Sessões */}
           <div className="flex-1 overflow-y-auto space-y-2.5 pr-1 no-scrollbar">
             {chatSessions.length === 0 ? (
               <div className="h-full flex flex-col justify-center items-center text-center p-4">
@@ -312,13 +342,13 @@ export function AiChatHub({ isFloating = false }: { isFloating?: boolean }) {
                     key={session.id}
                     onClick={() => handleSelectSession(session.id)}
                     className={`p-3.5 rounded-2xl border text-left cursor-pointer transition-all duration-300 flex justify-between items-center group/item ${
-                      isActive 
-                        ? 'bg-slate-900 border-emerald-500/25 shadow-lg shadow-emerald-500/2' 
+                      isActive
+                        ? `bg-slate-900 ${cfg.sessionActive} shadow-lg`
                         : 'bg-slate-900/40 border-white/5 hover:bg-slate-900/80 hover:border-white/10'
                     }`}
                   >
                     <div className="min-w-0 flex-1">
-                      <div className="text-[11px] font-bold text-slate-200 truncate group-hover/item:text-emerald-400 transition-colors">
+                      <div className={`text-[11px] font-bold text-slate-200 truncate transition-colors ${cfg.sessionHover}`}>
                         {session.title}
                       </div>
                       <div className="text-[8px] text-slate-600 font-black uppercase tracking-widest mt-1 flex items-center gap-1.5">
@@ -328,7 +358,7 @@ export function AiChatHub({ isFloating = false }: { isFloating?: boolean }) {
                       </div>
                     </div>
                     {isActive && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]"></span>
+                      <span className={`w-1.5 h-1.5 rounded-full ${cfg.activeDot} shadow-[0_0_8px_rgba(99,102,241,0.5)]`}></span>
                     )}
                   </div>
                 );
@@ -338,39 +368,42 @@ export function AiChatHub({ isFloating = false }: { isFloating?: boolean }) {
         </div>
       )}
 
-      {/* Glow Superior Ativo ao Pensar */}
-      <div className={`absolute top-0 left-1/4 right-1/4 h-[2px] bg-gradient-to-r from-orange-500 via-amber-400 to-emerald-500 blur-[2px] transition-opacity duration-500 ${loading ? 'opacity-100 animate-pulse' : 'opacity-0'}`}></div>
+      {/* Glow Superior ao Pensar */}
+      <div className={`absolute top-0 left-1/4 right-1/4 h-[2px] bg-gradient-to-r ${cfg.glowBar} blur-[2px] transition-opacity duration-500 ${loading ? 'opacity-100 animate-pulse' : 'opacity-0'}`}></div>
 
       {/* Header */}
       <div className="p-6 border-b border-white/5 flex justify-between items-center bg-slate-950/20">
         <div className="flex items-center gap-3">
           <div className={`p-2 rounded-2xl flex items-center justify-center transition-all duration-500 ${
-            loading 
-              ? 'bg-gradient-to-tr from-orange-500 via-amber-500 to-emerald-500 text-white rotate-180 animate-spin-slow' 
-              : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/10'
+            loading
+              ? `bg-gradient-to-tr ${cfg.glowBar} text-white rotate-180 animate-spin-slow`
+              : `${cfg.iconBg} ${cfg.iconText} border ${cfg.iconBorder}`
           }`}>
             <Sparkles className="w-4 h-4" />
           </div>
           <div>
             <h4 className="text-xs font-black text-white tracking-wider flex items-center gap-1.5">
-              Gemini Brain <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[8px] font-black tracking-widest uppercase border border-emerald-500/10">Active</span>
+              {cfg.label}
+              <span className={`px-1.5 py-0.5 rounded text-[8px] font-black tracking-widest uppercase border ${cfg.badge}`}>
+                Active
+              </span>
             </h4>
-            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-0.5">Analista Pessoal e Predictor</p>
+            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-0.5">{cfg.subtitle}</p>
           </div>
         </div>
         <div className="flex items-center gap-1.5">
           <button
             onClick={() => setShowHistoryDropdown(prev => !prev)}
             className={`p-2 rounded-xl transition-all duration-300 flex items-center justify-center border cursor-pointer ${
-              showHistoryDropdown 
-                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
+              showHistoryDropdown
+                ? `${cfg.iconBg} ${cfg.iconText} ${cfg.border}`
                 : 'bg-white/5 text-slate-500 hover:text-slate-300 border-transparent hover:bg-white/10'
             }`}
             title="Histórico de Sessões"
           >
             <History className="w-3.5 h-3.5" />
           </button>
-          
+
           {messages.length > 0 && (
             <button
               onClick={handleClearChat}
@@ -383,32 +416,33 @@ export function AiChatHub({ isFloating = false }: { isFloating?: boolean }) {
         </div>
       </div>
 
-      {/* Histórico / Área Central */}
+      {/* Área de Mensagens */}
       <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-6 space-y-4 no-scrollbar">
         {messages.length === 0 ? (
           <div className="h-full flex flex-col justify-center items-center text-center space-y-6 animate-in">
-            <div className="w-14 h-14 rounded-full bg-slate-950/60 border border-white/5 flex items-center justify-center text-emerald-500 shadow-inner group-hover:scale-105 transition-transform duration-300">
+            <div className={`w-14 h-14 rounded-full bg-slate-950/60 border border-white/5 flex items-center justify-center ${cfg.iconText} shadow-inner`}>
               <Bot className="w-6 h-6 animate-bounce" />
             </div>
             <div className="space-y-1.5 max-w-xs">
-              <h5 className="text-xs font-black text-slate-200">Como posso ajudar suas finanças hoje?</h5>
-              <p className="text-[10px] text-slate-500 leading-normal">
-                Tenho acesso seguro aos seus saldos, despesas, faturas e metas recentes para te dar análises reais.
-              </p>
+              <h5 className="text-xs font-black text-slate-200">{cfg.emptyTitle}</h5>
+              <p className="text-[10px] text-slate-500 leading-normal">{cfg.emptySubtitle}</p>
             </div>
 
             {/* Sugestões Rápidas */}
             <div className="grid grid-cols-2 gap-2.5 w-full pt-4">
-              {suggestions.map((sug, i) => (
-                <button
-                  key={i}
-                  onClick={() => handleSendMessage(sug)}
-                  className="p-3 bg-slate-950/40 hover:bg-slate-950/80 border border-white/5 rounded-2xl text-[10px] font-bold text-slate-400 hover:text-white transition-all text-left flex justify-between items-center group/btn active:scale-98 cursor-pointer"
-                >
-                  <span className="truncate mr-1">{sug}</span>
-                  <ArrowRight className="w-3 h-3 text-slate-600 group-hover/btn:text-emerald-400 group-hover/btn:translate-x-0.5 transition-all shrink-0" />
-                </button>
-              ))}
+              {cfg.suggestions.map((sug, i) => {
+                const Icon = sug.icon;
+                return (
+                  <button
+                    key={i}
+                    onClick={() => handleSendMessage(sug.text)}
+                    className="p-3 bg-slate-950/40 hover:bg-slate-950/80 border border-white/5 rounded-2xl text-[10px] font-bold text-slate-400 hover:text-white transition-all text-left flex justify-between items-center group/btn active:scale-98 cursor-pointer"
+                  >
+                    <span className="truncate mr-1">{sug.text}</span>
+                    <Icon className={`w-3 h-3 text-slate-600 group-hover/btn:${cfg.iconText} group-hover/btn:translate-x-0.5 transition-all shrink-0`} />
+                  </button>
+                );
+              })}
             </div>
           </div>
         ) : (
@@ -421,18 +455,17 @@ export function AiChatHub({ isFloating = false }: { isFloating?: boolean }) {
                   className={`flex gap-3 max-w-[85%] ${isUser ? 'ml-auto flex-row-reverse' : ''}`}
                 >
                   <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 border ${
-                    isUser 
-                      ? 'bg-slate-950 text-slate-300 border-white/5 shadow-inner' 
-                      : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/10 shadow-lg shadow-emerald-500/2'
+                    isUser
+                      ? 'bg-slate-950 text-slate-300 border-white/5 shadow-inner'
+                      : `${cfg.iconBg} ${cfg.iconText} ${cfg.iconBorder} shadow-lg`
                   }`}>
                     {isUser ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
                   </div>
                   <div className={`p-4 rounded-3xl text-[11px] leading-relaxed space-y-1.5 shadow-sm transition-all duration-300 ${
-                    isUser 
-                      ? 'bg-gradient-to-tr from-slate-900 to-slate-950 text-slate-200 border border-white/5 rounded-tr-none' 
+                    isUser
+                      ? 'bg-gradient-to-tr from-slate-900 to-slate-950 text-slate-200 border border-white/5 rounded-tr-none'
                       : 'bg-slate-950/60 text-slate-300 border border-white/5 rounded-tl-none font-medium'
                   }`}>
-                    {/* Renderiza quebras de linha básicas no Markdown simplificado */}
                     <div className="whitespace-pre-line text-slate-300">
                       {formatMessageText(msg.parts[0].text)}
                     </div>
@@ -441,19 +474,18 @@ export function AiChatHub({ isFloating = false }: { isFloating?: boolean }) {
               );
             })}
 
-            {/* Spinner Orbital de Pensamento */}
+            {/* Spinner de Pensamento */}
             {loading && (
               <div className="flex gap-3 max-w-[80%]">
-                <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/10 flex items-center justify-center shrink-0 animate-spin-slow">
+                <div className={`w-8 h-8 rounded-xl ${cfg.iconBg} ${cfg.iconText} border ${cfg.iconBorder} flex items-center justify-center shrink-0 animate-spin-slow`}>
                   <Sparkles className="w-4 h-4" />
                 </div>
                 <div className="p-4 bg-slate-950/40 text-slate-500 border border-white/5 rounded-3xl rounded-tl-none text-[10px] font-bold uppercase tracking-wider flex items-center gap-2.5 animate-pulse">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
-                  Gemini Brain está analisando suas contas...
+                  <span className={`w-1.5 h-1.5 rounded-full ${cfg.activeDot} animate-ping`}></span>
+                  {cfg.thinkingText}
                 </div>
               </div>
             )}
-
           </div>
         )}
       </div>
@@ -467,10 +499,10 @@ export function AiChatHub({ isFloating = false }: { isFloating?: boolean }) {
           </div>
         )}
         <form onSubmit={handleSubmit} className="flex gap-2">
-          <div className="flex-1 min-w-0 bg-slate-950/80 border border-white/5 rounded-2xl px-4 py-3 flex items-center shadow-inner group/input focus-within:border-emerald-500/30 transition-all duration-300">
+          <div className="flex-1 min-w-0 bg-slate-950/80 border border-white/5 rounded-2xl px-4 py-3 flex items-center shadow-inner group/input focus-within:border-white/10 transition-all duration-300">
             <input
               type="text"
-              placeholder={loading ? 'Analisando dados...' : 'Pergunte sobre seus saldos ou gastos...'}
+              placeholder={loading ? 'Analisando...' : cfg.placeholder}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               disabled={loading}
@@ -480,14 +512,13 @@ export function AiChatHub({ isFloating = false }: { isFloating?: boolean }) {
           <button
             type="submit"
             disabled={!input.trim() || loading}
-            className={`px-4 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-2xl transition-all duration-300 shadow-lg shadow-orange-500/10 flex items-center justify-center shrink-0 active:scale-95 disabled:opacity-40 disabled:pointer-events-none cursor-pointer`}
+            className={`px-4 bg-gradient-to-r ${cfg.sendBtn} text-white rounded-2xl transition-all duration-300 shadow-lg flex items-center justify-center shrink-0 active:scale-95 disabled:opacity-40 disabled:pointer-events-none cursor-pointer`}
           >
             <Send className="w-4 h-4" />
           </button>
         </form>
       </div>
 
-      {/* CSS extra para animação lenta */}
       <style jsx global>{`
         @keyframes spin-slow {
           from { transform: rotate(0deg); }
@@ -497,7 +528,6 @@ export function AiChatHub({ isFloating = false }: { isFloating?: boolean }) {
           animation: spin-slow 8s linear infinite;
         }
       `}</style>
-
     </div>
   );
 }
