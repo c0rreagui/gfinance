@@ -335,7 +335,7 @@ export async function generateWorkResponse(
     if (!user) throw new Error('Usuário não autenticado.');
     const userId = user.id;
 
-    const promises = functionCalls.map(async (call) => {
+    const promises = functionCalls.map(async (call: any) => {
       const { name, args } = call;
       console.info(`[CPO Assistant Tool] "${name}" com args:`, args);
 

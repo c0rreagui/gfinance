@@ -605,7 +605,7 @@ export async function generateFinancialResponse(
 
     let databaseModified = false;
 
-    const promises = functionCalls.map(async (call) => {
+    const promises = functionCalls.map(async (call: any) => {
       const { name, args } = call;
       console.info(`[Gemini Brain Tool Execution] Iniciando "${name}" com argumentos:`, args);
 
