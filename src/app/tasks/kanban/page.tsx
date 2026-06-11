@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useGWork } from '@/app/tasks/layout';
 import { 
   WorkItem, 
@@ -17,17 +17,19 @@ import { WorkItemCard } from '@/components/tasks/WorkItemCard';
 import { QuickCreateModal } from '@/components/tasks/QuickCreateModal';
 import { supabase } from '@/lib/supabase';
 import { DndContext, PointerSensor, useSensor, useSensors, DragEndEvent, useDroppable, useDraggable, DragOverlay } from '@dnd-kit/core';
-import { CSS } from '@dnd-kit/utilities';
 import { 
   Search, 
   Plus, 
-  SlidersHorizontal,
   X, 
   Calendar, 
   Trash2, 
   Check, 
   Sparkles,
-  GitPullRequest
+  GitPullRequest,
+  ChevronDown,
+  ChevronRight,
+  BookOpen,
+  ListTodo,
 } from 'lucide-react';
 
 // ============================================================================
@@ -65,14 +67,129 @@ const DraggableCard: React.FC<{
 };
 
 // ============================================================================
-// DROPPABLE COLUMN WRAPPER
+// STORY GROUP HEADER — collapses tasks children
+// ============================================================================
+
+interface StoryGroupProps {
+  story: WorkItem;
+  tasks: WorkItem[];
+  projectName?: string;
+  onStoryClick: (item: WorkItem) => void;
+  onTaskClick: (item: WorkItem) => void;
+  isBulkMode?: boolean;
+  selectedIds?: string[];
+  onSelectToggle?: (id: string) => void;
+}
+
+const StoryGroup: React.FC<StoryGroupProps> = ({
+  story,
+  tasks,
+  projectName,
+  onStoryClick,
+  onTaskClick,
+  isBulkMode,
+  selectedIds,
+  onSelectToggle,
+}) => {
+  const [expanded, setExpanded] = useState(true);
+  const doneTasks = tasks.filter(t => t.status === story.status || t.status === 'done').length;
+  const progressPct = tasks.length > 0 ? Math.round((tasks.filter(t => t.status === 'done').length / tasks.length) * 100) : 0;
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      {/* Story Header */}
+      <div
+        className="group flex items-center gap-2 px-3 py-2.5 rounded-xl border border-emerald-500/20 bg-emerald-950/20 hover:bg-emerald-950/30 transition-all cursor-pointer select-none"
+        onClick={() => !isBulkMode && onStoryClick(story)}
+      >
+        {/* Collapse toggle */}
+        <button
+          onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
+          className="p-0.5 rounded text-emerald-500/70 hover:text-emerald-400 transition-colors shrink-0"
+        >
+          {expanded
+            ? <ChevronDown className="w-3.5 h-3.5" />
+            : <ChevronRight className="w-3.5 h-3.5" />
+          }
+        </button>
+
+        <BookOpen className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+
+        <span className="text-[11px] font-bold text-emerald-300 truncate flex-1 min-w-0">
+          {story.title}
+        </span>
+
+        {/* Task count + progress */}
+        {tasks.length > 0 && (
+          <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-1">
+              <div className="w-12 h-1 rounded-full bg-slate-800 overflow-hidden">
+                <div
+                  className="h-full bg-emerald-500 rounded-full transition-all duration-500"
+                  style={{ width: `${progressPct}%` }}
+                />
+              </div>
+              <span className="text-[9px] font-black text-slate-500 uppercase tracking-wider">
+                {progressPct}%
+              </span>
+            </div>
+            <span className="text-[9px] font-bold text-slate-600 flex items-center gap-0.5">
+              <ListTodo className="w-2.5 h-2.5" />
+              {tasks.length}
+            </span>
+          </div>
+        )}
+
+        {/* Edit icon on hover */}
+        <button
+          onClick={(e) => { e.stopPropagation(); onStoryClick(story); }}
+          className="opacity-0 group-hover:opacity-100 p-1 rounded text-slate-500 hover:text-emerald-400 transition-all shrink-0"
+          title="Editar story"
+        >
+          <Sparkles className="w-3 h-3" />
+        </button>
+      </div>
+
+      {/* Task children — collapse/expand */}
+      {expanded && tasks.length > 0 && (
+        <div className="flex flex-col gap-1.5 pl-3 border-l border-emerald-500/10 ml-2">
+          {tasks.map(task => (
+            <DraggableCard
+              key={task.id}
+              item={task}
+              projectName={projectName}
+              onClick={() => onTaskClick(task)}
+              isBulkMode={isBulkMode}
+              isSelected={selectedIds?.includes(task.id)}
+              onSelectToggle={() => onSelectToggle?.(task.id)}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Collapsed: show count summary */}
+      {!expanded && tasks.length > 0 && (
+        <div
+          className="ml-5 px-3 py-1.5 rounded-lg bg-slate-950/40 border border-white/5 text-[9px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:text-slate-400 transition-colors"
+          onClick={() => setExpanded(true)}
+        >
+          {tasks.length} tarefa{tasks.length !== 1 ? 's' : ''} oculta{tasks.length !== 1 ? 's' : ''} — clique para expandir
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ============================================================================
+// DROPPABLE COLUMN
 // ============================================================================
 
 interface KanbanColumnProps {
   id: WorkItemStatus;
   title: string;
   dotColor: string;
-  items: WorkItem[];
+  stories: (WorkItem & { childTasks: WorkItem[] })[];
+  orphanTasks: WorkItem[];
   projectNameResolver: (id: string | null) => string | undefined;
   parentTitleResolver: (id: string | null) => string | undefined;
   onCardClick: (item: WorkItem) => void;
@@ -86,7 +203,8 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
   id,
   title,
   dotColor,
-  items,
+  stories,
+  orphanTasks,
   projectNameResolver,
   parentTitleResolver,
   onCardClick,
@@ -95,16 +213,15 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
   selectedIds,
   onSelectToggle
 }) => {
-  const { setNodeRef, isOver } = useDroppable({
-    id: id,
-  });
+  const { setNodeRef, isOver } = useDroppable({ id });
+  const totalCount = stories.reduce((sum, s) => sum + 1 + s.childTasks.length, 0) + orphanTasks.length;
 
   return (
     <div
       ref={setNodeRef}
       className={`flex flex-col bg-slate-100/30 dark:bg-slate-950/20 rounded-2xl border p-4 overflow-hidden min-h-[500px] transition-all duration-300 ${
-        isOver 
-          ? 'bg-blue-500/5 dark:bg-blue-500/5 border-blue-500/30' 
+        isOver
+          ? 'bg-blue-500/5 dark:bg-blue-500/5 border-blue-500/30'
           : 'border-slate-200/50 dark:border-white/5'
       }`}
     >
@@ -114,7 +231,7 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
           <span className={`w-2 h-2 rounded-full ${dotColor}`}></span>
           <h4 className="font-bold text-xs uppercase dark:text-white tracking-wider">{title}</h4>
           <span className="px-1.5 py-0.5 bg-slate-200 dark:bg-slate-800/80 text-[10px] font-black rounded text-slate-500 dark:text-slate-400">
-            {items.length}
+            {totalCount}
           </span>
         </div>
         <button
@@ -125,25 +242,43 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
         </button>
       </div>
 
-      {/* Column Cards Container */}
+      {/* Column Content */}
       <div className="flex-1 overflow-y-auto space-y-3 pr-1 no-scrollbar min-h-[200px]">
-        {items.length === 0 ? (
+        {totalCount === 0 ? (
           <div className="text-center py-12 text-slate-400 dark:text-slate-600 text-[10px] uppercase font-bold tracking-widest">
             Sem itens
           </div>
         ) : (
-          items.map(item => (
-            <DraggableCard
-              key={item.id}
-              item={item}
-              projectName={projectNameResolver(item.project_id)}
-              parentTitle={parentTitleResolver(item.parent_id)}
-              onClick={() => onCardClick(item)}
-              isBulkMode={isBulkMode}
-              isSelected={selectedIds?.includes(item.id)}
-              onSelectToggle={() => onSelectToggle?.(item.id)}
-            />
-          ))
+          <>
+            {/* Stories with nested tasks */}
+            {stories.map(story => (
+              <StoryGroup
+                key={story.id}
+                story={story}
+                tasks={story.childTasks}
+                projectName={projectNameResolver(story.project_id)}
+                onStoryClick={onCardClick}
+                onTaskClick={onCardClick}
+                isBulkMode={isBulkMode}
+                selectedIds={selectedIds}
+                onSelectToggle={onSelectToggle}
+              />
+            ))}
+
+            {/* Orphan tasks (no parent or parent is not a story in this column) */}
+            {orphanTasks.map(item => (
+              <DraggableCard
+                key={item.id}
+                item={item}
+                projectName={projectNameResolver(item.project_id)}
+                parentTitle={parentTitleResolver(item.parent_id)}
+                onClick={() => onCardClick(item)}
+                isBulkMode={isBulkMode}
+                isSelected={selectedIds?.includes(item.id)}
+                onSelectToggle={() => onSelectToggle?.(item.id)}
+              />
+            ))}
+          </>
         )}
       </div>
     </div>
@@ -158,18 +293,14 @@ export default function KanbanPage() {
   const { user, projects, workItems, setWorkItems, refreshData } = useGWork();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProject, setSelectedProject] = useState<string>('');
-  const [selectedType, setSelectedType] = useState<string>('all');
   const [selectedParent, setSelectedParent] = useState<string>('');
   
-  // Drag and Drop active states
   const [activeId, setActiveId] = useState<string | null>(null);
 
-  // Modals & Editor states
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [createColumn, setCreateColumn] = useState<WorkItemStatus>('todo');
   const [editingItem, setEditingItem] = useState<WorkItem | null>(null);
   
-  // Editor form states
   const [editTitle, setEditTitle] = useState('');
   const [editDesc, setEditDesc] = useState('');
   const [editType, setEditType] = useState<WorkItemType>('task');
@@ -180,49 +311,96 @@ export default function KanbanPage() {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  // Bulk selection states
   const [isBulkMode, setIsBulkMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
 
-  // Setup dnd sensors with activation constraints
   const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 5, // Responsive activation distance (5px) to support smooth dragging
-      },
-    })
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
   );
 
-  const handleDragStart = (event: any) => {
-    setActiveId(event.active.id as string);
+  // ============================================================================
+  // Only show tasks + stories in Kanban (epics/features go to Roadmap)
+  // ============================================================================
+  const kanbanItems = useMemo(() =>
+    workItems.filter(item => item.type === 'task' || item.type === 'story'),
+    [workItems]
+  );
+
+  // Helper to get all descendant IDs recursively
+  const getDescendantIds = (parentId: string): string[] => {
+    const list: string[] = [];
+    const traverse = (id: string) => {
+      const children = kanbanItems.filter(w => w.parent_id === id);
+      for (const child of children) {
+        list.push(child.id);
+        traverse(child.id);
+      }
+    };
+    traverse(parentId);
+    return list;
   };
 
-  const handleDragCancel = () => {
-    setActiveId(null);
+  // Build filtered items respecting search, project, parent filter
+  const filteredItems = useMemo(() => kanbanItems.filter(item => {
+    const matchesSearch = item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (item.description && item.description.toLowerCase().includes(searchQuery.toLowerCase()));
+    const matchesProject = !selectedProject || item.project_id === selectedProject;
+    let matchesParent = true;
+    if (selectedParent) {
+      const descendants = getDescendantIds(selectedParent);
+      matchesParent = descendants.includes(item.id) || item.id === selectedParent;
+    }
+    return matchesSearch && matchesProject && matchesParent;
+  }), [kanbanItems, searchQuery, selectedProject, selectedParent]);
+
+  // For each column, separate stories (with their child tasks) from orphan tasks
+  const buildColumnData = (colStatus: WorkItemStatus) => {
+    const colItems = filteredItems.filter(item => item.status === colStatus);
+    
+    // Get stories in this column
+    const stories = colItems
+      .filter(item => item.type === 'story')
+      .map(story => ({
+        ...story,
+        childTasks: filteredItems.filter(t => t.type === 'task' && t.parent_id === story.id)
+      }));
+
+    // Task IDs that are children of stories in this column (to exclude from orphans)
+    const storyChildTaskIds = new Set(stories.flatMap(s => s.childTasks.map(t => t.id)));
+
+    // Orphan tasks: tasks with no parent, or parent is not a story in this column
+    const orphanTasks = colItems.filter(item =>
+      item.type === 'task' && !storyChildTaskIds.has(item.id)
+    );
+
+    return { stories, orphanTasks };
   };
+
+  // Epics and features for the parent filter dropdown
+  const parentItemsForFilter = workItems.filter(item => item.type === 'epic' || item.type === 'feature' || item.type === 'story');
+
+  // ============================================================================
+  // DND Handlers
+  // ============================================================================
+  const handleDragStart = (event: any) => setActiveId(event.active.id as string);
+  const handleDragCancel = () => setActiveId(null);
 
   const handleDragEnd = async (event: DragEndEvent) => {
     setActiveId(null);
     const { active, over } = event;
     if (!over) return;
 
-    const activeId = active.id as string;
+    const activeItemId = active.id as string;
     const overStatus = over.id as WorkItemStatus;
 
-    const draggedItem = workItems.find(w => w.id === activeId);
+    const draggedItem = workItems.find(w => w.id === activeItemId);
     if (!draggedItem) return;
 
     if (draggedItem.status !== overStatus) {
-      // Optimistic update
-      setWorkItems(prev => prev.map(t => t.id === activeId ? { ...t, status: overStatus } : t));
-
+      setWorkItems(prev => prev.map(t => t.id === activeItemId ? { ...t, status: overStatus } : t));
       try {
-        const { error } = await supabase
-          .from('tasks')
-          .update({ status: overStatus })
-          .eq('id', activeId);
-        
+        const { error } = await supabase.from('tasks').update({ status: overStatus }).eq('id', activeItemId);
         if (error) throw error;
       } catch (err) {
         console.error('[Kanban] Failed to move item:', err);
@@ -242,15 +420,12 @@ export default function KanbanPage() {
     setEditDueDate(item.due_date ? new Date(item.due_date).toISOString().split('T')[0] : '');
   };
 
-  const handleSaveEdit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSaveEdit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     if (!editingItem) return;
-
     setSaving(true);
-    
-    // Optimistic update
-    setWorkItems(prev => prev.map(t => t.id === editingItem.id ? { 
-      ...t, 
+    setWorkItems(prev => prev.map(t => t.id === editingItem.id ? {
+      ...t,
       title: editTitle,
       description: editDesc || null,
       type: editType,
@@ -259,21 +434,16 @@ export default function KanbanPage() {
       project_id: editProjId || null,
       due_date: editDueDate ? new Date(editDueDate).toISOString() : null,
     } : t));
-
     try {
-      const { error } = await supabase
-        .from('tasks')
-        .update({
-          title: editTitle,
-          description: editDesc || null,
-          type: editType,
-          status: editStatus,
-          priority: editPriority,
-          project_id: editProjId || null,
-          due_date: editDueDate ? new Date(editDueDate).toISOString() : null,
-        })
-        .eq('id', editingItem.id);
-
+      const { error } = await supabase.from('tasks').update({
+        title: editTitle,
+        description: editDesc || null,
+        type: editType,
+        status: editStatus,
+        priority: editPriority,
+        project_id: editProjId || null,
+        due_date: editDueDate ? new Date(editDueDate).toISOString() : null,
+      }).eq('id', editingItem.id);
       if (error) throw error;
       setEditingItem(null);
     } catch (err) {
@@ -286,19 +456,11 @@ export default function KanbanPage() {
 
   const handleDeleteItem = async () => {
     if (!editingItem) return;
-    if (!confirm('Deseja realmente excluir este item de trabalho?')) return;
-
+    if (!confirm('Deseja realmente excluir este item?')) return;
     setDeleting(true);
-    
-    // Optimistic update
     setWorkItems(prev => prev.filter(t => t.id !== editingItem.id));
-
     try {
-      const { error } = await supabase
-        .from('tasks')
-        .delete()
-        .eq('id', editingItem.id);
-
+      const { error } = await supabase.from('tasks').delete().eq('id', editingItem.id);
       if (error) throw error;
       setEditingItem(null);
     } catch (err) {
@@ -313,125 +475,63 @@ export default function KanbanPage() {
   const getProjectName = (projId: string | null) => projects.find(p => p.id === projId)?.name;
   const getParentTitle = (parentId: string | null) => workItems.find(w => w.id === parentId)?.title;
 
-  // Helper to get all descendant IDs of a parent item recursively
-  const getDescendantsList = (parentId: string): string[] => {
-    const list: string[] = [];
-    const traverse = (id: string) => {
-      const children = workItems.filter(w => w.parent_id === id);
-      for (const child of children) {
-        list.push(child.id);
-        traverse(child.id);
-      }
-    };
-    traverse(parentId);
-    return list;
-  };
+  // Bulk handlers
+  const handleSelectToggle = (id: string) =>
+    setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
 
-  // Filter items
-  const filteredItems = workItems.filter(item => {
-    const matchesSearch = item.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
-      (item.description && item.description.toLowerCase().includes(searchQuery.toLowerCase()));
-    
-    const matchesProject = !selectedProject || item.project_id === selectedProject;
-
-    let matchesType = true;
-    if (selectedType === 'actionable') {
-      matchesType = item.type === 'task' || item.type === 'story';
-    } else if (selectedType !== 'all') {
-      matchesType = item.type === selectedType;
-    }
-
-    let matchesParent = true;
-    if (selectedParent) {
-      const descendants = getDescendantsList(selectedParent);
-      matchesParent = descendants.includes(item.id);
-    }
-
-    return matchesSearch && matchesProject && matchesType && matchesParent;
-  });
-
-  // Extract all unique parent items (Epics & Features) to display in the filter dropdown
-  const parentItemsForFilter = workItems.filter(item => item.type === 'epic' || item.type === 'feature');
-
-  // Toggle selection for bulk mode
-  const handleSelectToggle = (id: string) => {
-    setSelectedIds(prev => 
-      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
-    );
-  };
-
-  // Bulk Status Change
   const handleBulkStatusChange = async (newStatus: WorkItemStatus) => {
     setBulkActionLoading(true);
-    
-    // Optimistic update
     setWorkItems(prev => prev.map(t => selectedIds.includes(t.id) ? { ...t, status: newStatus } : t));
-    const idsToUpdate = [...selectedIds];
+    const ids = [...selectedIds];
     setSelectedIds([]);
     setIsBulkMode(false);
-
     try {
-      const { error } = await supabase
-        .from('tasks')
-        .update({ status: newStatus })
-        .in('id', idsToUpdate);
+      const { error } = await supabase.from('tasks').update({ status: newStatus }).in('id', ids);
       if (error) throw error;
     } catch (err) {
-      console.error('[Kanban] Failed bulk status update:', err);
+      console.error('[Kanban] Bulk status failed:', err);
       await refreshData();
     } finally {
       setBulkActionLoading(false);
     }
   };
 
-  // Bulk Priority Change
   const handleBulkPriorityChange = async (newPriority: WorkItemPriority) => {
     setBulkActionLoading(true);
-    
-    // Optimistic update
     setWorkItems(prev => prev.map(t => selectedIds.includes(t.id) ? { ...t, priority: newPriority } : t));
-    const idsToUpdate = [...selectedIds];
+    const ids = [...selectedIds];
     setSelectedIds([]);
     setIsBulkMode(false);
-
     try {
-      const { error } = await supabase
-        .from('tasks')
-        .update({ priority: newPriority })
-        .in('id', idsToUpdate);
+      const { error } = await supabase.from('tasks').update({ priority: newPriority }).in('id', ids);
       if (error) throw error;
     } catch (err) {
-      console.error('[Kanban] Failed bulk priority update:', err);
+      console.error('[Kanban] Bulk priority failed:', err);
       await refreshData();
     } finally {
       setBulkActionLoading(false);
     }
   };
 
-  // Bulk Delete
   const handleBulkDelete = async () => {
-    if (!confirm(`Deseja realmente excluir permanentemente os ${selectedIds.length} itens de trabalho selecionados?`)) return;
+    if (!confirm(`Excluir permanentemente ${selectedIds.length} itens?`)) return;
     setBulkActionLoading(true);
-    
-    // Optimistic update
     setWorkItems(prev => prev.filter(t => !selectedIds.includes(t.id)));
-    const idsToDelete = [...selectedIds];
+    const ids = [...selectedIds];
     setSelectedIds([]);
     setIsBulkMode(false);
-
     try {
-      const { error } = await supabase
-        .from('tasks')
-        .delete()
-        .in('id', idsToDelete);
+      const { error } = await supabase.from('tasks').delete().in('id', ids);
       if (error) throw error;
     } catch (err) {
-      console.error('[Kanban] Failed bulk delete:', err);
+      console.error('[Kanban] Bulk delete failed:', err);
       await refreshData();
     } finally {
       setBulkActionLoading(false);
     }
   };
+
+  const activeItem = workItems.find(w => w.id === activeId);
 
   return (
     <main className="flex-1 overflow-hidden flex flex-col h-full bg-slate-50/10 dark:bg-slate-950/10">
@@ -439,10 +539,11 @@ export default function KanbanPage() {
       <div className="p-6 pb-4 border-b border-slate-200 dark:border-white/5 bg-white/30 dark:bg-slate-900/30 backdrop-blur-md flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h2 className="text-xl font-black dark:text-white tracking-tight">Quadro Kanban</h2>
-          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">Gerenciamento visual de atividades</p>
+          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">
+            Tasks e Stories — Épicos e Features no <a href="/tasks/hierarchy" className="text-blue-400 hover:text-blue-300 underline underline-offset-2 transition-colors">Roadmap</a>
+          </p>
         </div>
 
-        {/* Filters & Add Button */}
         <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
           {/* Search */}
           <div className="relative flex-1 md:flex-initial">
@@ -463,26 +564,10 @@ export default function KanbanPage() {
             className="px-3 py-2 rounded-xl border border-slate-200 dark:border-white/5 bg-white/50 dark:bg-slate-950/50 text-slate-700 dark:text-slate-300 text-xs focus:outline-none cursor-pointer"
           >
             <option value="">Todos os Projetos</option>
-            {projects.map(p => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
+            {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
 
-          {/* Type filter */}
-          <select
-            value={selectedType}
-            onChange={(e) => setSelectedType(e.target.value)}
-            className="px-3 py-2 rounded-xl border border-slate-200 dark:border-white/5 bg-white/50 dark:bg-slate-950/50 text-slate-700 dark:text-slate-300 text-xs focus:outline-none cursor-pointer"
-          >
-            <option value="all">Todos os Tipos</option>
-            <option value="actionable">Itens Acionáveis (Stories/Tasks)</option>
-            <option value="epic">Apenas Épicos</option>
-            <option value="feature">Apenas Features</option>
-            <option value="story">Apenas Stories</option>
-            <option value="task">Apenas Tarefas</option>
-          </select>
-
-          {/* Parent filter */}
+          {/* Parent (Epic/Feature/Story) filter */}
           <select
             value={selectedParent}
             onChange={(e) => setSelectedParent(e.target.value)}
@@ -491,32 +576,26 @@ export default function KanbanPage() {
             <option value="">Foco (Pai)</option>
             {parentItemsForFilter.map(item => (
               <option key={item.id} value={item.id}>
-                {item.type === 'epic' ? '👑' : '✨'} {item.title}
+                {item.type === 'epic' ? '👑' : item.type === 'feature' ? '✨' : '📖'} {item.title}
               </option>
             ))}
           </select>
 
           {/* Bulk select toggle */}
           <button
-            onClick={() => {
-              setIsBulkMode(!isBulkMode);
-              setSelectedIds([]);
-            }}
+            onClick={() => { setIsBulkMode(!isBulkMode); setSelectedIds([]); }}
             className={`px-3 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
-              isBulkMode 
-                ? 'bg-blue-500 text-white shadow-md shadow-blue-500/20' 
+              isBulkMode
+                ? 'bg-blue-500 text-white shadow-md shadow-blue-500/20'
                 : 'border border-slate-200 dark:border-white/5 bg-white/50 dark:bg-slate-950/50 hover:bg-slate-100 dark:hover:bg-white/5 text-slate-500 dark:text-slate-400'
             }`}
           >
             {isBulkMode ? 'Sair da Seleção' : 'Seleção em Massa'}
           </button>
 
-          {/* Add task button */}
+          {/* Add task */}
           <button
-            onClick={() => {
-              setCreateColumn('todo');
-              setIsCreateOpen(true);
-            }}
+            onClick={() => { setCreateColumn('todo'); setIsCreateOpen(true); }}
             className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold rounded-xl uppercase tracking-wider shadow-md shadow-blue-500/20 transition-all cursor-pointer flex items-center gap-1.5"
           >
             <Plus className="w-4 h-4" /> Criar Item
@@ -524,7 +603,7 @@ export default function KanbanPage() {
         </div>
       </div>
 
-      {/* Kanban Board Container */}
+      {/* Kanban Board */}
       <div className="flex-1 overflow-x-auto p-6 lg:p-8">
         <DndContext
           sensors={sensors}
@@ -535,22 +614,20 @@ export default function KanbanPage() {
           <div className="flex gap-6 min-w-[1000px] h-full items-start">
             {STATUS_COLUMNS.map(colId => {
               const colConfig = WORK_ITEM_STATUS_CONFIG[colId] || { label: colId, dotColor: 'bg-slate-500' };
-              const colItems = filteredItems.filter(item => item.status === colId);
+              const { stories, orphanTasks } = buildColumnData(colId);
               
               return (
-                <div key={colId} className="flex-1 min-w-[220px]">
+                <div key={colId} className="flex-1 min-w-[240px]">
                   <KanbanColumn
                     id={colId}
                     title={colConfig.label}
                     dotColor={colConfig.dotColor}
-                    items={colItems}
+                    stories={stories}
+                    orphanTasks={orphanTasks}
                     projectNameResolver={getProjectName}
                     parentTitleResolver={getParentTitle}
                     onCardClick={handleOpenEdit}
-                    onAddTaskClick={() => {
-                      setCreateColumn(colId);
-                      setIsCreateOpen(true);
-                    }}
+                    onAddTaskClick={() => { setCreateColumn(colId); setIsCreateOpen(true); }}
                     isBulkMode={isBulkMode}
                     selectedIds={selectedIds}
                     onSelectToggle={handleSelectToggle}
@@ -561,11 +638,11 @@ export default function KanbanPage() {
           </div>
 
           <DragOverlay adjustScale={false}>
-            {activeId ? (
+            {activeItem ? (
               <WorkItemCard
-                item={workItems.find(w => w.id === activeId)!}
-                projectName={getProjectName(workItems.find(w => w.id === activeId)!.project_id)}
-                parentTitle={getParentTitle(workItems.find(w => w.id === activeId)!.parent_id)}
+                item={activeItem}
+                projectName={getProjectName(activeItem.project_id)}
+                parentTitle={getParentTitle(activeItem.parent_id)}
                 isOverlay
               />
             ) : null}
@@ -585,13 +662,12 @@ export default function KanbanPage() {
         />
       )}
 
-      {/* Details/Edit Drawer Modal */}
+      {/* Details/Edit Modal */}
       {editingItem && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm" onClick={() => setEditingItem(null)} />
           <div className="relative w-full max-w-lg glass border border-slate-200 dark:border-white/10 rounded-2xl bg-white dark:bg-slate-900 p-6 shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
             
-            {/* Header */}
             <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-white/5">
               <div className="flex items-center gap-2">
                 <span className="font-black text-sm text-slate-900 dark:text-white">Detalhes do Item</span>
@@ -606,10 +682,7 @@ export default function KanbanPage() {
               </button>
             </div>
 
-            {/* Form */}
             <form onSubmit={handleSaveEdit} className="flex-1 overflow-y-auto no-scrollbar py-4 space-y-4">
-              
-              {/* Title */}
               <div>
                 <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Título</label>
                 <input
@@ -621,7 +694,6 @@ export default function KanbanPage() {
                 />
               </div>
 
-              {/* Description */}
               <div>
                 <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Descrição</label>
                 <textarea
@@ -632,7 +704,6 @@ export default function KanbanPage() {
                 />
               </div>
 
-              {/* Type, Status, Priority */}
               <div className="grid grid-cols-3 gap-4">
                 <div>
                   <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Tipo</label>
@@ -646,7 +717,6 @@ export default function KanbanPage() {
                     ))}
                   </select>
                 </div>
-
                 <div>
                   <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Estado</label>
                   <select
@@ -659,7 +729,6 @@ export default function KanbanPage() {
                     ))}
                   </select>
                 </div>
-
                 <div>
                   <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Prioridade</label>
                   <select
@@ -674,7 +743,6 @@ export default function KanbanPage() {
                 </div>
               </div>
 
-              {/* Project & Due Date */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Projeto</label>
@@ -684,12 +752,9 @@ export default function KanbanPage() {
                     className="w-full p-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-white/5 rounded-xl text-xs text-slate-800 dark:text-slate-200 cursor-pointer"
                   >
                     <option value="">Nenhum</option>
-                    {projects.map(p => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
-                    ))}
+                    {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                   </select>
                 </div>
-
                 <div>
                   <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Prazo</label>
                   <input
@@ -701,28 +766,24 @@ export default function KanbanPage() {
                 </div>
               </div>
 
-              {/* Relations info (if parent exists) */}
               {editingItem.parent_id && (
                 <div className="p-3 bg-violet-500/5 border border-violet-500/10 text-violet-600 dark:text-violet-400 rounded-xl text-[10px] font-semibold flex items-center gap-1.5">
                   <GitPullRequest className="w-3.5 h-3.5" />
-                  <span>Sub-item vinculado ao pai: <strong className="font-bold">{getParentTitle(editingItem.parent_id)}</strong></span>
+                  <span>Sub-item vinculado ao pai: <strong>{getParentTitle(editingItem.parent_id)}</strong></span>
                 </div>
               )}
             </form>
 
-            {/* Footer */}
             <div className="flex items-center justify-between pt-4 border-t border-slate-200 dark:border-white/5">
               <button
                 type="button"
                 onClick={handleDeleteItem}
                 disabled={deleting}
                 className="px-4 py-2.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 text-xs font-bold transition-all flex items-center gap-1"
-                title="Excluir item permanentemente"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>{deleting ? 'Excluindo...' : 'Excluir'}</span>
               </button>
-
               <div className="flex gap-2">
                 <button
                   type="button"
@@ -741,50 +802,39 @@ export default function KanbanPage() {
                 </button>
               </div>
             </div>
-
           </div>
         </div>
       )}
+
       {/* Floating Bulk Actions Bar */}
       {isBulkMode && selectedIds.length > 0 && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-4 px-6 py-3 bg-slate-900/90 dark:bg-slate-950/90 border border-white/10 rounded-2xl shadow-2xl backdrop-blur-md animate-in fade-in slide-in-from-bottom-4 duration-300">
           <div className="text-[10px] font-black text-white uppercase tracking-wider whitespace-nowrap">
             {selectedIds.length} {selectedIds.length === 1 ? 'Selecionado' : 'Selecionados'}
           </div>
-
           <div className="h-4 w-px bg-white/10" />
-
-          {/* Action: Bulk Status Change */}
-          <div className="flex items-center gap-2">
-            <select
-              value=""
-              onChange={(e) => handleBulkStatusChange(e.target.value as WorkItemStatus)}
-              disabled={bulkActionLoading}
-              className="bg-white/5 border border-white/10 hover:border-white/20 text-white text-[9px] font-bold uppercase tracking-wider rounded-lg px-2.5 py-1.5 cursor-pointer focus:outline-none focus:ring-0 disabled:opacity-50"
-            >
-              <option value="" className="bg-slate-900 text-white">Mudar Estado</option>
-              {Object.entries(WORK_ITEM_STATUS_CONFIG).map(([key, cfg]) => (
-                <option key={key} value={key} className="bg-slate-900 text-white">{cfg.label}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Action: Bulk Priority Change */}
-          <div className="flex items-center gap-2">
-            <select
-              value=""
-              onChange={(e) => handleBulkPriorityChange(e.target.value as WorkItemPriority)}
-              disabled={bulkActionLoading}
-              className="bg-white/5 border border-white/10 hover:border-white/20 text-white text-[9px] font-bold uppercase tracking-wider rounded-lg px-2.5 py-1.5 cursor-pointer focus:outline-none focus:ring-0 disabled:opacity-50"
-            >
-              <option value="" className="bg-slate-900 text-white">Mudar Prioridade</option>
-              {Object.entries(WORK_ITEM_PRIORITY_CONFIG).map(([key, cfg]) => (
-                <option key={key} value={key} className="bg-slate-900 text-white">{cfg.label}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Action: Bulk Delete */}
+          <select
+            value=""
+            onChange={(e) => handleBulkStatusChange(e.target.value as WorkItemStatus)}
+            disabled={bulkActionLoading}
+            className="bg-white/5 border border-white/10 hover:border-white/20 text-white text-[9px] font-bold uppercase tracking-wider rounded-lg px-2.5 py-1.5 cursor-pointer focus:outline-none disabled:opacity-50"
+          >
+            <option value="" className="bg-slate-900">Mudar Estado</option>
+            {Object.entries(WORK_ITEM_STATUS_CONFIG).map(([key, cfg]) => (
+              <option key={key} value={key} className="bg-slate-900">{cfg.label}</option>
+            ))}
+          </select>
+          <select
+            value=""
+            onChange={(e) => handleBulkPriorityChange(e.target.value as WorkItemPriority)}
+            disabled={bulkActionLoading}
+            className="bg-white/5 border border-white/10 hover:border-white/20 text-white text-[9px] font-bold uppercase tracking-wider rounded-lg px-2.5 py-1.5 cursor-pointer focus:outline-none disabled:opacity-50"
+          >
+            <option value="" className="bg-slate-900">Mudar Prioridade</option>
+            {Object.entries(WORK_ITEM_PRIORITY_CONFIG).map(([key, cfg]) => (
+              <option key={key} value={key} className="bg-slate-900">{cfg.label}</option>
+            ))}
+          </select>
           <button
             onClick={handleBulkDelete}
             disabled={bulkActionLoading}
@@ -793,10 +843,7 @@ export default function KanbanPage() {
             <Trash2 className="w-3.5 h-3.5" />
             <span>Excluir</span>
           </button>
-
           <div className="h-4 w-px bg-white/10" />
-
-          {/* Cancel Selection */}
           <button
             onClick={() => setSelectedIds([])}
             disabled={bulkActionLoading}

@@ -18,6 +18,7 @@ interface QuickCreateModalProps {
   projects: { id: string; name: string }[];
   onCreated: () => void;
   defaultStatus?: WorkItemStatus;
+  parentItem?: { id: string; type: WorkItemType; title: string; project_id?: string | null };
 }
 
 export const QuickCreateModal: React.FC<QuickCreateModalProps> = ({
@@ -26,14 +27,21 @@ export const QuickCreateModal: React.FC<QuickCreateModalProps> = ({
   userId,
   projects,
   onCreated,
-  defaultStatus = 'todo'
+  defaultStatus = 'todo',
+  parentItem
 }) => {
+  const suggestedType: WorkItemType = parentItem
+    ? parentItem.type === 'epic' ? 'feature'
+    : parentItem.type === 'feature' ? 'story'
+    : 'task'
+    : 'task';
+
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [type, setType] = useState<WorkItemType>('task');
+  const [type, setType] = useState<WorkItemType>(suggestedType);
   const [status, setStatus] = useState<WorkItemStatus>(defaultStatus);
   const [priority, setPriority] = useState<WorkItemPriority>('medium');
-  const [projectId, setProjectId] = useState<string>('');
+  const [projectId, setProjectId] = useState<string>(parentItem?.project_id || '');
   const [dueDate, setDueDate] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -55,7 +63,8 @@ export const QuickCreateModal: React.FC<QuickCreateModalProps> = ({
         .from('tasks')
         .insert({
           user_id: userId,
-          project_id: projectId || null,
+          project_id: projectId || parentItem?.project_id || null,
+          parent_id: parentItem?.id || null,
           title,
           description: description || null,
           status,
@@ -97,8 +106,12 @@ export const QuickCreateModal: React.FC<QuickCreateModalProps> = ({
         
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-white/5">
-          <h3 className="font-bold text-lg text-slate-900 dark:text-white flex items-center gap-2">
-            <span>Criar Item de Trabalho</span>
+        <h3 className="font-bold text-lg text-slate-900 dark:text-white flex items-center gap-2">
+            {parentItem ? (
+              <span>Adicionar filho a: <strong className="text-blue-400">{parentItem.title}</strong></span>
+            ) : (
+              <span>Criar Item de Trabalho</span>
+            )}
           </h3>
           <button 
             onClick={onClose}

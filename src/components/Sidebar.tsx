@@ -22,7 +22,6 @@ import {
   Calendar,
   LayoutDashboard,
   Columns3,
-  GitBranch,
   FolderKanban,
   FileText
 } from 'lucide-react';
@@ -65,7 +64,7 @@ export const Sidebar: React.FC = () => {
   const taskItems: SidebarItem[] = [
     { name: 'Dashboard', icon: LayoutDashboard, path: '/tasks' },
     { name: 'Kanban', icon: Columns3, path: '/tasks/kanban' },
-    { name: 'Hierarquia', icon: GitBranch, path: '/tasks/hierarchy' },
+    { name: 'Roadmap', icon: Target, path: '/tasks/hierarchy' },
     { name: 'Projetos', icon: FolderKanban, path: '/tasks/projects' },
     { name: 'Transcrições', icon: FileText, path: '/tasks/transcriptions' },
     { name: 'Ajustes', icon: Settings, path: '/settings?module=work' },
