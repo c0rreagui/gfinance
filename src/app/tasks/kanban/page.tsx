@@ -155,7 +155,7 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
 // ============================================================================
 
 export default function KanbanPage() {
-  const { user, projects, workItems, refreshData } = useGWork();
+  const { user, projects, workItems, setWorkItems, refreshData } = useGWork();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProject, setSelectedProject] = useState<string>('');
   const [selectedType, setSelectedType] = useState<string>('all');
@@ -214,6 +214,9 @@ export default function KanbanPage() {
     if (!draggedItem) return;
 
     if (draggedItem.status !== overStatus) {
+      // Optimistic update
+      setWorkItems(prev => prev.map(t => t.id === activeId ? { ...t, status: overStatus } : t));
+
       try {
         const { error } = await supabase
           .from('tasks')
@@ -221,9 +224,9 @@ export default function KanbanPage() {
           .eq('id', activeId);
         
         if (error) throw error;
-        await refreshData();
       } catch (err) {
         console.error('[Kanban] Failed to move item:', err);
+        await refreshData();
       }
     }
   };
@@ -244,6 +247,19 @@ export default function KanbanPage() {
     if (!editingItem) return;
 
     setSaving(true);
+    
+    // Optimistic update
+    setWorkItems(prev => prev.map(t => t.id === editingItem.id ? { 
+      ...t, 
+      title: editTitle,
+      description: editDesc || null,
+      type: editType,
+      status: editStatus,
+      priority: editPriority,
+      project_id: editProjId || null,
+      due_date: editDueDate ? new Date(editDueDate).toISOString() : null,
+    } : t));
+
     try {
       const { error } = await supabase
         .from('tasks')
@@ -260,9 +276,9 @@ export default function KanbanPage() {
 
       if (error) throw error;
       setEditingItem(null);
-      await refreshData();
     } catch (err) {
       console.error('[Kanban] Failed to update item:', err);
+      await refreshData();
     } finally {
       setSaving(false);
     }
@@ -273,6 +289,10 @@ export default function KanbanPage() {
     if (!confirm('Deseja realmente excluir este item de trabalho?')) return;
 
     setDeleting(true);
+    
+    // Optimistic update
+    setWorkItems(prev => prev.filter(t => t.id !== editingItem.id));
+
     try {
       const { error } = await supabase
         .from('tasks')
@@ -283,6 +303,7 @@ export default function KanbanPage() {
       setEditingItem(null);
     } catch (err) {
       console.error('[Kanban] Failed to delete item:', err);
+      await refreshData();
     } finally {
       setDeleting(false);
     }
@@ -342,17 +363,22 @@ export default function KanbanPage() {
   // Bulk Status Change
   const handleBulkStatusChange = async (newStatus: WorkItemStatus) => {
     setBulkActionLoading(true);
+    
+    // Optimistic update
+    setWorkItems(prev => prev.map(t => selectedIds.includes(t.id) ? { ...t, status: newStatus } : t));
+    const idsToUpdate = [...selectedIds];
+    setSelectedIds([]);
+    setIsBulkMode(false);
+
     try {
       const { error } = await supabase
         .from('tasks')
         .update({ status: newStatus })
-        .in('id', selectedIds);
+        .in('id', idsToUpdate);
       if (error) throw error;
-      setSelectedIds([]);
-      setIsBulkMode(false);
-      await refreshData();
     } catch (err) {
       console.error('[Kanban] Failed bulk status update:', err);
+      await refreshData();
     } finally {
       setBulkActionLoading(false);
     }
@@ -361,17 +387,22 @@ export default function KanbanPage() {
   // Bulk Priority Change
   const handleBulkPriorityChange = async (newPriority: WorkItemPriority) => {
     setBulkActionLoading(true);
+    
+    // Optimistic update
+    setWorkItems(prev => prev.map(t => selectedIds.includes(t.id) ? { ...t, priority: newPriority } : t));
+    const idsToUpdate = [...selectedIds];
+    setSelectedIds([]);
+    setIsBulkMode(false);
+
     try {
       const { error } = await supabase
         .from('tasks')
         .update({ priority: newPriority })
-        .in('id', selectedIds);
+        .in('id', idsToUpdate);
       if (error) throw error;
-      setSelectedIds([]);
-      setIsBulkMode(false);
-      await refreshData();
     } catch (err) {
       console.error('[Kanban] Failed bulk priority update:', err);
+      await refreshData();
     } finally {
       setBulkActionLoading(false);
     }
@@ -381,17 +412,22 @@ export default function KanbanPage() {
   const handleBulkDelete = async () => {
     if (!confirm(`Deseja realmente excluir permanentemente os ${selectedIds.length} itens de trabalho selecionados?`)) return;
     setBulkActionLoading(true);
+    
+    // Optimistic update
+    setWorkItems(prev => prev.filter(t => !selectedIds.includes(t.id)));
+    const idsToDelete = [...selectedIds];
+    setSelectedIds([]);
+    setIsBulkMode(false);
+
     try {
       const { error } = await supabase
         .from('tasks')
         .delete()
-        .in('id', selectedIds);
+        .in('id', idsToDelete);
       if (error) throw error;
-      setSelectedIds([]);
-      setIsBulkMode(false);
-      await refreshData();
     } catch (err) {
       console.error('[Kanban] Failed bulk delete:', err);
+      await refreshData();
     } finally {
       setBulkActionLoading(false);
     }

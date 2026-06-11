@@ -19,6 +19,7 @@ interface GWorkContextValue {
   insights: AiInsight[];
   refreshData: () => Promise<void>;
   refreshInsights: () => Promise<void>;
+  setWorkItems: React.Dispatch<React.SetStateAction<WorkItem[]>>;
 }
 
 const GWorkContext = createContext<GWorkContextValue>({
@@ -30,6 +31,7 @@ const GWorkContext = createContext<GWorkContextValue>({
   insights: [],
   refreshData: async () => {},
   refreshInsights: async () => {},
+  setWorkItems: () => {},
 });
 
 export const useGWork = () => useContext(GWorkContext);
@@ -181,7 +183,7 @@ function GWorkProvider({ children }: { children: React.ReactNode }) {
   }, [user]);
 
   return (
-    <GWorkContext.Provider value={{ user, loading, projects, workItems, transcriptions, insights, refreshData, refreshInsights }}>
+    <GWorkContext.Provider value={{ user, loading, projects, workItems, setWorkItems, transcriptions, insights, refreshData, refreshInsights }}>
       {children}
     </GWorkContext.Provider>
   );
