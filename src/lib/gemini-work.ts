@@ -10,7 +10,7 @@
 
 import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
 
-const CONVERSATIONAL_MODEL = 'gemini-2.5-flash';
+const CONVERSATIONAL_MODEL = 'gemini-pro-latest';
 
 const apiKey = process.env.GEMINI_API_KEY;
 
@@ -247,7 +247,7 @@ export async function generateWorkResponse(
     1. Baseie-se nos resultados das ferramentas para dar respostas precisas.
     2. Use markdown leve (negritos, listas) para estruturar as respostas.
     3. Fale estritamente em português brasileiro (pt-BR).
-    4. Ao criar ou atualizar múltiplos itens, execute as operações de forma eficiente.
+    4. Ao criar, atualizar ou deletar múltiplos itens, você DEVE gerar todas as chamadas de ferramentas de uma vez só em um único turno de chamada paralela (parallel function calling). Evite gerar chamadas em turnos sequenciais separados (ex: não crie um item em um turno para depois usar o ID dele em outro turno, a menos que seja estritamente inevitável). Execute todas as operações simultaneamente para evitar múltiplos roundtrips.
     5. **Arquitetura de Visualização do Kanban vs. Roadmap (Linear-style)**:
        - O **Quadro Kanban** (\`/tasks/kanban\`) exibe **apenas itens do tipo \`task\`** de forma plana (flat).
        - Os tipos estratégicos e organizacionais (**\`epic\`**, **\`feature\`** e **\`story\`**) pertencem estritamente à visão de **Roadmap** (\`/tasks/hierarchy\`).
@@ -282,21 +282,19 @@ export async function generateWorkResponse(
 
   while (functionCalls && functionCalls.length > 0 && loopCount < MAX_LOOPS) {
     loopCount++;
-    console.info(`[CPO Assistant Tool] Executando ${functionCalls.length} chamada(s) de ferramenta.`);
+    console.info(`[CPO Assistant Tool] Executando ${functionCalls.length} chamada(s) de ferramenta em paralelo.`);
 
-    const functionResponses = [];
+    const { data: { user } } = await supabaseClient.auth.getUser();
+    if (!user) throw new Error('Usuário não autenticado.');
+    const userId = user.id;
 
-    for (const call of functionCalls) {
+    const promises = functionCalls.map(async (call) => {
       const { name, args } = call;
       console.info(`[CPO Assistant Tool] "${name}" com args:`, args);
 
       let toolResult: any;
 
       try {
-        const { data: { user } } = await supabaseClient.auth.getUser();
-        if (!user) throw new Error('Usuário não autenticado.');
-        const userId = user.id;
-
         if (name === 'list_work_tasks') {
           const { status, priority, type, project_id, search, limit } = args as any;
           let q = supabaseClient.from('tasks').select('id, title, description, type, status, priority, project_id, parent_id, due_date, created_at').eq('user_id', userId);
@@ -410,11 +408,12 @@ export async function generateWorkResponse(
         toolResult = { success: false, error: err.message || 'Erro técnico na ferramenta.' };
       }
 
-      functionResponses.push({
+      return {
         functionResponse: { name, response: toolResult }
-      });
-    }
+      };
+    });
 
+    const functionResponses = await Promise.all(promises);
     result = await chat.sendMessage(functionResponses as any);
     functionCalls = result.response.functionCalls();
   }

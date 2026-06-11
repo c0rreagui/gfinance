@@ -18,7 +18,7 @@ import { reconcileBalances } from './reconcile';
 
 const GEMINI_REST_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 const PARSER_MODEL = 'gemini-flash-latest';
-const CONVERSATIONAL_MODEL = 'gemini-2.5-flash';
+const CONVERSATIONAL_MODEL = 'gemini-flash-latest';
 
 const apiKey = process.env.GEMINI_API_KEY;
 
@@ -477,6 +477,7 @@ export async function generateFinancialResponse(
     2. Ao citar valores monetários, formate no padrão monetário do Brasil (ex: R$ 1.250,50).
     3. Use markdown leve (negritos, listas) para estruturar as análises de forma altamente legível.
     4. Fale estritamente em português brasileiro (pt-BR).
+    5. **Concisão e Resumos Sintéticos**: Ao analisar, listar ou propor agrupamentos de grandes volumes de dados (ex: resumir dezenas de transações), seja conciso e direto. Evite redundâncias textuais e repetições excessivas de detalhes individuais para garantir que a resposta caiba no limite de tokens da API e não seja cortada.
   `;
 
   const hasApiKey = apiKey && apiKey !== 'your-gemini-api-key-here';
@@ -502,7 +503,7 @@ export async function generateFinancialResponse(
       contents,
       generationConfig: {
         temperature: 0.4,
-        maxOutputTokens: 1024,
+        maxOutputTokens: 4096,
       }
     };
 
@@ -523,7 +524,7 @@ export async function generateFinancialResponse(
     tools: supabaseClient ? (geminiTools as any) : undefined, // Só habilita ferramentas de escrita se o client Supabase autenticado for fornecido
     generationConfig: {
       temperature: 0.4,
-      maxOutputTokens: 1024,
+      maxOutputTokens: 4096,
     }
   });
 
@@ -542,29 +543,26 @@ export async function generateFinancialResponse(
   // Loop de resolução consecutiva de ferramentas (Tool Calling Loop)
   while (functionCalls && functionCalls.length > 0 && loopCount < MAX_LOOPS) {
     loopCount++;
-    console.info(`[Gemini Brain Tool Execution] Executando ${functionCalls.length} chamadas solicitadas pela IA.`);
+    console.info(`[Gemini Brain Tool Execution] Executando ${functionCalls.length} chamadas solicitadas pela IA em paralelo.`);
     
-    const functionResponses = [];
-    let databaseModified = false;
-    let loggedUserId: string | null = null;
+    if (!supabaseClient) {
+      throw new Error('SupabaseClient não fornecido para execução de ferramentas de escrita.');
+    }
 
-    for (const call of functionCalls) {
+    // Recuperar sessão ativa segura do usuário logado uma vez por turno
+    const { data: { user } } = await supabaseClient.auth.getUser();
+    if (!user) throw new Error('Usuário do Supabase não identificado.');
+    const userId = user.id;
+
+    let databaseModified = false;
+
+    const promises = functionCalls.map(async (call) => {
       const { name, args } = call;
       console.info(`[Gemini Brain Tool Execution] Iniciando "${name}" com argumentos:`, args);
 
       let toolResult: any;
 
       try {
-        if (!supabaseClient) {
-          throw new Error('SupabaseClient não fornecido para execução de ferramentas de escrita.');
-        }
-
-        // Recuperar sessão ativa segura do usuário logado
-        const { data: { user } } = await supabaseClient.auth.getUser();
-        if (!user) throw new Error('Usuário do Supabase não identificado.');
-        const userId = user.id;
-        loggedUserId = userId;
-
         if (name === 'list_user_transactions') {
           const { searchQuery, category, limit } = args as any;
           let queryBuilder = supabaseClient.from('transactions').select('*').eq('user_id', userId);
@@ -805,15 +803,17 @@ export async function generateFinancialResponse(
         toolResult = { success: false, error: err.message || 'Erro técnico na ferramenta.' };
       }
 
-      functionResponses.push({
+      return {
         functionResponse: { name, response: toolResult }
-      });
-    }
+      };
+    });
+
+    const functionResponses = await Promise.all(promises);
 
     // Executa a reconciliação APENAS UMA VEZ após rodar todo o lote do turno
-    if (databaseModified && supabaseClient && loggedUserId) {
+    if (databaseModified && supabaseClient) {
       console.info('[Gemini Brain Tool Execution] Batch de alterações detectado. Executando reconciliação única...');
-      await reconcileBalances(supabaseClient, loggedUserId);
+      await reconcileBalances(supabaseClient, userId);
     }
 
     // Retorna as execuções de volta ao chat para o Gemini processar

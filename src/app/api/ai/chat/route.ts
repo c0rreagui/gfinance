@@ -15,6 +15,7 @@ import { generateWorkResponse } from '@/lib/gemini-work';
 import { compactSessionHistory, AppModule } from '@/lib/memory';
 
 export const runtime = 'nodejs';
+export const maxDuration = 60; // Limite de 60 segundos para evitar timeout de processamentos paralelos/concorrentes do Gemini no Vercel
 
 export async function POST(req: Request): Promise<NextResponse> {
   // 1. Autenticação via cookies ou Header Authorization
