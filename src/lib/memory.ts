@@ -8,7 +8,7 @@
  * - 'work': salva em profiles.ai_memory_work (CPO Assistant)
  */
 
-import { getGeminiClient } from './gemini';
+import { getGeminiClient, withRetry } from './gemini';
 
 interface ChatMessageRow {
   role: 'user' | 'model';
@@ -100,7 +100,7 @@ export async function compactSessionHistory(
     `;
 
     console.info('[Memory] Enviando prompt de compactação para o Gemini...');
-    const result = await model.generateContent(compactionPrompt);
+    const result = await withRetry(() => model.generateContent(compactionPrompt));
     const updatedMemory = result.response.text().trim();
 
     if (!updatedMemory) {

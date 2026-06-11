@@ -10,7 +10,7 @@
 
 import { NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
-import { generateFinancialResponse } from '@/lib/gemini';
+import { generateFinancialResponse, is429Error } from '@/lib/gemini';
 import { generateWorkResponse } from '@/lib/gemini-work';
 import { compactSessionHistory, AppModule } from '@/lib/memory';
 
@@ -64,6 +64,8 @@ export async function POST(req: Request): Promise<NextResponse> {
     );
   }
 
+  let insertedUserMessageId: string | undefined = undefined;
+
   try {
     // 3. Gerenciar / Criar Sessão Persistente com módulo correto
     let finalSessionId = sessionId;
@@ -106,18 +108,22 @@ export async function POST(req: Request): Promise<NextResponse> {
     }
 
     // 5. Salvar a mensagem do usuário
-    const { error: insertUserMsgError } = await supabase
+    const { data: insertedUserMsg, error: insertUserMsgError } = await supabase
       .from('chat_messages')
       .insert({
         session_id: finalSessionId,
         user_id: user.id,
         role: 'user',
         content: message
-      });
+      })
+      .select('id')
+      .single();
 
-    if (insertUserMsgError) {
-      throw new Error(`Falha ao registrar mensagem do usuário: ${insertUserMsgError.message}`);
+    if (insertUserMsgError || !insertedUserMsg) {
+      throw new Error(`Falha ao registrar mensagem do usuário: ${insertUserMsgError?.message || 'Nenhum dado retornado'}`);
     }
+
+    insertedUserMessageId = insertedUserMsg.id;
 
     // 6. Buscar histórico ativo da sessão (sliding window)
     const { data: dbHistory, error: historyError } = await supabase
@@ -247,6 +253,23 @@ export async function POST(req: Request): Promise<NextResponse> {
 
   } catch (err: any) {
     console.error('[AI Chat API] Erro ao gerar resposta:', err);
+
+    if (insertedUserMessageId) {
+      try {
+        await supabase.from('chat_messages').delete().eq('id', insertedUserMessageId);
+        console.info(`[AI Chat API Rollback] Mensagem do usuário ${insertedUserMessageId} removida devido a falha na IA.`);
+      } catch (rollbackErr) {
+        console.error('[AI Chat API Rollback] Erro ao executar rollback de mensagem:', rollbackErr);
+      }
+    }
+
+    if (is429Error(err)) {
+      return NextResponse.json(
+        { error: 'O limite temporário de requisições foi atingido. Por favor, aguarde alguns segundos antes de tentar novamente.' },
+        { status: 429 }
+      );
+    }
+
     return NextResponse.json(
       { error: err.message || 'Erro interno no servidor ao processar chat.' },
       { status: 500 }

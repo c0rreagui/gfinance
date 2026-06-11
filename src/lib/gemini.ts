@@ -41,6 +41,53 @@ export interface AITransaction {
 }
 
 // ---------------------------------------------------------------------------
+// Helpers para Tratamento de Erros, Quota e Retentativas com Backoff
+// ---------------------------------------------------------------------------
+export function is429Error(err: any): boolean {
+  if (!err) return false;
+  
+  if (
+    err.status === 429 ||
+    err.statusCode === 429 ||
+    err.response?.status === 429 ||
+    err.response?.statusCode === 429
+  ) {
+    return true;
+  }
+  
+  const errStr = String(err).toLowerCase();
+  const errMsg = err.message ? String(err.message).toLowerCase() : '';
+  const errStatus = err.status ? String(err.status) : '';
+  
+  const keywords = ['429', 'resource_exhausted', 'resource exhausted', 'quota', 'rate limit', 'too many requests'];
+  return keywords.some(
+    (keyword) => errStr.includes(keyword) || errMsg.includes(keyword) || errStatus === '429'
+  );
+}
+
+export async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
+  let attempt = 0;
+  while (true) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      if (is429Error(err) && attempt < 3) {
+        attempt++;
+        const delay = Math.pow(2, attempt - 1) * 1000;
+        console.warn(`[Gemini Retry] Rate limit (429) detectado. Tentativa ${attempt} de 3 de reprocessamento em ${delay}ms...`, err);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      } else {
+        throw err;
+      }
+    }
+  }
+}
+
+export async function sendMessageWithRetry(chat: any, message: string | any[]): Promise<any> {
+  return withRetry(() => chat.sendMessage(message));
+}
+
+// ---------------------------------------------------------------------------
 // Helper: chamada REST direta ao Gemini API com OAuth Bearer token
 // ---------------------------------------------------------------------------
 async function callGeminiREST(
@@ -49,23 +96,25 @@ async function callGeminiREST(
   oauthToken: string
 ): Promise<any> {
   const url = `${GEMINI_REST_BASE}/models/${modelName}:generateContent`;
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${oauthToken}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(payload),
+  return withRetry(async () => {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${oauthToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw new Error(
+        `Gemini API (OAuth) retornou ${response.status}: ${errorBody}`
+      );
+    }
+
+    return response.json();
   });
-
-  if (!response.ok) {
-    const errorBody = await response.text();
-    throw new Error(
-      `Gemini API (OAuth) retornou ${response.status}: ${errorBody}`
-    );
-  }
-
-  return response.json();
 }
 
 // ---------------------------------------------------------------------------
@@ -176,7 +225,7 @@ export async function parseStatementWithAI(
   });
 
   const filePart = { inlineData: { data: fileBase64, mimeType } };
-  const result = await model.generateContent([prompt, filePart]);
+  const result = await withRetry(() => model.generateContent([prompt, filePart]));
   const responseText = result.response.text();
 
   try {
@@ -534,7 +583,7 @@ export async function generateFinancialResponse(
   }));
 
   const chat = model.startChat({ history: formattedHistory });
-  let result = await chat.sendMessage(query);
+  let result = await sendMessageWithRetry(chat, query);
   let functionCalls = result.response.functionCalls();
 
   let loopCount = 0;
@@ -817,7 +866,7 @@ export async function generateFinancialResponse(
     }
 
     // Retorna as execuções de volta ao chat para o Gemini processar
-    result = await chat.sendMessage(functionResponses as any);
+    result = await sendMessageWithRetry(chat, functionResponses as any);
     functionCalls = result.response.functionCalls();
   }
 
