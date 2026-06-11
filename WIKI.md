@@ -2,7 +2,7 @@
 
 Este documento é a fonte de verdade para desenvolvimento do **G-Hub** (integrando os módulos G-Finance e G-Work), o sistema unificado de controle e produtividade de Guilherme Corrêa. Mantido automaticamente pelo Antigravity Agent.
 
-> **Última atualização:** 09 de junho de 2026
+> **Última atualização:** 11 de junho de 2026
 
 ---
 
@@ -322,6 +322,15 @@ Para evitar acoplamento acidental e regressões em futuras sessões de IA ou ref
   - `[PASS]` Resolução de Timeout: Ao invocar a Edge Function diretamente a partir do cliente Supabase no navegador do usuário, eliminamos o limite de 10 segundos do servidor Vercel Hobby, viabilizando análises de áudios de grande porte de até 150 segundos sem falhas.
   - `[PASS]` Segurança de Secrets: Mantivemos as restrições inegociáveis de segurança ao hospedar a chave `GEMINI_API_KEY` apenas como segredo criptografado no Supabase Vault (`supabase secrets set`), sem expô-la ao frontend.
   - `[PASS]` Limpeza de Código: Removidas com segurança as rotas do Next.js depreciadas `/api/tasks/generate` e `/api/tasks/consolidate`. Compilação local e build de produção Next.js 100% verdes.
+
+### 🗓️ 11 de Junho de 2026 — Refatoração de Kanban e Alinhamento do Gemini Brain
+- **Veredicto:** PRODUCTION-DEPLOYED
+- **Implementações:**
+  - `[PASS]` Reestruturação do Quadro Kanban: Mapeado e implementado o layout plano (flat) exibindo estritamente itens do tipo `task`. Removido o agrupamento por Stories no Kanban, solucionando o gargalo de visualização e organizando os 57 cards de forma limpa.
+  - `[PASS]` Isolamento Estratégico no Roadmap: Os tipos `epic`, `feature` e `story` agora são renderizados exclusivamente na página de Roadmap estratégico (`/tasks/hierarchy`).
+  - `[PASS]` Correção de Drag-and-Drop: Solucionado o erro de constraint do Supabase ao arrastar cards e soltá-los sobre outros cards (resolvendo dinamicamente o status da coluna). Mapeados os triggers de dnd-kit exclusivamente no grip handle `GripVertical` para desvincular cliques simples de gestos de arraste.
+  - `[PASS]` Alinhamento de IA (Gemini): Atualizados os arquivos de diretrizes estáticas de produto (`funcoes.md`) e injetadas instruções claras no system prompt do CPO Assistant em `gemini-work.ts` para que a inteligência analise, consolide e ordene entregáveis sabendo da separação entre Roadmap (Epic/Feature/Story) e Kanban (Tasks atômicas associadas a parents e projetos).
+
 
 
 

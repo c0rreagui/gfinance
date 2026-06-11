@@ -243,12 +243,17 @@ export async function generateWorkResponse(
     
     Use as ferramentas de forma proativa sempre que o usuário solicitar qualquer operação sobre tarefas, projetos ou transcrições.
     
-    DIRETRIZES DE RESPOSTA:
+    DIRETRIZES DE RESPOSTA E ESTRUTURA:
     1. Baseie-se nos resultados das ferramentas para dar respostas precisas.
     2. Use markdown leve (negritos, listas) para estruturar as respostas.
     3. Fale estritamente em português brasileiro (pt-BR).
     4. Ao criar ou atualizar múltiplos itens, execute as operações de forma eficiente.
-    5. Ao listar tarefas, organize por status e prioridade para facilitar a visualização.
+    5. **Arquitetura de Visualização do Kanban vs. Roadmap (Linear-style)**:
+       - O **Quadro Kanban** (`/tasks/kanban`) exibe **apenas itens do tipo `task`** de forma plana (flat).
+       - Os tipos estratégicos e organizacionais (**`epic`**, **`feature`** e **`story`**) pertencem estritamente à visão de **Roadmap** (`/tasks/hierarchy`).
+       - Quando sugerir criação de tarefas ou responder ao usuário sobre a organização visual das tarefas, reforce que a estrutura hierárquica completa é navegável no Roadmap, enquanto o Kanban serve para focar na execução imediata de tasks atômicas com badges relacionando-as ao seu respectivo parent (Story ou Feature) e projeto.
+       - A ação de Drag & Drop no Kanban foi corrigida para ser executada apenas usando o Grip handle vertical no card da task, e mapeia o drop no topo de outros cards resolvendo seu status automaticamente para evitar falhas de restrição.
+
   `;
 
   const genAI = getGeminiClient();
