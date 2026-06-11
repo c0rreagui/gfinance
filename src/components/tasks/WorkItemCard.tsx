@@ -47,8 +47,6 @@ export const WorkItemCard: React.FC<WorkItemCardProps> = ({
       ref={innerRef}
       style={style}
       onClick={onClick}
-      {...attributes}
-      {...listeners}
       className={`glass group relative flex flex-col p-4 rounded-xl border transition-all duration-300 select-none ${
         isOverlay
           ? 'bg-white/80 dark:bg-slate-900/80 border-blue-500/50 shadow-2xl ring-2 ring-blue-500/30 scale-[1.03] -rotate-1 cursor-grabbing z-[9999]'
@@ -56,7 +54,7 @@ export const WorkItemCard: React.FC<WorkItemCardProps> = ({
           ? 'opacity-25 border-dashed border-slate-300 dark:border-white/10 bg-slate-100/10 dark:bg-slate-950/10 shadow-none pointer-events-none'
           : isSelected
           ? 'border-blue-500 bg-blue-500/5 dark:bg-blue-500/5 shadow-md shadow-blue-500/5 cursor-pointer'
-          : 'border-slate-200 dark:border-white/5 bg-white/40 dark:bg-slate-900/40 hover:bg-white/60 dark:hover:bg-slate-900/60 shadow-sm hover:shadow-md cursor-grab active:cursor-grabbing'
+          : 'border-slate-200 dark:border-white/5 bg-white/40 dark:bg-slate-900/40 hover:bg-white/60 dark:hover:bg-slate-900/60 shadow-sm hover:shadow-md cursor-pointer'
       }`}
     >
       {/* Top Section: Badges & Drag Handle */}
@@ -76,8 +74,9 @@ export const WorkItemCard: React.FC<WorkItemCardProps> = ({
         
         {/* Drag handle visible on hover or if dragging */}
         <div
-          {...dragHandleProps}
-          className={`p-1 rounded hover:bg-slate-200/50 dark:hover:bg-white/10 transition-opacity ${
+          {...attributes}
+          {...listeners}
+          className={`p-1 rounded hover:bg-slate-200/50 dark:hover:bg-white/10 transition-opacity cursor-grab active:cursor-grabbing ${
             isOverlay ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
           }`}
           onClick={(e) => e.stopPropagation()} // Prevent clicking the card when clicking the grip icon

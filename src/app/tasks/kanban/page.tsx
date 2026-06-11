@@ -67,119 +67,6 @@ const DraggableCard: React.FC<{
 };
 
 // ============================================================================
-// STORY GROUP HEADER — collapses tasks children
-// ============================================================================
-
-interface StoryGroupProps {
-  story: WorkItem;
-  tasks: WorkItem[];
-  projectName?: string;
-  onStoryClick: (item: WorkItem) => void;
-  onTaskClick: (item: WorkItem) => void;
-  isBulkMode?: boolean;
-  selectedIds?: string[];
-  onSelectToggle?: (id: string) => void;
-}
-
-const StoryGroup: React.FC<StoryGroupProps> = ({
-  story,
-  tasks,
-  projectName,
-  onStoryClick,
-  onTaskClick,
-  isBulkMode,
-  selectedIds,
-  onSelectToggle,
-}) => {
-  const [expanded, setExpanded] = useState(true);
-  const doneTasks = tasks.filter(t => t.status === story.status || t.status === 'done').length;
-  const progressPct = tasks.length > 0 ? Math.round((tasks.filter(t => t.status === 'done').length / tasks.length) * 100) : 0;
-
-  return (
-    <div className="flex flex-col gap-1.5">
-      {/* Story Header */}
-      <div
-        className="group flex items-center gap-2 px-3 py-2.5 rounded-xl border border-emerald-500/20 bg-emerald-950/20 hover:bg-emerald-950/30 transition-all cursor-pointer select-none"
-        onClick={() => !isBulkMode && onStoryClick(story)}
-      >
-        {/* Collapse toggle */}
-        <button
-          onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
-          className="p-0.5 rounded text-emerald-500/70 hover:text-emerald-400 transition-colors shrink-0"
-        >
-          {expanded
-            ? <ChevronDown className="w-3.5 h-3.5" />
-            : <ChevronRight className="w-3.5 h-3.5" />
-          }
-        </button>
-
-        <BookOpen className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-
-        <span className="text-[11px] font-bold text-emerald-300 truncate flex-1 min-w-0">
-          {story.title}
-        </span>
-
-        {/* Task count + progress */}
-        {tasks.length > 0 && (
-          <div className="flex items-center gap-2 shrink-0">
-            <div className="flex items-center gap-1">
-              <div className="w-12 h-1 rounded-full bg-slate-800 overflow-hidden">
-                <div
-                  className="h-full bg-emerald-500 rounded-full transition-all duration-500"
-                  style={{ width: `${progressPct}%` }}
-                />
-              </div>
-              <span className="text-[9px] font-black text-slate-500 uppercase tracking-wider">
-                {progressPct}%
-              </span>
-            </div>
-            <span className="text-[9px] font-bold text-slate-600 flex items-center gap-0.5">
-              <ListTodo className="w-2.5 h-2.5" />
-              {tasks.length}
-            </span>
-          </div>
-        )}
-
-        {/* Edit icon on hover */}
-        <button
-          onClick={(e) => { e.stopPropagation(); onStoryClick(story); }}
-          className="opacity-0 group-hover:opacity-100 p-1 rounded text-slate-500 hover:text-emerald-400 transition-all shrink-0"
-          title="Editar story"
-        >
-          <Sparkles className="w-3 h-3" />
-        </button>
-      </div>
-
-      {/* Task children — collapse/expand */}
-      {expanded && tasks.length > 0 && (
-        <div className="flex flex-col gap-1.5 pl-3 border-l border-emerald-500/10 ml-2">
-          {tasks.map(task => (
-            <DraggableCard
-              key={task.id}
-              item={task}
-              projectName={projectName}
-              onClick={() => onTaskClick(task)}
-              isBulkMode={isBulkMode}
-              isSelected={selectedIds?.includes(task.id)}
-              onSelectToggle={() => onSelectToggle?.(task.id)}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* Collapsed: show count summary */}
-      {!expanded && tasks.length > 0 && (
-        <div
-          className="ml-5 px-3 py-1.5 rounded-lg bg-slate-950/40 border border-white/5 text-[9px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:text-slate-400 transition-colors"
-          onClick={() => setExpanded(true)}
-        >
-          {tasks.length} tarefa{tasks.length !== 1 ? 's' : ''} oculta{tasks.length !== 1 ? 's' : ''} — clique para expandir
-        </div>
-      )}
-    </div>
-  );
-};
-
 // ============================================================================
 // DROPPABLE COLUMN
 // ============================================================================
@@ -188,8 +75,7 @@ interface KanbanColumnProps {
   id: WorkItemStatus;
   title: string;
   dotColor: string;
-  stories: (WorkItem & { childTasks: WorkItem[] })[];
-  orphanTasks: WorkItem[];
+  items: WorkItem[];
   projectNameResolver: (id: string | null) => string | undefined;
   parentTitleResolver: (id: string | null) => string | undefined;
   onCardClick: (item: WorkItem) => void;
@@ -203,8 +89,7 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
   id,
   title,
   dotColor,
-  stories,
-  orphanTasks,
+  items,
   projectNameResolver,
   parentTitleResolver,
   onCardClick,
@@ -214,7 +99,7 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
   onSelectToggle
 }) => {
   const { setNodeRef, isOver } = useDroppable({ id });
-  const totalCount = stories.reduce((sum, s) => sum + 1 + s.childTasks.length, 0) + orphanTasks.length;
+  const totalCount = items.length;
 
   return (
     <div
@@ -249,36 +134,18 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
             Sem itens
           </div>
         ) : (
-          <>
-            {/* Stories with nested tasks */}
-            {stories.map(story => (
-              <StoryGroup
-                key={story.id}
-                story={story}
-                tasks={story.childTasks}
-                projectName={projectNameResolver(story.project_id)}
-                onStoryClick={onCardClick}
-                onTaskClick={onCardClick}
-                isBulkMode={isBulkMode}
-                selectedIds={selectedIds}
-                onSelectToggle={onSelectToggle}
-              />
-            ))}
-
-            {/* Orphan tasks (no parent or parent is not a story in this column) */}
-            {orphanTasks.map(item => (
-              <DraggableCard
-                key={item.id}
-                item={item}
-                projectName={projectNameResolver(item.project_id)}
-                parentTitle={parentTitleResolver(item.parent_id)}
-                onClick={() => onCardClick(item)}
-                isBulkMode={isBulkMode}
-                isSelected={selectedIds?.includes(item.id)}
-                onSelectToggle={() => onSelectToggle?.(item.id)}
-              />
-            ))}
-          </>
+          items.map(item => (
+            <DraggableCard
+              key={item.id}
+              item={item}
+              projectName={projectNameResolver(item.project_id)}
+              parentTitle={parentTitleResolver(item.parent_id)}
+              onClick={() => onCardClick(item)}
+              isBulkMode={isBulkMode}
+              isSelected={selectedIds?.includes(item.id)}
+              onSelectToggle={() => onSelectToggle?.(item.id)}
+            />
+          ))
         )}
       </div>
     </div>
@@ -320,18 +187,18 @@ export default function KanbanPage() {
   );
 
   // ============================================================================
-  // Only show tasks + stories in Kanban (epics/features go to Roadmap)
+  // Only show tasks in Kanban (epics/features/stories go to Roadmap)
   // ============================================================================
   const kanbanItems = useMemo(() =>
-    workItems.filter(item => item.type === 'task' || item.type === 'story'),
+    workItems.filter(item => item.type === 'task'),
     [workItems]
   );
 
-  // Helper to get all descendant IDs recursively
+  // Helper to get all descendant IDs recursively (traversing whole hierarchy)
   const getDescendantIds = (parentId: string): string[] => {
     const list: string[] = [];
     const traverse = (id: string) => {
-      const children = kanbanItems.filter(w => w.parent_id === id);
+      const children = workItems.filter(w => w.parent_id === id);
       for (const child of children) {
         list.push(child.id);
         traverse(child.id);
@@ -354,30 +221,12 @@ export default function KanbanPage() {
     return matchesSearch && matchesProject && matchesParent;
   }), [kanbanItems, searchQuery, selectedProject, selectedParent]);
 
-  // For each column, separate stories (with their child tasks) from orphan tasks
+  // For each column, filter tasks by status
   const buildColumnData = (colStatus: WorkItemStatus) => {
-    const colItems = filteredItems.filter(item => item.status === colStatus);
-    
-    // Get stories in this column
-    const stories = colItems
-      .filter(item => item.type === 'story')
-      .map(story => ({
-        ...story,
-        childTasks: filteredItems.filter(t => t.type === 'task' && t.parent_id === story.id)
-      }));
-
-    // Task IDs that are children of stories in this column (to exclude from orphans)
-    const storyChildTaskIds = new Set(stories.flatMap(s => s.childTasks.map(t => t.id)));
-
-    // Orphan tasks: tasks with no parent, or parent is not a story in this column
-    const orphanTasks = colItems.filter(item =>
-      item.type === 'task' && !storyChildTaskIds.has(item.id)
-    );
-
-    return { stories, orphanTasks };
+    return filteredItems.filter(item => item.status === colStatus);
   };
 
-  // Epics and features for the parent filter dropdown
+  // Epics, features, and stories for the parent filter dropdown
   const parentItemsForFilter = workItems.filter(item => item.type === 'epic' || item.type === 'feature' || item.type === 'story');
 
   // ============================================================================
@@ -392,15 +241,29 @@ export default function KanbanPage() {
     if (!over) return;
 
     const activeItemId = active.id as string;
-    const overStatus = over.id as WorkItemStatus;
+    let overStatus = over.id as string;
 
+    // Check if the drop target is a valid column status
+    const validStatuses = ['backlog', 'todo', 'in_progress', 'in_review', 'done', 'cancelled'];
+    if (!validStatuses.includes(overStatus)) {
+      // It's probably a card ID. Find the card and get its status.
+      const targetCard = workItems.find(w => w.id === overStatus);
+      if (targetCard) {
+        overStatus = targetCard.status;
+      } else {
+        // Fallback or ignore
+        return;
+      }
+    }
+
+    const targetStatus = overStatus as WorkItemStatus;
     const draggedItem = workItems.find(w => w.id === activeItemId);
     if (!draggedItem) return;
 
-    if (draggedItem.status !== overStatus) {
-      setWorkItems(prev => prev.map(t => t.id === activeItemId ? { ...t, status: overStatus } : t));
+    if (draggedItem.status !== targetStatus) {
+      setWorkItems(prev => prev.map(t => t.id === activeItemId ? { ...t, status: targetStatus } : t));
       try {
-        const { error } = await supabase.from('tasks').update({ status: overStatus }).eq('id', activeItemId);
+        const { error } = await supabase.from('tasks').update({ status: targetStatus }).eq('id', activeItemId);
         if (error) throw error;
       } catch (err) {
         console.error('[Kanban] Failed to move item:', err);
@@ -614,7 +477,7 @@ export default function KanbanPage() {
           <div className="flex gap-6 min-w-[1000px] h-full items-start">
             {STATUS_COLUMNS.map(colId => {
               const colConfig = WORK_ITEM_STATUS_CONFIG[colId] || { label: colId, dotColor: 'bg-slate-500' };
-              const { stories, orphanTasks } = buildColumnData(colId);
+              const colItems = buildColumnData(colId);
               
               return (
                 <div key={colId} className="flex-1 min-w-[240px]">
@@ -622,8 +485,7 @@ export default function KanbanPage() {
                     id={colId}
                     title={colConfig.label}
                     dotColor={colConfig.dotColor}
-                    stories={stories}
-                    orphanTasks={orphanTasks}
+                    items={colItems}
                     projectNameResolver={getProjectName}
                     parentTitleResolver={getParentTitle}
                     onCardClick={handleOpenEdit}
