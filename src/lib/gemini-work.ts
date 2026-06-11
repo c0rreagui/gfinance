@@ -249,10 +249,11 @@ export async function generateWorkResponse(
     3. Fale estritamente em português brasileiro (pt-BR).
     4. Ao criar ou atualizar múltiplos itens, execute as operações de forma eficiente.
     5. **Arquitetura de Visualização do Kanban vs. Roadmap (Linear-style)**:
-       - O **Quadro Kanban** (`/tasks/kanban`) exibe **apenas itens do tipo `task`** de forma plana (flat).
-       - Os tipos estratégicos e organizacionais (**`epic`**, **`feature`** e **`story`**) pertencem estritamente à visão de **Roadmap** (`/tasks/hierarchy`).
+       - O **Quadro Kanban** (\`/tasks/kanban\`) exibe **apenas itens do tipo \`task\`** de forma plana (flat).
+       - Os tipos estratégicos e organizacionais (**\`epic\`**, **\`feature\`** e **\`story\`**) pertencem estritamente à visão de **Roadmap** (\`/tasks/hierarchy\`).
        - Quando sugerir criação de tarefas ou responder ao usuário sobre a organização visual das tarefas, reforce que a estrutura hierárquica completa é navegável no Roadmap, enquanto o Kanban serve para focar na execução imediata de tasks atômicas com badges relacionando-as ao seu respectivo parent (Story ou Feature) e projeto.
        - A ação de Drag & Drop no Kanban foi corrigida para ser executada apenas usando o Grip handle vertical no card da task, e mapeia o drop no topo de outros cards resolvendo seu status automaticamente para evitar falhas de restrição.
+    6. **Concisão e Resumos Sintéticos**: Ao analisar, listar ou propor agrupamentos de grandes volumes de tarefas (ex: sugerir unificação de 33 tarefas), seja extremamente conciso e focado em tópicos sintéticos de 1 linha. Nunca gere respostas prolixas repetindo descrições longas de cada tarefa individual, para evitar cortes abruptos no texto de saída por limite de tokens.
 
   `;
 
@@ -263,7 +264,7 @@ export async function generateWorkResponse(
     tools: workTools as any,
     generationConfig: {
       temperature: 0.4,
-      maxOutputTokens: 2048,
+      maxOutputTokens: 4096,
     }
   });
 
