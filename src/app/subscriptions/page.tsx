@@ -18,6 +18,7 @@ import {
   Dumbbell,
   AlertCircle,
   ChevronRight,
+  ChevronLeft,
   Plus,
   Trash2,
   X,
@@ -171,6 +172,7 @@ export default function Subscriptions() {
 
   // Filter state for calendar day click
   const [selectedDayFilter, setSelectedDayFilter] = useState<number | null>(null);
+  const [currentDate, setCurrentDate] = useState(() => new Date());
 
   const fetchAllData = async () => {
     try {
@@ -292,6 +294,24 @@ export default function Subscriptions() {
     } else {
       setSelectedDayFilter(day);
     }
+  };
+
+  const handlePrevMonth = () => {
+    playHapticClick();
+    setCurrentDate(prev => {
+      const d = new Date(prev);
+      d.setMonth(d.getMonth() - 1);
+      return d;
+    });
+  };
+
+  const handleNextMonth = () => {
+    playHapticClick();
+    setCurrentDate(prev => {
+      const d = new Date(prev);
+      d.setMonth(d.getMonth() + 1);
+      return d;
+    });
   };
 
   // Create Novo Lembrete Recorrente / Assinatura
@@ -573,9 +593,25 @@ export default function Subscriptions() {
                   <Calendar className="w-4 h-4 text-emerald-400" />
                   <h2 className="text-sm font-black uppercase tracking-wider">Calendário de Cobranças</h2>
                 </div>
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest font-mono">
-                  {new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
-                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handlePrevMonth}
+                    className="w-6 h-6 rounded-lg bg-white/5 hover:bg-white/10 border border-white/5 flex items-center justify-center text-slate-400 hover:text-white transition-colors cursor-pointer"
+                    title="Mês Anterior"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                  </button>
+                  <span className="text-[10px] font-black text-slate-200 uppercase tracking-widest font-mono min-w-[110px] text-center">
+                    {currentDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }).replace(/^\w/, c => c.toUpperCase())}
+                  </span>
+                  <button
+                    onClick={handleNextMonth}
+                    className="w-6 h-6 rounded-lg bg-white/5 hover:bg-white/10 border border-white/5 flex items-center justify-center text-slate-400 hover:text-white transition-colors cursor-pointer"
+                    title="Próximo Mês"
+                  >
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
 
               {/* Week day headers */}
@@ -590,13 +626,14 @@ export default function Subscriptions() {
               {/* Calendar grid */}
               <div className="grid grid-cols-7 gap-2">
                 {/* Leading empty cells for proper day alignment */}
-                {Array.from({ length: new Date(new Date().getFullYear(), new Date().getMonth(), 1).getDay() }, (_, i) => (
+                {Array.from({ length: new Date(currentDate.getFullYear(), currentDate.getMonth(), 1).getDay() }, (_, i) => (
                   <div key={`empty-${i}`} className="aspect-square" />
                 ))}
                 {monthDays.map((day) => {
-                  const isToday = day === new Date().getDate();
+                  const today = new Date();
+                  const isToday = day === today.getDate() && currentDate.getMonth() === today.getMonth() && currentDate.getFullYear() === today.getFullYear();
                   const hasCharge = chargeDays.has(day);
-                  const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
+                  const daysInMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate();
                   if (day > daysInMonth) return null;
 
                   const isSelected = selectedDayFilter === day;
@@ -618,9 +655,33 @@ export default function Subscriptions() {
                           : 'text-slate-500 hover:bg-white/5 hover:scale-105'
                       }`}
                     >
-                      {day}
-                      {hasCharge && !isToday && (
-                        <div className="absolute bottom-1.5 w-1 h-1 rounded-full bg-emerald-400"></div>
+                      <span>{day}</span>
+                      
+                      {/* Mini inline icons on charge days */}
+                      {daySubs.length > 0 && (
+                        <div className="flex gap-0.5 mt-1 justify-center items-center flex-wrap max-w-full px-1">
+                          {daySubs.slice(0, 3).map(sub => {
+                            const SubIcon = sub.icon;
+                            return (
+                              <div 
+                                key={sub.id} 
+                                className={`p-0.5 rounded text-[8px] border transition-colors ${
+                                  isToday 
+                                    ? 'bg-white/20 border-white/10 text-white' 
+                                    : 'bg-slate-950/60 border-white/5 text-emerald-400'
+                                }`}
+                                title={sub.name}
+                              >
+                                <SubIcon className="w-2 h-2" />
+                              </div>
+                            );
+                          })}
+                          {daySubs.length > 3 && (
+                            <span className={`text-[7px] font-black ${isToday ? 'text-white/60' : 'text-slate-500'}`}>
+                              +{daySubs.length - 3}
+                            </span>
+                          )}
+                        </div>
                       )}
 
                       {/* Tooltip on Hover */}
