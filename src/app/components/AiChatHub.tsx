@@ -21,7 +21,8 @@ import {
   ListTodo,
   FolderOpen,
   TrendingUp,
-  Wallet
+  Wallet,
+  Plus
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { usePathname } from 'next/navigation';
@@ -112,6 +113,16 @@ export function AiChatHub({ isFloating = false }: { isFloating?: boolean }) {
   const [showHistoryDropdown, setShowHistoryDropdown] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-resize textarea height based on content
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = 'auto';
+      textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
+    }
+  }, [input]);
 
   // Auto-scroll apenas dentro do container do chat
   const scrollToBottom = () => {
@@ -287,16 +298,16 @@ export function AiChatHub({ isFloating = false }: { isFloating?: boolean }) {
     setShowHistoryDropdown(false);
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage(input);
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     handleSendMessage(input);
-  };
-
-  const handleClearChat = () => {
-    setMessages([]);
-    setActiveSessionId(null);
-    setErrorMsg('');
-    setLoading(false);
   };
 
   return (
@@ -406,11 +417,12 @@ export function AiChatHub({ isFloating = false }: { isFloating?: boolean }) {
 
           {messages.length > 0 && (
             <button
-              onClick={handleClearChat}
+              onClick={handleNewSession}
               className="p-2 bg-white/5 hover:bg-white/10 border border-transparent text-slate-500 hover:text-slate-300 rounded-xl transition-colors cursor-pointer text-[10px] font-black uppercase tracking-widest flex items-center gap-1"
-              title="Limpar Conversa"
+              title="Nova Sessão"
             >
-              Limpar
+              <Plus className="w-3.5 h-3.5" />
+              Nova Sessão
             </button>
           )}
         </div>
@@ -498,21 +510,23 @@ export function AiChatHub({ isFloating = false }: { isFloating?: boolean }) {
             <span className="truncate">{errorMsg}</span>
           </div>
         )}
-        <form onSubmit={handleSubmit} className="flex gap-2">
+        <form onSubmit={handleSubmit} className="flex gap-2 items-end">
           <div className="flex-1 min-w-0 bg-slate-950/80 border border-white/5 rounded-2xl px-4 py-3 flex items-center shadow-inner group/input focus-within:border-white/10 transition-all duration-300">
-            <input
-              type="text"
+            <textarea
+              ref={textareaRef}
+              rows={1}
               placeholder={loading ? 'Analisando...' : cfg.placeholder}
               value={input}
               onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
               disabled={loading}
-              className="w-full bg-transparent text-xs text-slate-300 focus:outline-none placeholder-slate-600 disabled:opacity-40"
+              className="w-full bg-transparent text-xs text-slate-300 focus:outline-none placeholder-slate-600 disabled:opacity-40 resize-none max-h-32 py-0.5 overflow-y-auto no-scrollbar"
             />
           </div>
           <button
             type="submit"
             disabled={!input.trim() || loading}
-            className={`px-4 bg-gradient-to-r ${cfg.sendBtn} text-white rounded-2xl transition-all duration-300 shadow-lg flex items-center justify-center shrink-0 active:scale-95 disabled:opacity-40 disabled:pointer-events-none cursor-pointer`}
+            className={`h-[46px] px-4 bg-gradient-to-r ${cfg.sendBtn} text-white rounded-2xl transition-all duration-300 shadow-lg flex items-center justify-center shrink-0 active:scale-95 disabled:opacity-40 disabled:pointer-events-none cursor-pointer`}
           >
             <Send className="w-4 h-4" />
           </button>
