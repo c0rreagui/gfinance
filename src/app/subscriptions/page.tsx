@@ -169,6 +169,9 @@ export default function Subscriptions() {
   const [modalError, setModalError] = useState('');
   const [modalSuccess, setModalSuccess] = useState('');
 
+  // Filter state for calendar day click
+  const [selectedDayFilter, setSelectedDayFilter] = useState<number | null>(null);
+
   const fetchAllData = async () => {
     try {
       setLoading(true);
@@ -212,6 +215,22 @@ export default function Subscriptions() {
   const displaySubs = useMemo(() => {
     return reminders.map((rem, idx) => resolveSubscription(rem, idx));
   }, [reminders]);
+
+  const subsByDay = useMemo(() => {
+    const groups: Record<number, typeof displaySubs> = {};
+    displaySubs.filter(s => s.status === 'ativa').forEach(sub => {
+      if (!groups[sub.day]) {
+        groups[sub.day] = [];
+      }
+      groups[sub.day].push(sub);
+    });
+    return groups;
+  }, [displaySubs]);
+
+  const filteredSubs = useMemo(() => {
+    if (selectedDayFilter === null) return displaySubs;
+    return displaySubs.filter(sub => sub.day === selectedDayFilter);
+  }, [displaySubs, selectedDayFilter]);
 
   const activeSubs = displaySubs.filter(s => s.status === 'ativa');
   const totalMensal = activeSubs.reduce((acc, s) => acc + s.price, 0);
@@ -259,6 +278,19 @@ export default function Subscriptions() {
     } catch (e) {
       console.error('Error deleting subscription:', e);
       alert('Erro ao excluir assinatura.');
+    }
+  };
+
+  const handleDayClick = (day: number, hasCharge: boolean) => {
+    playHapticClick();
+    if (!hasCharge) {
+      setSelectedDayFilter(null);
+      return;
+    }
+    if (selectedDayFilter === day) {
+      setSelectedDayFilter(null);
+    } else {
+      setSelectedDayFilter(day);
     }
   };
 
@@ -449,12 +481,24 @@ export default function Subscriptions() {
 
             {/* Subscription Cards Grid */}
             <div>
-              <h2 className="text-sm font-black uppercase tracking-wider mb-6 flex items-center gap-2">
-                <ChevronRight className="w-4 h-4 text-emerald-400" />
-                Todas as Assinaturas
-              </h2>
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-sm font-black uppercase tracking-wider flex items-center gap-2">
+                  <ChevronRight className="w-4 h-4 text-emerald-400" />
+                  {selectedDayFilter !== null 
+                    ? `Assinaturas do Dia ${selectedDayFilter}`
+                    : 'Todas as Assinaturas'}
+                </h2>
+                {selectedDayFilter !== null && (
+                  <button
+                    onClick={() => { playHapticClick(); setSelectedDayFilter(null); }}
+                    className="px-2.5 py-1 bg-white/5 hover:bg-white/10 text-[9px] font-black text-slate-400 hover:text-white rounded-lg uppercase tracking-widest transition-all cursor-pointer border border-white/5"
+                  >
+                    Ver Todas
+                  </button>
+                )}
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {displaySubs.map((sub) => {
+                {filteredSubs.map((sub) => {
                   const Icon = sub.icon;
                   const isActive = sub.status === 'ativa';
                   const linkedCard = creditCards.find(c => c.id === sub.card_id);
@@ -555,20 +599,56 @@ export default function Subscriptions() {
                   const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
                   if (day > daysInMonth) return null;
 
+                  const isSelected = selectedDayFilter === day;
+                  const daySubs = subsByDay[day] || [];
+
                   return (
                     <div
                       key={day}
-                      className={`aspect-square rounded-xl flex flex-col items-center justify-center text-xs font-bold transition-all relative ${
+                      onClick={() => handleDayClick(day, hasCharge)}
+                      className={`aspect-square rounded-xl flex flex-col items-center justify-center text-xs font-bold transition-all relative group/day cursor-pointer ${
                         isToday
-                          ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'
+                          ? isSelected
+                            ? 'bg-emerald-500 text-white ring-2 ring-emerald-400 ring-offset-2 ring-offset-slate-950 scale-95 shadow-lg shadow-emerald-500/30'
+                            : 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'
+                          : isSelected
+                          ? 'bg-emerald-500/30 text-emerald-300 border-2 border-emerald-400 scale-95 shadow-md shadow-emerald-500/10'
                           : hasCharge
-                          ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                          : 'text-slate-500 hover:bg-white/5'
+                          ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 hover:scale-105'
+                          : 'text-slate-500 hover:bg-white/5 hover:scale-105'
                       }`}
                     >
                       {day}
                       {hasCharge && !isToday && (
-                        <div className="absolute bottom-1 w-1 h-1 rounded-full bg-emerald-400"></div>
+                        <div className="absolute bottom-1.5 w-1 h-1 rounded-full bg-emerald-400"></div>
+                      )}
+
+                      {/* Tooltip on Hover */}
+                      {daySubs.length > 0 && (
+                        <div className="absolute bottom-full mb-2.5 hidden group-hover/day:flex flex-col bg-slate-950/95 backdrop-blur-md border border-white/10 rounded-2xl p-3 shadow-2xl z-30 min-w-[190px] pointer-events-none animate-in fade-in zoom-in-95 duration-150 left-1/2 -translate-x-1/2">
+                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest border-b border-white/5 pb-1.5 mb-1.5 flex justify-between items-center">
+                            <span>Cobranças</span>
+                            <span className="font-mono text-emerald-400">Dia {day}</span>
+                          </p>
+                          <div className="space-y-2 max-h-[120px] overflow-y-auto no-scrollbar">
+                            {daySubs.map(sub => {
+                              const SubIcon = sub.icon;
+                              return (
+                                <div key={sub.id} className="flex justify-between items-center gap-2.5">
+                                  <div className="flex items-center gap-1.5 min-w-0">
+                                    <div className="p-1 bg-slate-900 border border-white/5 rounded-lg text-slate-400 shrink-0">
+                                      <SubIcon className="w-2.5 h-2.5" />
+                                    </div>
+                                    <span className="text-[10px] text-slate-200 font-bold truncate max-w-[95px]">{sub.name}</span>
+                                  </div>
+                                  <span className="text-[9px] text-emerald-400 font-mono font-black whitespace-nowrap">
+                                    {sub.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
                       )}
                     </div>
                   );
@@ -576,14 +656,21 @@ export default function Subscriptions() {
               </div>
 
               {/* Legend */}
-              <div className="flex items-center gap-6 mt-6 pt-4 border-t border-white/5">
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-2 mt-6 pt-4 border-t border-white/5">
                 <div className="flex items-center gap-2">
                   <div className="w-2.5 h-2.5 rounded-full bg-emerald-500"></div>
                   <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Hoje</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-500/30 border border-emerald-500/40"></div>
+                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-500/10 border border-emerald-500/20"></div>
                   <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Dia de Cobrança</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-500/30 border-2 border-emerald-400"></div>
+                  <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Dia Selecionado (Filtro)</span>
+                </div>
+                <div className="text-[9px] text-slate-400 ml-auto italic">
+                  * Passe o mouse para detalhes • Clique para filtrar
                 </div>
               </div>
             </div>
