@@ -93,6 +93,7 @@ export default function HubPortal() {
   const [profile, setProfile] = useState<any>(null);
   const [linkingError, setLinkingError] = useState('');
   const [linkingSuccess, setLinkingSuccess] = useState('');
+  const [oauthSessionToSync, setOauthSessionToSync] = useState<any>(null);
 
   const handleLinkGoogle = async () => {
     setLinkingError('');
@@ -247,45 +248,63 @@ export default function HubPortal() {
     setMounted(true);
     checkUserAndFetch();
 
-    // Listener para capturar tokens OAuth do Google client-side após redirecionamento
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    // Listener síncrono para evitar deadlocks de Web Lock no Supabase SDK
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (session?.provider_token) {
-        const expiresAt = new Date(Date.now() + 3600 * 1000).toISOString();
-        try {
-          const { error: updateError } = await supabase
-            .from('profiles')
-            .update({
-              google_access_token: session.provider_token,
-              google_refresh_token: session.provider_refresh_token ?? null,
-              google_token_expires_at: expiresAt,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', session.user.id);
-          
-          if (updateError) {
-            console.error('[OAuth Client Sync] Failed to update profile tokens:', updateError.message);
-          } else {
-            console.log('[OAuth Client Sync] Successfully persisted Google tokens client-side!');
-            // Atualiza o estado local do perfil e limpa erros da agenda
-            const { data: dbProfile } = await supabase
-              .from('profiles')
-              .select('*')
-              .eq('id', session.user.id)
-              .single();
-            setProfile(dbProfile);
-            setGoogleCalendarError(null);
-            syncCalendar(session.user.id);
-          }
-        } catch (err) {
-          console.error('[OAuth Client Sync] Exception during token sync:', err);
-        }
+        setOauthSessionToSync(session);
       }
     });
 
     return () => {
       subscription.unsubscribe();
     };
-  }, [syncCalendar]);
+  }, []);
+
+  // Efeito secundário para executar operações assíncronas fora do lock do onAuthStateChange
+  useEffect(() => {
+    if (!oauthSessionToSync) return;
+
+    const persistOauthTokens = async () => {
+      const session = oauthSessionToSync;
+      setOauthSessionToSync(null); // Consome a sessão imediatamente para evitar loops
+
+      const expiresAt = new Date(Date.now() + 3600 * 1000).toISOString();
+      try {
+        const { error: updateError } = await supabase
+          .from('profiles')
+          .update({
+            google_access_token: session.provider_token,
+            google_refresh_token: session.provider_refresh_token ?? null,
+            google_token_expires_at: expiresAt,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', session.user.id);
+        
+        if (updateError) {
+          console.error('[OAuth Client Sync] Failed to update profile tokens:', updateError.message);
+        } else {
+          console.log('[OAuth Client Sync] Successfully persisted Google tokens client-side!');
+          // Atualiza o estado local do perfil e limpa erros da agenda
+          const { data: dbProfile } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', session.user.id)
+            .single();
+          setProfile(dbProfile);
+          setGoogleCalendarError(null);
+          syncCalendar(session.user.id);
+        }
+      } catch (err) {
+        console.error('[OAuth Client Sync] Exception during token sync:', err);
+      }
+    };
+
+    const timer = setTimeout(() => {
+      persistOauthTokens();
+    }, 0);
+
+    return () => clearTimeout(timer);
+  }, [oauthSessionToSync, syncCalendar]);
 
   const checkUserAndFetch = async () => {
     try {
