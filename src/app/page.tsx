@@ -246,7 +246,46 @@ export default function HubPortal() {
   useEffect(() => {
     setMounted(true);
     checkUserAndFetch();
-  }, []);
+
+    // Listener para capturar tokens OAuth do Google client-side após redirecionamento
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session?.provider_token) {
+        const expiresAt = new Date(Date.now() + 3600 * 1000).toISOString();
+        try {
+          const { error: updateError } = await supabase
+            .from('profiles')
+            .update({
+              google_access_token: session.provider_token,
+              google_refresh_token: session.provider_refresh_token ?? null,
+              google_token_expires_at: expiresAt,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', session.user.id);
+          
+          if (updateError) {
+            console.error('[OAuth Client Sync] Failed to update profile tokens:', updateError.message);
+          } else {
+            console.log('[OAuth Client Sync] Successfully persisted Google tokens client-side!');
+            // Atualiza o estado local do perfil e limpa erros da agenda
+            const { data: dbProfile } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', session.user.id)
+              .single();
+            setProfile(dbProfile);
+            setGoogleCalendarError(null);
+            syncCalendar(session.user.id);
+          }
+        } catch (err) {
+          console.error('[OAuth Client Sync] Exception during token sync:', err);
+        }
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [syncCalendar]);
 
   const checkUserAndFetch = async () => {
     try {
