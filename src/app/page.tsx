@@ -79,6 +79,49 @@ export default function HubPortal() {
   const [tasks, setTasks] = useState<WorkTask[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [syncingCalendar, setSyncingCalendar] = useState(false);
+  const [googleCalendarError, setGoogleCalendarError] = useState<string | null>(null);
+
+  const syncCalendar = useCallback(async (userId: string) => {
+    try {
+      setSyncingCalendar(true);
+      setGoogleCalendarError(null);
+      
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) return;
+
+      const res = await fetch('/api/calendar/sync', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        if (data.error === 'GOOGLE_SCOPE_INSUFFICIENT' || data.error === 'GOOGLE_AUTH_MISSING') {
+          setGoogleCalendarError(data.error);
+        } else {
+          console.error('[Calendar Sync] Failed:', data.message);
+        }
+        return;
+      }
+
+      // Re-fetch calendar events from Supabase to update the UI
+      const { data: dbEvents } = await supabase
+        .from('calendar_events')
+        .select('*')
+        .eq('user_id', userId);
+
+      if (dbEvents) setEvents(dbEvents);
+    } catch (err) {
+      console.error('[Calendar Sync] Unexpected error:', err);
+    } finally {
+      setSyncingCalendar(false);
+    }
+  }, []);
 
   // Calendar UI states
   const [currentCalendarDate, setCurrentCalendarDate] = useState(new Date());
@@ -117,6 +160,8 @@ export default function HubPortal() {
       }
       setUser(user);
       await fetchData(user.id);
+      // Sincroniza o Google Calendar em segundo plano após carregar o cache local
+      syncCalendar(user.id);
     } catch (err) {
       console.error('Error verifying auth or fetching portal data:', err);
     } finally {
@@ -210,12 +255,22 @@ export default function HubPortal() {
       return;
     }
     try {
-      const { error } = await supabase
-        .from('calendar_events')
-        .delete()
-        .eq('id', eventId);
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) throw new Error('Não autenticado.');
 
-      if (error) throw error;
+      const response = await fetch(`/api/calendar/events?id=${eventId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.message || 'Falha ao deletar evento.');
+      }
+
       setEvents(prev => prev.filter(ev => ev.id !== eventId));
     } catch (err) {
       console.error('Error deleting calendar event:', err);
@@ -242,10 +297,17 @@ export default function HubPortal() {
         return;
       }
 
-      const { data, error } = await supabase
-        .from('calendar_events')
-        .insert({
-          user_id: user.id,
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) throw new Error('Não autenticado.');
+
+      const response = await fetch('/api/calendar/events', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
           title: newEvent.title,
           description: newEvent.description || null,
           start_time: startDateTime.toISOString(),
@@ -253,12 +315,16 @@ export default function HubPortal() {
           location: newEvent.location || null,
           is_all_day: newEvent.is_all_day,
           color: newEvent.color,
-          category: newEvent.category
-        })
-        .select('*')
-        .single();
+          category: newEvent.category,
+        }),
+      });
 
-      if (error) throw error;
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.message || 'Falha ao salvar evento.');
+      }
+
+      const data = await response.json();
 
       if (data) {
         setEvents(prev => [...prev, data]);
@@ -525,6 +591,27 @@ export default function HubPortal() {
                   </button>
                 </div>
               </div>
+
+              {/* Google Calendar Reauth Banner */}
+              {googleCalendarError && (
+                <div className="mb-6 p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 animate-in fade-in duration-300">
+                  <div className="flex items-start gap-2.5">
+                    <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="text-xs font-black text-white uppercase tracking-wider">Permissão do Google Agenda necessária</h4>
+                      <p className="text-[10px] text-slate-400 font-medium mt-0.5 leading-relaxed">
+                        Precisamos de acesso adicional para sincronizar seus compromissos bidirecionalmente.
+                      </p>
+                    </div>
+                  </div>
+                  <Link 
+                    href="/settings"
+                    className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer shadow-lg shadow-amber-500/10 shrink-0"
+                  >
+                    Conectar Agenda
+                  </Link>
+                </div>
+              )}
 
               {/* Grid Header (Days of week) */}
               <div className="grid grid-cols-7 gap-2 mb-2 text-center">

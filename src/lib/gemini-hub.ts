@@ -8,6 +8,9 @@
  */
 
 import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
+import { getValidGoogleToken } from './google-auth';
+import { insertGoogleEvent, updateGoogleEvent, deleteGoogleEvent } from './google-calendar';
+import { syncGoogleCalendarEvents } from './calendar-sync';
 
 const CONVERSATIONAL_MODEL = 'gemini-flash-latest';
 
@@ -321,6 +324,13 @@ export async function generateHubResponse(
 
       try {
         if (name === 'list_calendar_events') {
+          // Sync Google Calendar events in background first before listing to ensure fresh context
+          try {
+            await syncGoogleCalendarEvents(userId);
+          } catch (syncErr) {
+            console.warn('[CoS List Sync Warning] Silent calendar sync failed before listing:', syncErr);
+          }
+
           const { start_date, end_date, search } = args as any;
           let queryBuilder = supabaseClient.from('calendar_events').select('*').eq('user_id', userId);
           
@@ -347,7 +357,32 @@ export async function generateHubResponse(
           }).select('*');
 
           if (error) throw error;
-          toolResult = { success: true, created: data?.[0] };
+          const createdEvent = data?.[0];
+
+          // Sync to Google Calendar
+          if (createdEvent) {
+            try {
+              const googleToken = await getValidGoogleToken(userId);
+              if (googleToken) {
+                const googleEvent = await insertGoogleEvent(googleToken, {
+                  title: createdEvent.title,
+                  description: createdEvent.description,
+                  start_time: createdEvent.start_time,
+                  end_time: createdEvent.end_time,
+                  location: createdEvent.location
+                });
+                if (googleEvent && googleEvent.id) {
+                  await supabaseClient.from('calendar_events')
+                    .update({ google_event_id: googleEvent.id })
+                    .eq('id', createdEvent.id);
+                  createdEvent.google_event_id = googleEvent.id;
+                }
+              }
+            } catch (googleErr) {
+              console.warn('[CoS Create Sync Warning] Failed to push created event to Google Calendar:', googleErr);
+            }
+          }
+          toolResult = { success: true, created: createdEvent };
 
         } else if (name === 'update_calendar_event') {
           const { event_id, title, description, start_time, end_time, location, is_all_day, color, category } = args as any;
@@ -369,10 +404,38 @@ export async function generateHubResponse(
             .select('*');
 
           if (error) throw error;
-          toolResult = { success: true, updated: data?.[0] };
+          const updatedEvent = data?.[0];
+
+          // Sync to Google Calendar
+          if (updatedEvent && updatedEvent.google_event_id) {
+            try {
+              const googleToken = await getValidGoogleToken(userId);
+              if (googleToken) {
+                await updateGoogleEvent(googleToken, updatedEvent.google_event_id, {
+                  title: updatedEvent.title,
+                  description: updatedEvent.description,
+                  start_time: updatedEvent.start_time,
+                  end_time: updatedEvent.end_time,
+                  location: updatedEvent.location
+                });
+              }
+            } catch (googleErr) {
+              console.warn('[CoS Update Sync Warning] Failed to push updated event to Google Calendar:', googleErr);
+            }
+          }
+          toolResult = { success: true, updated: updatedEvent };
 
         } else if (name === 'delete_calendar_event') {
           const { event_id } = args as any;
+          
+          // Fetch event first to get google_event_id
+          const { data: eventToDel } = await supabaseClient
+            .from('calendar_events')
+            .select('google_event_id')
+            .eq('id', event_id)
+            .eq('user_id', userId)
+            .single();
+
           const { error } = await supabaseClient
             .from('calendar_events')
             .delete()
@@ -380,6 +443,18 @@ export async function generateHubResponse(
             .eq('user_id', userId);
 
           if (error) throw error;
+
+          // Delete from Google Calendar
+          if (eventToDel && eventToDel.google_event_id) {
+            try {
+              const googleToken = await getValidGoogleToken(userId);
+              if (googleToken) {
+                await deleteGoogleEvent(googleToken, eventToDel.google_event_id);
+              }
+            } catch (googleErr) {
+              console.warn('[CoS Delete Sync Warning] Failed to delete event from Google Calendar:', googleErr);
+            }
+          }
           toolResult = { success: true };
 
         } else if (name === 'list_work_tasks') {

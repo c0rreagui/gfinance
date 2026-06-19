@@ -325,7 +325,7 @@ export default function Settings() {
         provider: 'google',
         options: {
           redirectTo: `${window.location.origin}/auth/callback?next=/settings`,
-          scopes: 'https://www.googleapis.com/auth/cloud-platform openid email profile https://www.googleapis.com/auth/drive.readonly',
+          scopes: 'https://www.googleapis.com/auth/cloud-platform openid email profile https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/calendar.events',
           queryParams: {
             access_type: 'offline',
             prompt: 'consent',
