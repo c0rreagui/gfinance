@@ -143,7 +143,38 @@ export default function HubPortal() {
       ]);
 
       if (dbBalances) setBalances(dbBalances);
-      if (dbCards) setCreditCards(dbCards);
+      
+      let activeCards = dbCards || [];
+      if (!dbCards || dbCards.length === 0) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('card_limit')
+          .eq('id', userId)
+          .single();
+
+        const initialLimit = profile?.card_limit ? Number(profile.card_limit) : 25000;
+        const { data: newCard, error: insertError } = await supabase
+          .from('credit_cards')
+          .insert({
+            user_id: userId,
+            card_name: 'G-Black',
+            last_four: '9912',
+            expiration_date: '12/32',
+            card_limit: initialLimit,
+            closing_day: 4,
+            due_day: 10,
+            color_theme: 'emerald',
+            spline_url: 'https://prod.spline.design/1e9d1552-3443-485d-a066-e46604b8db02/scene.splinecode'
+          })
+          .select()
+          .single();
+
+        if (!insertError && newCard) {
+          activeCards = [newCard];
+        }
+      }
+      setCreditCards(activeCards);
+
       if (dbReminders) setReminders(dbReminders);
       if (dbTasks) setTasks(dbTasks);
       if (dbProjects) setProjects(dbProjects);

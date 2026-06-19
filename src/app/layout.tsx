@@ -55,7 +55,7 @@ export default function RootLayout({
               <Suspense fallback={<div className="h-20 bg-slate-950/20 border-b border-slate-800/80 backdrop-blur-xl"></div>}>
                 <Header />
               </Suspense>
-              <div className="flex-1 overflow-hidden">
+              <div className="flex-1 overflow-y-auto no-scrollbar">
                 {children}
               </div>
               <GeminiFab />
