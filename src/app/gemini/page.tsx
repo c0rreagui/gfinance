@@ -103,6 +103,17 @@ export default function GeminiBrainPage() {
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-resize textarea height based on content
+  useEffect(() => {
+    const textarea = chatTextareaRef.current;
+    if (textarea) {
+      textarea.style.height = 'auto';
+      textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
+    }
+  }, [inputMessage]);
+
 
   // Persistent Chat Sessions and Memory State
   const [chatSessions, setChatSessions] = useState<{ id: string; title: string; created_at: string }[]>([]);
@@ -508,6 +519,13 @@ export default function GeminiBrainPage() {
       setUploadError(err.message || 'Falha ao sincronizar o saldo inicial.');
     } finally {
       setSyncingInitialBalance(false);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendChatMessage();
     }
   };
 
@@ -1220,19 +1238,23 @@ export default function GeminiBrainPage() {
               {/* Chat Input Footer Form */}
               <form 
                 onSubmit={handleSendChatMessage}
-                className="p-6 border-t border-white/5 bg-slate-900/40 backdrop-blur-md flex items-center gap-4 shrink-0"
+                className="p-6 border-t border-white/5 bg-slate-900/40 backdrop-blur-md flex items-end gap-4 shrink-0"
               >
-                <input 
-                  type="text" 
-                  value={inputMessage}
-                  onChange={(e) => setInputMessage(e.target.value)}
-                  placeholder={
-                    activeSessionId 
-                      ? "Pergunte sobre seus saldos, despesas mensais ou investimentos... (digite /compact para comprimir histórico)"
-                      : "Digite sua primeira pergunta para iniciar uma nova conversa persistente..."
-                  }
-                  className="flex-1 px-5 py-4 bg-slate-955 border border-white/5 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:bg-slate-950 transition-all placeholder:text-slate-500"
-                />
+                <div className="flex-1 min-w-0 bg-slate-955 border border-white/5 rounded-2xl px-5 py-4 flex items-center shadow-inner group/input focus-within:border-emerald-500/20 focus-within:bg-slate-950 transition-all duration-300">
+                  <textarea
+                    ref={chatTextareaRef}
+                    rows={1}
+                    value={inputMessage}
+                    onChange={(e) => setInputMessage(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder={
+                      activeSessionId 
+                        ? "Pergunte sobre seus saldos, despesas mensais ou investimentos... (digite /compact para comprimir histórico)"
+                        : "Digite sua primeira pergunta para iniciar uma nova conversa persistente..."
+                    }
+                    className="w-full bg-transparent text-sm text-slate-300 focus:outline-none placeholder:text-slate-500 disabled:opacity-40 resize-none max-h-32 py-0.5 overflow-y-auto no-scrollbar"
+                  />
+                </div>
                 <button
                   type="submit"
                   disabled={!inputMessage.trim() || chatLoading || compacting}

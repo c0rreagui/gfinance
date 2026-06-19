@@ -206,6 +206,9 @@ export default function HubPortal() {
 
   // Delete Calendar Event
   const handleDeleteEvent = async (eventId: string) => {
+    if (typeof window !== 'undefined' && !window.confirm('Tem certeza que deseja deletar este compromisso?')) {
+      return;
+    }
     try {
       const { error } = await supabase
         .from('calendar_events')
@@ -421,59 +424,62 @@ export default function HubPortal() {
 
         {/* Quick Stats row */}
         <section className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
-          <div className="bg-slate-950/40 border border-white/5 rounded-3xl p-5 backdrop-blur-xl relative overflow-hidden">
+          <Link href="/finance" className="bg-slate-950/40 border border-white/5 rounded-3xl p-5 backdrop-blur-xl relative overflow-hidden block hover:border-emerald-500/20 hover:bg-slate-950/50 transition-all duration-300 group">
             <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/5 rounded-full blur-xl pointer-events-none" />
             <div className="flex justify-between items-start">
-              <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center border border-emerald-500/10">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center border border-emerald-500/10 group-hover:bg-emerald-500/20 transition-all">
                 <Wallet className="w-5 h-5" />
               </div>
-              <Link href="/finance" className="text-slate-500 hover:text-white transition-colors">
+              <div className="text-slate-500 group-hover:text-white transition-colors">
                 <ArrowUpRight className="w-4 h-4" />
-              </Link>
+              </div>
             </div>
             <div className="mt-4">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Saldo Líquido</span>
               <h4 className="text-xl font-black text-white mt-1">{totalBalanceString}</h4>
             </div>
-          </div>
+          </Link>
 
-          <div className="bg-slate-950/40 border border-white/5 rounded-3xl p-5 backdrop-blur-xl relative overflow-hidden">
+          <Link href="/finance/calendar" className="bg-slate-950/40 border border-white/5 rounded-3xl p-5 backdrop-blur-xl relative overflow-hidden block hover:border-orange-500/20 hover:bg-slate-950/50 transition-all duration-300 group">
             <div className="absolute top-0 right-0 w-24 h-24 bg-orange-500/5 rounded-full blur-xl pointer-events-none" />
             <div className="flex justify-between items-start">
-              <div className="w-10 h-10 rounded-xl bg-orange-500/10 text-orange-400 flex items-center justify-center border border-orange-500/10">
+              <div className="w-10 h-10 rounded-xl bg-orange-500/10 text-orange-400 flex items-center justify-center border border-orange-500/10 group-hover:bg-orange-500/20 transition-all">
                 <DollarSign className="w-5 h-5" />
               </div>
-              <Link href="/finance/calendar" className="text-slate-500 hover:text-white transition-colors">
+              <div className="text-slate-500 group-hover:text-white transition-colors">
                 <ArrowUpRight className="w-4 h-4" />
-              </Link>
+              </div>
             </div>
             <div className="mt-4">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Contas Pendentes</span>
               <h4 className="text-xl font-black text-white mt-1">{reminders.length} lançamentos</h4>
             </div>
-          </div>
+          </Link>
 
-          <div className="bg-slate-950/40 border border-white/5 rounded-3xl p-5 backdrop-blur-xl relative overflow-hidden">
+          <Link href="/tasks" className="bg-slate-950/40 border border-white/5 rounded-3xl p-5 backdrop-blur-xl relative overflow-hidden block hover:border-blue-500/20 hover:bg-slate-950/50 transition-all duration-300 group">
             <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500/5 rounded-full blur-xl pointer-events-none" />
             <div className="flex justify-between items-start">
-              <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center border border-blue-500/10">
+              <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center border border-blue-500/10 group-hover:bg-blue-500/20 transition-all">
                 <Layers className="w-5 h-5" />
               </div>
-              <Link href="/tasks" className="text-slate-500 hover:text-white transition-colors">
+              <div className="text-slate-500 group-hover:text-white transition-colors">
                 <ArrowUpRight className="w-4 h-4" />
-              </Link>
+              </div>
             </div>
             <div className="mt-4">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Tarefas Pendentes</span>
               <h4 className="text-xl font-black text-white mt-1">{tasks.length} ativas</h4>
             </div>
-          </div>
+          </Link>
 
-          <div className="bg-slate-950/40 border border-white/5 rounded-3xl p-5 backdrop-blur-xl relative overflow-hidden">
+          <Link href="/finance/calendar" className="bg-slate-950/40 border border-white/5 rounded-3xl p-5 backdrop-blur-xl relative overflow-hidden block hover:border-indigo-500/20 hover:bg-slate-950/50 transition-all duration-300 group">
             <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/5 rounded-full blur-xl pointer-events-none" />
             <div className="flex justify-between items-start">
-              <div className="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center border border-indigo-500/10">
+              <div className="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center border border-indigo-500/10 group-hover:bg-indigo-500/20 transition-all">
                 <CalendarDays className="w-5 h-5" />
+              </div>
+              <div className="text-slate-500 group-hover:text-white transition-colors">
+                <ArrowUpRight className="w-4 h-4" />
               </div>
             </div>
             <div className="mt-4">
@@ -485,7 +491,7 @@ export default function HubPortal() {
                 {nextEvent ? new Date(nextEvent.start_time).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Total sintonia'}
               </p>
             </div>
-          </div>
+          </Link>
         </section>
 
         {/* Dashboard Grid (Left Column Widgets, Right Column CoS) */}

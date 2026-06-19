@@ -78,7 +78,18 @@ export const AiCurationModal: React.FC<AiCurationModalProps> = ({
   const [refinementSuccess, setRefinementSuccess] = useState(false);
   
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const chatTextareaRef = useRef<HTMLTextAreaElement>(null);
   const isReadOnly = !!processedAt;
+
+  // Auto-resize textarea height based on content
+  useEffect(() => {
+    const textarea = chatTextareaRef.current;
+    if (textarea) {
+      textarea.style.height = 'auto';
+      textarea.style.height = `${Math.min(textarea.scrollHeight, 120)}px`;
+    }
+  }, [chatInput]);
+
 
   useEffect(() => {
     if (isOpen && result) {
@@ -98,6 +109,13 @@ export const AiCurationModal: React.FC<AiCurationModalProps> = ({
   }, [currentResult?.chat_history, chatLoading]);
 
   if (!isOpen || !currentResult) return null;
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendChat(e as any);
+    }
+  };
 
   const handleSendChat = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -541,15 +559,19 @@ export const AiCurationModal: React.FC<AiCurationModalProps> = ({
                   Plano aprovado. O chat está desativado.
                 </div>
               ) : (
-                <form onSubmit={handleSendChat} className="flex gap-2">
-                  <input
-                    type="text"
-                    value={chatInput}
-                    disabled={chatLoading}
-                    onChange={(e) => setChatInput(e.target.value)}
-                    placeholder="Instrua a IA (ex: 'Defina a tarefa X como prioridade critical')"
-                    className="flex-1 px-3 py-2 border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-950/50 focus:bg-white dark:focus:bg-slate-950 rounded-xl text-xs focus:ring-2 focus:ring-blue-500/30 focus:outline-none placeholder-slate-400 disabled:opacity-50 font-medium"
-                  />
+                <form onSubmit={handleSendChat} className="flex gap-2 items-end">
+                  <div className="flex-1 min-w-0 bg-slate-50 dark:bg-slate-950/50 border border-slate-200 dark:border-white/10 rounded-xl px-3 py-2 flex items-center focus-within:bg-white dark:focus-within:bg-slate-950 focus-within:ring-2 focus-within:ring-blue-500/30 transition-all duration-300">
+                    <textarea
+                      ref={chatTextareaRef}
+                      rows={1}
+                      value={chatInput}
+                      disabled={chatLoading}
+                      onChange={(e) => setChatInput(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      placeholder="Instrua a IA (ex: 'Defina a tarefa X como prioridade critical')"
+                      className="w-full bg-transparent text-xs text-slate-900 dark:text-slate-100 focus:outline-none placeholder-slate-400 disabled:opacity-50 resize-none max-h-24 py-0.5 overflow-y-auto no-scrollbar font-medium"
+                    />
+                  </div>
                   <button
                     type="submit"
                     disabled={chatLoading || !chatInput.trim()}
