@@ -14,24 +14,29 @@ export function GeminiFab() {
 
   // Detectar módulo pelo pathname
   const isWork = pathname?.startsWith('/tasks');
-  const module = isWork ? 'work' : 'finance';
+  const isHub = pathname === '/';
+  const module = isWork ? 'work' : isHub ? 'hub' : 'finance';
 
   // Configuração visual por módulo
   const cfg = {
-    label: isWork ? 'CPO Assistant' : 'CFO Assistant',
+    label: module === 'work' ? 'CPO Assistant' : module === 'hub' ? 'CoS Assistant' : 'CFO Assistant',
     // FAB button colors
-    fabBorder: isWork ? 'border-blue-500/30' : 'border-emerald-500/30',
-    fabText: isWork ? 'text-blue-400' : 'text-emerald-400',
-    fabGlow: isWork
+    fabBorder: module === 'work' ? 'border-blue-500/30' : module === 'hub' ? 'border-indigo-500/30' : 'border-emerald-500/30',
+    fabText: module === 'work' ? 'text-blue-400' : module === 'hub' ? 'text-indigo-400' : 'text-emerald-400',
+    fabGlow: module === 'work'
       ? 'shadow-[0_0_20px_rgba(59,130,246,0.15)] hover:shadow-[0_0_30px_rgba(59,130,246,0.3)]'
+      : module === 'hub'
+      ? 'shadow-[0_0_20px_rgba(99,102,241,0.15)] hover:shadow-[0_0_30px_rgba(99,102,241,0.3)]'
       : 'shadow-[0_0_20px_rgba(16,185,129,0.15)] hover:shadow-[0_0_30px_rgba(16,185,129,0.3)]',
-    fabPulse: isWork
+    fabPulse: module === 'work'
       ? 'from-blue-500 to-indigo-500'
+      : module === 'hub'
+      ? 'from-indigo-500 to-purple-500'
       : 'from-emerald-500 to-teal-500',
     // Panel colors
-    panelBorder: isWork ? 'border-blue-500/20' : 'border-emerald-500/20',
-    panelGlow: isWork ? 'shadow-blue-500/5' : 'shadow-emerald-500/5',
-    labelColor: isWork ? 'text-blue-400' : 'text-emerald-400',
+    panelBorder: module === 'work' ? 'border-blue-500/20' : module === 'hub' ? 'border-indigo-500/20' : 'border-emerald-500/20',
+    panelGlow: module === 'work' ? 'shadow-blue-500/5' : module === 'hub' ? 'shadow-indigo-500/5' : 'shadow-emerald-500/5',
+    labelColor: module === 'work' ? 'text-blue-400' : module === 'hub' ? 'text-indigo-400' : 'text-emerald-400',
   };
 
   return (
@@ -52,7 +57,7 @@ export function GeminiFab() {
             </button>
           </div>
           <div className="flex-1 overflow-hidden">
-            <AiChatHub isFloating={true} />
+            <AiChatHub isFloating={true} forcedModule={module} />
           </div>
         </div>
       )}

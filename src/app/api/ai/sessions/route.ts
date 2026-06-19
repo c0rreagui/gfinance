@@ -39,7 +39,8 @@ export async function GET(req: Request): Promise<NextResponse> {
 
     // Extrair o módulo da query string (padrão: finance)
     const url = new URL(req.url);
-    const module = url.searchParams.get('module') === 'work' ? 'work' : 'finance';
+    const rawModule = url.searchParams.get('module');
+    const module = rawModule === 'work' ? 'work' : rawModule === 'hub' ? 'hub' : 'finance';
 
     // Listar sessões ativas filtradas por módulo e usuário
     const { data: chatSessions, error: listError } = await supabase
@@ -99,6 +100,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       const body = await req.json();
       if (body?.title) title = body.title;
       if (body?.module === 'work') module = 'work';
+      else if (body?.module === 'hub') module = 'hub';
     } catch {
       // Ignorar corpo ausente
     }

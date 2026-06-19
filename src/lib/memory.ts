@@ -15,7 +15,7 @@ interface ChatMessageRow {
   content: string;
 }
 
-export type AppModule = 'finance' | 'work';
+export type AppModule = 'finance' | 'work' | 'hub';
 
 export async function compactSessionHistory(
   supabaseClient: any,
@@ -44,7 +44,7 @@ export async function compactSessionHistory(
     }
 
     // 2. Buscar a memória permanente do perfil do usuário (coluna correta por módulo)
-    const memoryColumn = module === 'work' ? 'ai_memory_work' : 'ai_memory';
+    const memoryColumn = module === 'work' ? 'ai_memory_work' : module === 'hub' ? 'ai_memory_hub' : 'ai_memory';
     const { data: profile, error: profileError } = await supabaseClient
       .from('profiles')
       .select(memoryColumn)
@@ -74,6 +74,8 @@ export async function compactSessionHistory(
 
     const moduleLabel = module === 'work'
       ? 'G-Work (tarefas, projetos, execução de produto)'
+      : module === 'hub'
+      ? 'G-Hub (visão integrada, agenda/calendário e coordenação executiva)'
       : 'G-Finance (finanças pessoais, gastos, metas)';
 
     const compactionPrompt = `

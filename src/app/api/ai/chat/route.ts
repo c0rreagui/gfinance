@@ -1,10 +1,10 @@
 /**
  * src/app/api/ai/chat/route.ts
  *
- * API Route unificada para o Chat do G-Finance (CFO) e G-Work (CPO).
- * O parâmetro `module` ('finance' | 'work') determina:
- * - Qual assistente é invocado (generateFinancialResponse ou generateWorkResponse)
- * - Qual memória perene é lida/escrita (ai_memory ou ai_memory_work)
+ * API Route unificada para o Chat do G-Finance (CFO), G-Work (CPO) e G-Hub (CoS).
+ * O parâmetro `module` ('finance' | 'work' | 'hub') determina:
+ * - Qual assistente é invocado
+ * - Qual memória perene é lida/escrita
  * - Qual contexto de dados é injetado no prompt
  */
 
@@ -12,6 +12,7 @@ import { NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
 import { generateFinancialResponse, is429Error } from '@/lib/gemini';
 import { generateWorkResponse } from '@/lib/gemini-work';
+import { generateHubResponse } from '@/lib/gemini-hub';
 import { compactSessionHistory, AppModule } from '@/lib/memory';
 
 export const runtime = 'nodejs';
@@ -55,7 +56,7 @@ export async function POST(req: Request): Promise<NextResponse> {
   }
 
   const { message, sessionId, module: rawModule } = body;
-  const module: AppModule = rawModule === 'work' ? 'work' : 'finance';
+  const module: AppModule = rawModule === 'work' ? 'work' : rawModule === 'hub' ? 'hub' : 'finance';
 
   if (!message || typeof message !== 'string') {
     return NextResponse.json(
@@ -163,6 +164,25 @@ export async function POST(req: Request): Promise<NextResponse> {
         chatHistory,
         supabase,
         aiMemoryWork
+      );
+
+    } else if (module === 'hub') {
+      // =====================================================================
+      // G-HUB — CoS Assistant
+      // =====================================================================
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('ai_memory_hub')
+        .eq('id', user.id)
+        .single();
+
+      const aiMemoryHub = profile?.ai_memory_hub || '';
+
+      aiResponse = await generateHubResponse(
+        message,
+        chatHistory,
+        supabase,
+        aiMemoryHub
       );
 
     } else {

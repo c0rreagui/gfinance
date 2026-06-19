@@ -27,7 +27,7 @@ import {
 import { supabase } from '@/lib/supabase';
 import { usePathname } from 'next/navigation';
 
-type AppModule = 'finance' | 'work';
+type AppModule = 'finance' | 'work' | 'hub';
 
 interface ChatMessage {
   role: 'user' | 'model';
@@ -97,12 +97,40 @@ const MODULE_CONFIG = {
     glowBar: 'from-blue-500 via-indigo-400 to-violet-500',
     sendBtn: 'from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 shadow-blue-500/10',
     badge: 'bg-blue-500/10 text-blue-400 border-blue-500/10',
+  },
+  hub: {
+    label: 'CoS Assistant',
+    subtitle: 'Chief of Staff Virtual',
+    thinkingText: 'Processando solicitações integradas...',
+    emptyTitle: 'Como posso ajudar você hoje, Guilherme?',
+    emptySubtitle: 'Tenho visão completa sobre suas finanças, tarefas do G-Work e compromissos da agenda.',
+    placeholder: 'Pergunte sobre finanças, tarefas ou gerencie sua agenda...',
+    accentColor: 'indigo',
+    suggestions: [
+      { text: 'Quais são meus compromissos de hoje?', icon: Sparkles },
+      { text: 'Crie um evento: Reunião estratégica amanhã às 14h', icon: ArrowRight },
+      { text: 'Resuma minhas contas pendentes e tarefas críticas', icon: Wallet },
+      { text: 'Como está o andamento das minhas tarefas?', icon: ListTodo }
+    ],
+    fabGlow: 'from-indigo-500 to-purple-500',
+    border: 'border-indigo-500/20',
+    iconBg: 'bg-indigo-500/10',
+    iconText: 'text-indigo-400',
+    iconBorder: 'border-indigo-500/10',
+    activeDot: 'bg-indigo-400',
+    historyIcon: 'text-indigo-400',
+    sessionActive: 'border-indigo-500/25',
+    sessionHover: 'group-hover/item:text-indigo-400',
+    btnPrimary: 'bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border-indigo-500/20',
+    glowBar: 'from-indigo-500 via-purple-400 to-pink-500',
+    sendBtn: 'from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 shadow-indigo-500/10',
+    badge: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/10',
   }
 };
 
-export function AiChatHub({ isFloating = false }: { isFloating?: boolean }) {
+export function AiChatHub({ isFloating = false, forcedModule }: { isFloating?: boolean; forcedModule?: AppModule }) {
   const pathname = usePathname();
-  const module: AppModule = pathname?.startsWith('/tasks') ? 'work' : 'finance';
+  const module: AppModule = forcedModule || (pathname?.startsWith('/tasks') ? 'work' : 'finance');
   const cfg = MODULE_CONFIG[module];
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -299,7 +327,10 @@ export function AiChatHub({ isFloating = false }: { isFloating?: boolean }) {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter') {
+      if (e.shiftKey) {
+        return;
+      }
       e.preventDefault();
       handleSendMessage(input);
     }
