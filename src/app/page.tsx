@@ -25,7 +25,11 @@ import {
   CalendarDays,
   CheckSquare,
   Square,
-  ArrowUpRight
+  ArrowUpRight,
+  Settings,
+  X,
+  Shield,
+  Lock
 } from 'lucide-react';
 import { TiltCard } from '@/components/TiltCard';
 import { supabase } from '@/lib/supabase';
@@ -81,6 +85,82 @@ export default function HubPortal() {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [syncingCalendar, setSyncingCalendar] = useState(false);
   const [googleCalendarError, setGoogleCalendarError] = useState<string | null>(null);
+
+  // G-Hub settings modal states
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [activeSettingsTab, setActiveSettingsTab] = useState<'integrations' | 'profile'>('integrations');
+  const [identities, setIdentities] = useState<any[]>([]);
+  const [profile, setProfile] = useState<any>(null);
+  const [linkingError, setLinkingError] = useState('');
+  const [linkingSuccess, setLinkingSuccess] = useState('');
+
+  const handleLinkGoogle = async () => {
+    setLinkingError('');
+    setLinkingSuccess('');
+    try {
+      const { error } = await supabase.auth.linkIdentity({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback?next=/`,
+          scopes: 'openid email profile https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/calendar.events',
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent',
+          }
+        }
+      });
+      if (error) throw error;
+    } catch (err: any) {
+      setLinkingError(err.message || 'Erro ao iniciar vinculação da conta Google.');
+    }
+  };
+
+  const handleUnlinkGoogle = async () => {
+    setLinkingError('');
+    setLinkingSuccess('');
+    try {
+      const googleIdentity = identities.find((id: any) => id.provider === 'google');
+      if (!googleIdentity) {
+        setLinkingError('Conta Google não vinculada ou não encontrada.');
+        return;
+      }
+      
+      const { error } = await supabase.auth.unlinkIdentity(googleIdentity);
+      if (error) throw error;
+
+      // Clear tokens in profile
+      const { error: dbError } = await supabase
+        .from('profiles')
+        .update({
+          google_access_token: null,
+          google_refresh_token: null,
+          google_token_expires_at: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', user?.id);
+
+      if (dbError) throw dbError;
+
+      setLinkingSuccess('Conta Google desvinculada com sucesso.');
+      
+      // Refresh state
+      const { data: { user: updatedUser } } = await supabase.auth.getUser();
+      if (updatedUser) {
+        setUser(updatedUser);
+        setIdentities(updatedUser.identities || []);
+      }
+      
+      const { data: dbProfile } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user?.id)
+        .single();
+      setProfile(dbProfile);
+      
+    } catch (err: any) {
+      setLinkingError(err.message || 'Erro ao desvincular conta Google. Certifique-se de que possui uma senha válida.');
+    }
+  };
 
   const syncCalendar = useCallback(async (userId: string) => {
     try {
@@ -159,6 +239,16 @@ export default function HubPortal() {
         return;
       }
       setUser(user);
+      setIdentities(user.identities || []);
+
+      // Fetch profile details
+      const { data: dbProfile } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+      setProfile(dbProfile);
+
       await fetchData(user.id);
       // Sincroniza o Google Calendar em segundo plano após carregar o cache local
       syncCalendar(user.id);
@@ -478,6 +568,15 @@ export default function HubPortal() {
             <Link href="/tasks" className="px-4 py-2 border border-white/5 bg-slate-900/50 hover:bg-slate-900 rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2">
               <Briefcase className="w-3.5 h-3.5 text-blue-400" /> G-Work
             </Link>
+            <button 
+              onClick={() => {
+                setActiveSettingsTab('integrations');
+                setIsSettingsModalOpen(true);
+              }}
+              className="px-4 py-2 border border-white/5 bg-slate-900/50 hover:bg-slate-900 rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2 text-slate-400 hover:text-white"
+            >
+              <Settings className="w-3.5 h-3.5 text-indigo-400" /> Ajustes
+            </button>
             <div className="h-6 w-px bg-white/5" />
             <button 
               onClick={handleLogout}
@@ -604,12 +703,15 @@ export default function HubPortal() {
                       </p>
                     </div>
                   </div>
-                  <Link 
-                    href="/settings"
+                  <button 
+                    onClick={() => {
+                      setActiveSettingsTab('integrations');
+                      setIsSettingsModalOpen(true);
+                    }}
                     className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer shadow-lg shadow-amber-500/10 shrink-0"
                   >
                     Conectar Agenda
-                  </Link>
+                  </button>
                 </div>
               )}
 
@@ -1031,6 +1133,228 @@ export default function HubPortal() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* G-HUB SYSTEM SETTINGS & INTEGRATIONS MODAL */}
+      {isSettingsModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-300">
+          <div className="bg-slate-900 border border-white/10 rounded-[32px] w-full max-w-2xl overflow-hidden shadow-2xl relative animate-in zoom-in-95 duration-200 flex flex-col md:flex-row h-[500px]">
+            
+            {/* Close Button */}
+            <button 
+              onClick={() => {
+                setIsSettingsModalOpen(false);
+                setLinkingError('');
+                setLinkingSuccess('');
+              }}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 hover:bg-white/5 rounded-lg transition-all z-10 cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            {/* Sidebar Navigation */}
+            <div className="w-full md:w-52 border-b md:border-b-0 md:border-r border-white/5 p-6 flex flex-col justify-between shrink-0 bg-slate-950/40">
+              <div>
+                <div className="flex items-center gap-2 mb-6">
+                  <div className="w-8 h-8 bg-indigo-500/20 rounded-xl border border-indigo-500/30 flex items-center justify-center text-indigo-400 font-black text-sm">G</div>
+                  <span className="text-xs font-black uppercase tracking-wider text-white">Ajustes do G-Hub</span>
+                </div>
+                
+                <nav className="space-y-1">
+                  <button
+                    onClick={() => setActiveSettingsTab('integrations')}
+                    className={`w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-2.5 cursor-pointer ${
+                      activeSettingsTab === 'integrations'
+                        ? 'bg-indigo-500/10 border border-indigo-500/20 text-indigo-400'
+                        : 'border border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/5'
+                    }`}
+                  >
+                    <Layers className="w-4 h-4" /> Integrações
+                  </button>
+                  <button
+                    onClick={() => setActiveSettingsTab('profile')}
+                    className={`w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-2.5 cursor-pointer ${
+                      activeSettingsTab === 'profile'
+                        ? 'bg-indigo-500/10 border border-indigo-500/20 text-indigo-400'
+                        : 'border border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/5'
+                    }`}
+                  >
+                    <User className="w-4 h-4" /> Perfil
+                  </button>
+                </nav>
+              </div>
+
+              <div className="hidden md:block pt-6 border-t border-white/5 text-[9px] font-bold text-slate-500 uppercase tracking-widest leading-relaxed">
+                Versão 1.0.0<br/>G-Hub IA
+              </div>
+            </div>
+
+            {/* Content Pane */}
+            <div className="flex-1 p-6 md:p-8 overflow-y-auto no-scrollbar flex flex-col justify-between bg-slate-900/20">
+              <div className="space-y-6">
+                
+                {/* Feedback Alerts */}
+                {linkingError && (
+                  <div className="p-3.5 bg-red-500/10 border border-red-500/20 rounded-2xl flex items-start gap-2.5 text-[10px] font-bold uppercase tracking-wider text-red-400 leading-relaxed animate-in fade-in duration-300">
+                    <AlertCircle className="w-4.5 h-4.5 shrink-0 text-red-500 mt-0.5" />
+                    <span>{linkingError}</span>
+                  </div>
+                )}
+
+                {linkingSuccess && (
+                  <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl flex items-start gap-2.5 text-[10px] font-bold uppercase tracking-wider text-emerald-400 leading-relaxed animate-in fade-in duration-300">
+                    <CheckCircle2 className="w-4.5 h-4.5 shrink-0 text-emerald-500 mt-0.5" />
+                    <span>{linkingSuccess}</span>
+                  </div>
+                )}
+
+                {/* Tab: Integrations */}
+                {activeSettingsTab === 'integrations' && (
+                  <div className="space-y-5 animate-in fade-in slide-in-from-left-4 duration-350">
+                    <div>
+                      <h4 className="text-sm font-black text-white uppercase tracking-tight">Vincular Conta Google</h4>
+                      <p className="text-[10px] text-slate-400 font-medium leading-relaxed mt-1">
+                        Conecte seu Google para habilitar a sincronização bidirecional em tempo real do Google Agenda e transcrições do Drive.
+                      </p>
+                    </div>
+
+                    {identities.some((id: any) => id.provider === 'google') ? (
+                      /* Connected Layout */
+                      <div className="space-y-4">
+                        <div className="p-4 bg-slate-950/40 border border-white/5 rounded-2xl flex justify-between items-center gap-4 backdrop-blur-xl">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/25 flex items-center justify-center text-emerald-400">
+                              <Shield className="w-5 h-5" />
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[9px] font-black uppercase tracking-wider text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded-md border border-emerald-500/10">Conectado</span>
+                              </div>
+                              <p className="text-[11px] font-black text-white mt-1">{user?.email}</p>
+                            </div>
+                          </div>
+                          <button
+                            onClick={handleUnlinkGoogle}
+                            className="px-3.5 py-2 border border-red-500/10 bg-red-500/5 hover:bg-red-500/10 text-red-400 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all cursor-pointer"
+                          >
+                            Desvincular
+                          </button>
+                        </div>
+
+                        {/* Status Check for Calendar Scopes */}
+                        {googleCalendarError ? (
+                          <div className="p-4 bg-amber-500/5 border border-amber-500/15 rounded-2xl flex items-start gap-3">
+                            <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                            <div className="space-y-2">
+                              <h5 className="text-[11px] font-black text-white uppercase tracking-wider">Acesso ao Google Agenda Bloqueado</h5>
+                              <p className="text-[10px] text-slate-400 font-medium leading-relaxed">
+                                Sua conta Google está vinculada, mas as permissões do Google Agenda estão pendentes. Clique abaixo para atualizar e autorizar o acesso completo.
+                              </p>
+                              <button
+                                onClick={handleLinkGoogle}
+                                className="px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer shadow-lg shadow-amber-500/10 inline-block"
+                              >
+                                Reconectar & Autorizar
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="p-4 bg-indigo-500/5 border border-indigo-500/15 rounded-2xl space-y-3">
+                            <h5 className="text-[11px] font-black text-white uppercase tracking-wider flex items-center gap-1.5">
+                              <Sparkles className="w-3.5 h-3.5 text-indigo-400" /> Recursos Ativos
+                            </h5>
+                            <div className="space-y-2 text-[10px] text-slate-400 font-medium">
+                              <div className="flex items-center gap-2">
+                                <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                                <span>Sincronização bidirecional do Google Agenda ativa</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                                <span>Leitura de transcrições do Google Drive (G-Work) habilitada</span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      /* Disconnected Layout */
+                      <div className="space-y-4">
+                        <div className="p-8 bg-slate-950/40 border border-white/5 rounded-2xl text-center space-y-4">
+                          <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/25 flex items-center justify-center text-amber-500 mx-auto">
+                            <Lock className="w-6 h-6" />
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-black text-white uppercase tracking-wider">Conta Google não vinculada</p>
+                            <p className="text-[9px] text-slate-500 font-medium mt-1">Conecte sua conta do Google de forma simples e segura.</p>
+                          </div>
+                          <button
+                            onClick={handleLinkGoogle}
+                            className="px-5 py-2.5 bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 text-white text-[10px] font-black uppercase tracking-wider rounded-xl transition-all shadow-lg shadow-indigo-500/10 cursor-pointer active:scale-95 inline-block"
+                          >
+                            Vincular Conta Google
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Tab: Profile */}
+                {activeSettingsTab === 'profile' && (
+                  <div className="space-y-5 animate-in fade-in slide-in-from-left-4 duration-350">
+                    <div>
+                      <h4 className="text-sm font-black text-white uppercase tracking-tight">Perfil de Usuário</h4>
+                      <p className="text-[10px] text-slate-400 font-medium leading-relaxed mt-1">
+                        Seus dados básicos sincronizados na plataforma.
+                      </p>
+                    </div>
+
+                    <div className="p-5 bg-slate-950/40 border border-white/5 rounded-[24px] space-y-4 backdrop-blur-xl">
+                      <div className="flex items-center gap-4">
+                        {profile?.avatar_url || user?.user_metadata?.avatar_url ? (
+                          <img 
+                            src={profile?.avatar_url || user?.user_metadata?.avatar_url} 
+                            alt="Avatar" 
+                            className="w-14 h-14 rounded-2xl object-cover border border-white/10"
+                          />
+                        ) : (
+                          <div className="w-14 h-14 rounded-2xl bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 font-black text-xl">
+                            {user?.email?.charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                        <div>
+                          <h5 className="text-xs font-black text-white uppercase tracking-wider">
+                            {profile?.full_name || user?.user_metadata?.full_name || 'Usuário G-Hub'}
+                          </h5>
+                          <p className="text-[10px] text-slate-500 font-medium mt-0.5">{user?.email}</p>
+                        </div>
+                      </div>
+
+                      <div className="pt-4 border-t border-white/5 text-[9px] text-slate-500 font-medium leading-relaxed">
+                        Sua foto de perfil e nome são obtidos automaticamente via autenticação social (Google OAuth).
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+              </div>
+              
+              <div className="flex justify-end pt-6 border-t border-white/5">
+                <button
+                  onClick={() => {
+                    setIsSettingsModalOpen(false);
+                    setLinkingError('');
+                    setLinkingSuccess('');
+                  }}
+                  className="px-4 py-2 border border-white/5 hover:bg-white/5 rounded-xl text-xs font-black uppercase tracking-widest text-slate-400 hover:text-white transition-all cursor-pointer"
+                >
+                  Fechar
+                </button>
+              </div>
+            </div>
+
           </div>
         </div>
       )}
