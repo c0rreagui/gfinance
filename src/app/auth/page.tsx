@@ -28,7 +28,12 @@ export default function AuthPage() {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       if (params.get('error') === 'oauth_failed') {
-        setErrorMsg('Falha na autenticação com o Google. Tente novamente.');
+        const customMsg = params.get('message');
+        setErrorMsg(
+          customMsg 
+            ? `Falha na autenticação com o Google: ${customMsg}` 
+            : 'Falha na autenticação com o Google. Tente novamente.'
+        );
       }
     }
 

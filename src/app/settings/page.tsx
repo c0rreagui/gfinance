@@ -321,18 +321,36 @@ export default function Settings() {
     setLinkingError('');
     setLinkingSuccess('');
     try {
-      const { error } = await supabase.auth.linkIdentity({
-        provider: 'google',
-        options: {
-          redirectTo: `${window.location.origin}/auth/callback?next=/settings`,
-          scopes: 'https://www.googleapis.com/auth/cloud-platform openid email profile https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/calendar.events',
-          queryParams: {
-            access_type: 'offline',
-            prompt: 'consent',
+      const hasGoogle = identities.some((id: any) => id.provider === 'google');
+      if (hasGoogle) {
+        // Se já possui Google vinculado, re-autentica via OAuth para obter os novos escopos
+        const { error } = await supabase.auth.signInWithOAuth({
+          provider: 'google',
+          options: {
+            redirectTo: `${window.location.origin}/auth/callback?next=/settings`,
+            scopes: 'https://www.googleapis.com/auth/cloud-platform openid email profile https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/calendar.events',
+            queryParams: {
+              access_type: 'offline',
+              prompt: 'consent',
+            }
           }
-        }
-      });
-      if (error) throw error;
+        });
+        if (error) throw error;
+      } else {
+        // Se não tem Google vinculado, faz a vinculação normal
+        const { error } = await supabase.auth.linkIdentity({
+          provider: 'google',
+          options: {
+            redirectTo: `${window.location.origin}/auth/callback?next=/settings`,
+            scopes: 'https://www.googleapis.com/auth/cloud-platform openid email profile https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/calendar.events',
+            queryParams: {
+              access_type: 'offline',
+              prompt: 'consent',
+            }
+          }
+        });
+        if (error) throw error;
+      }
     } catch (err: any) {
       setLinkingError(err.message || 'Erro ao iniciar vinculação da conta Google.');
     }

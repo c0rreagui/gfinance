@@ -18,8 +18,17 @@ export async function GET(request: Request) {
   const code = searchParams.get('code');
   const next = searchParams.get('next') ?? '/';
 
+  const errorParam = searchParams.get('error');
+  const errorDesc = searchParams.get('error_description');
+
+  if (errorParam || errorDesc) {
+    console.error('[OAuth Callback] Google OAuth returned error:', errorParam, errorDesc);
+    const msg = encodeURIComponent(errorDesc || errorParam || 'Erro de autenticação');
+    return NextResponse.redirect(`${origin}/auth?error=oauth_failed&message=${msg}`);
+  }
+
   if (!code) {
-    return NextResponse.redirect(`${origin}/auth?error=oauth_failed`);
+    return NextResponse.redirect(`${origin}/auth?error=oauth_failed&message=Codigo+de+autenticacao+ausente`);
   }
 
   const supabase = await createSupabaseServerClient();
@@ -27,7 +36,8 @@ export async function GET(request: Request) {
 
   if (error || !data?.session) {
     console.error('[OAuth Callback] Erro ao trocar código por sessão:', error);
-    return NextResponse.redirect(`${origin}/auth?error=oauth_failed`);
+    const msg = encodeURIComponent(error?.message || 'Falha ao processar codigo de sessao');
+    return NextResponse.redirect(`${origin}/auth?error=oauth_failed&message=${msg}`);
   }
 
   const { session } = data;
