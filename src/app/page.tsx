@@ -113,6 +113,17 @@ export default function HubPortal() {
     return `#${colorString}`;
   };
 
+  const getContrastColor = (color: string) => {
+    const hex = color.toLowerCase();
+    if (hex === '#6366f1') return '#818cf8'; // Indigo -> Indigo 400
+    if (hex === '#3b82f6') return '#60a5fa'; // Blue -> Blue 400
+    if (hex === '#10b981') return '#34d399'; // Emerald -> Emerald 400
+    if (hex === '#f59e0b') return '#fbbf24'; // Orange/Amber -> Amber 400
+    if (hex === '#f43f5e') return '#fb7185'; // Rose -> Rose 400
+    if (hex === '#ec4899') return '#f472b6'; // Pink -> Pink 400
+    return color;
+  };
+
   // G-Hub settings modal states
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [activeSettingsTab, setActiveSettingsTab] = useState<'integrations' | 'profile'>('integrations');
@@ -912,15 +923,16 @@ export default function HubPortal() {
                          <div className="w-full flex flex-col gap-1 mt-1">
                            {cellItems.slice(0, 3).map((item, itemIdx) => {
                              const hexColor = ensureHex(item.color);
+                             const contrastColor = getContrastColor(hexColor);
                              return (
                                <div
                                  key={item.id || itemIdx}
                                  onClick={(e) => handleMiniItemClick(e, cell.date, item.id)}
-                                 className="w-full text-left px-1.5 py-0.5 rounded-md text-[8px] font-bold truncate leading-tight border transition-all duration-300 hover:scale-[1.03] active:scale-[0.97]"
+                                 className="w-full text-left px-1.5 py-0.5 rounded-md text-[8px] font-bold truncate leading-tight border transition-all duration-300 hover:scale-[1.03] active:scale-[0.97] pointer-events-none md:pointer-events-auto"
                                  style={{
                                    backgroundColor: `${hexColor}12`,
                                    borderColor: `${hexColor}25`,
-                                   color: hexColor,
+                                   color: contrastColor,
                                  }}
                                  title={item.title}
                                >
