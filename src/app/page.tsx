@@ -871,9 +871,9 @@ export default function HubPortal() {
                   const hasItems = dayEvents.length > 0 || dayTasks.length > 0 || dayReminders.length > 0;
 
                    const cellItems = [
-                     ...dayEvents.map(e => ({ id: e.id, title: e.title, type: 'event' as const, color: e.color || '#6366f1' })),
+                     ...dayReminders.map(r => ({ id: r.id, title: r.title, type: 'reminder' as const, color: '#f59e0b' })),
                      ...dayTasks.map(t => ({ id: t.id, title: t.title, type: 'task' as const, color: '#3b82f6' })),
-                     ...dayReminders.map(r => ({ id: r.id, title: r.title, type: 'reminder' as const, color: '#f59e0b' }))
+                     ...dayEvents.map(e => ({ id: e.id, title: e.title, type: 'event' as const, color: e.color || '#6366f1' }))
                    ];
 
                    return (
