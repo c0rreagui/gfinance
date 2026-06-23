@@ -991,7 +991,14 @@ export default function HubPortal() {
                                <div className="w-2.5 h-10 rounded-full shrink-0 mt-0.5" style={{ backgroundColor: ev.color }} />
                                <div className="min-w-0">
                                  <h5 className="text-xs font-black text-white tracking-tight">{ev.title}</h5>
-                                 <p className="text-[10px] text-slate-400 mt-1 leading-normal font-medium">{ev.description || 'Sem descrição'}</p>
+                                 {ev.description ? (
+                                   <div 
+                                     className="text-[10px] text-slate-400 mt-1 leading-normal font-medium [&_a]:text-indigo-400 [&_a]:underline hover:[&_a]:text-indigo-300 [&_a]:break-all [&_a]:transition-colors"
+                                     dangerouslySetInnerHTML={{ __html: ev.description }}
+                                   />
+                                 ) : (
+                                   <div className="text-[10px] text-slate-400 mt-1 leading-normal font-medium">Sem descrição</div>
+                                 )}
                                  <div className="flex flex-wrap items-center gap-3 mt-2 text-[9px] font-bold text-slate-500 uppercase tracking-wider">
                                    <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {new Date(ev.start_time).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} - {new Date(ev.end_time).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
                                    {ev.location && <span className="flex items-center gap-1"><MapPin className="w-3 h-3" /> {ev.location}</span>}
