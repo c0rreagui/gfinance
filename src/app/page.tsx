@@ -85,6 +85,33 @@ export default function HubPortal() {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [syncingCalendar, setSyncingCalendar] = useState(false);
   const [googleCalendarError, setGoogleCalendarError] = useState<string | null>(null);
+  const [calendarMode, setCalendarMode] = useState<'compact' | 'detailed'>('compact');
+  const [highlightedItemId, setHighlightedItemId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (highlightedItemId) {
+      const timer = setTimeout(() => setHighlightedItemId(null), 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [highlightedItemId]);
+
+  const handleMiniItemClick = (e: React.MouseEvent, date: Date, itemId: string) => {
+    e.stopPropagation();
+    setSelectedDate(date);
+    setHighlightedItemId(itemId);
+    setTimeout(() => {
+      const element = document.getElementById(`agenda-item-${itemId}`);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }, 80);
+  };
+
+  const ensureHex = (colorString: string) => {
+    if (!colorString) return '#6366f1';
+    if (colorString.startsWith('#')) return colorString;
+    return `#${colorString}`;
+  };
 
   // G-Hub settings modal states
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
@@ -758,22 +785,49 @@ export default function HubPortal() {
                   <Calendar className="w-5 h-5 text-indigo-400 animate-pulse" />
                   <h3 className="text-md font-black tracking-tight text-white uppercase">Planejamento & Agenda</h3>
                 </div>
-                <div className="flex items-center gap-3 bg-slate-900/60 p-1.5 border border-white/5 rounded-2xl">
-                  <button 
-                    onClick={handlePrevMonth}
-                    className="p-1.5 hover:bg-white/5 rounded-lg text-slate-400 hover:text-white transition-colors cursor-pointer"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  <span className="text-[10px] font-black uppercase tracking-widest text-white px-2 min-w-28 text-center">
-                    {monthName}
-                  </span>
-                  <button 
-                    onClick={handleNextMonth}
-                    className="p-1.5 hover:bg-white/5 rounded-lg text-slate-400 hover:text-white transition-colors cursor-pointer"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
+                <div className="flex items-center gap-3">
+                  {/* Mode Selector Toggle */}
+                  <div className="flex bg-slate-900/60 p-1 border border-white/5 rounded-2xl">
+                    <button
+                      onClick={() => setCalendarMode('compact')}
+                      className={`px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                        calendarMode === 'compact'
+                          ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Compacto
+                    </button>
+                    <button
+                      onClick={() => setCalendarMode('detailed')}
+                      className={`px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                        calendarMode === 'detailed'
+                          ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Detalhado
+                    </button>
+                  </div>
+
+                  {/* Month Navigation */}
+                  <div className="flex items-center gap-3 bg-slate-900/60 p-1.5 border border-white/5 rounded-2xl">
+                    <button 
+                      onClick={handlePrevMonth}
+                      className="p-1.5 hover:bg-white/5 rounded-lg text-slate-400 hover:text-white transition-colors cursor-pointer"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-white px-2 min-w-28 text-center">
+                      {monthName}
+                    </span>
+                    <button 
+                      onClick={handleNextMonth}
+                      className="p-1.5 hover:bg-white/5 rounded-lg text-slate-400 hover:text-white transition-colors cursor-pointer"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -816,34 +870,73 @@ export default function HubPortal() {
                   const isToday = isSameDay(cell.date, new Date());
                   const hasItems = dayEvents.length > 0 || dayTasks.length > 0 || dayReminders.length > 0;
 
-                  return (
-                    <button
-                      key={idx}
-                      onClick={() => setSelectedDate(cell.date)}
-                      className={`aspect-square p-2 border rounded-2xl text-left flex flex-col justify-between transition-all duration-300 relative group cursor-pointer ${
-                        isSelected 
-                          ? 'bg-indigo-500/10 border-indigo-500 text-white shadow-[0_0_20px_rgba(99,102,241,0.08)]' 
-                          : cell.isCurrentMonth
-                            ? 'bg-slate-900/30 border-white/5 text-slate-200 hover:bg-slate-900/60 hover:border-white/10'
-                            : 'bg-slate-950/20 border-white/5/20 text-slate-600 hover:bg-slate-900/10'
-                      }`}
-                    >
-                      <div className="flex justify-between items-center w-full">
-                        <span className={`text-[10px] font-bold ${isToday ? 'bg-indigo-500 text-white w-5 h-5 rounded-full flex items-center justify-center shadow-md shadow-indigo-500/20' : ''}`}>
-                          {cell.day}
-                        </span>
-                      </div>
-                      
-                      {/* Dots overlay for indicators */}
-                      {hasItems && (
-                        <div className="flex gap-1 mt-auto">
-                          {dayEvents.length > 0 && <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />}
-                          {dayTasks.length > 0 && <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />}
-                          {dayReminders.length > 0 && <span className="w-1.5 h-1.5 rounded-full bg-orange-400" />}
-                        </div>
-                      )}
-                    </button>
-                  );
+                   const cellItems = [
+                     ...dayEvents.map(e => ({ id: e.id, title: e.title, type: 'event' as const, color: e.color || '#6366f1' })),
+                     ...dayTasks.map(t => ({ id: t.id, title: t.title, type: 'task' as const, color: '#3b82f6' })),
+                     ...dayReminders.map(r => ({ id: r.id, title: r.title, type: 'reminder' as const, color: '#f59e0b' }))
+                   ];
+
+                   return (
+                     <button
+                       key={idx}
+                       onClick={() => setSelectedDate(cell.date)}
+                       className={`${
+                         calendarMode === 'detailed'
+                           ? 'min-h-[110px] h-auto p-1.5 pb-2 justify-start gap-1'
+                           : 'aspect-square p-2 justify-between'
+                       } border rounded-2xl text-left flex flex-col transition-all duration-300 relative group cursor-pointer w-full ${
+                         isSelected 
+                           ? 'bg-indigo-500/10 border-indigo-500 text-white shadow-[0_0_20px_rgba(99,102,241,0.08)]' 
+                           : cell.isCurrentMonth
+                             ? 'bg-slate-900/30 border-white/5 text-slate-200 hover:bg-slate-900/60 hover:border-white/10'
+                             : 'bg-slate-950/20 border-white/5/20 text-slate-600 hover:bg-slate-900/10'
+                       }`}
+                     >
+                       <div className="flex justify-between items-center w-full">
+                         <span className={`text-[10px] font-bold ${isToday ? 'bg-indigo-500 text-white w-5 h-5 rounded-full flex items-center justify-center shadow-md shadow-indigo-500/20' : ''}`}>
+                           {cell.day}
+                         </span>
+                       </div>
+                       
+                       {/* Compact Mode indicator dots */}
+                       {calendarMode === 'compact' && hasItems && (
+                         <div className="flex gap-1 mt-auto">
+                           {dayEvents.length > 0 && <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />}
+                           {dayTasks.length > 0 && <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />}
+                           {dayReminders.length > 0 && <span className="w-1.5 h-1.5 rounded-full bg-orange-400" />}
+                         </div>
+                       )}
+
+                       {/* Detailed Mode mini-cards */}
+                       {calendarMode === 'detailed' && hasItems && (
+                         <div className="w-full flex flex-col gap-1 mt-1">
+                           {cellItems.slice(0, 3).map((item, itemIdx) => {
+                             const hexColor = ensureHex(item.color);
+                             return (
+                               <div
+                                 key={item.id || itemIdx}
+                                 onClick={(e) => handleMiniItemClick(e, cell.date, item.id)}
+                                 className="w-full text-left px-1.5 py-0.5 rounded-md text-[8px] font-bold truncate leading-tight border transition-all duration-300 hover:scale-[1.03] active:scale-[0.97]"
+                                 style={{
+                                   backgroundColor: `${hexColor}12`,
+                                   borderColor: `${hexColor}25`,
+                                   color: hexColor,
+                                 }}
+                                 title={item.title}
+                               >
+                                 {item.title}
+                               </div>
+                             );
+                           })}
+                           {cellItems.length > 3 && (
+                             <div className="text-[7.5px] font-black uppercase tracking-wider text-slate-500 pl-1 mt-0.5">
+                               + {cellItems.length - 3} mais
+                             </div>
+                           )}
+                         </div>
+                       )}
+                     </button>
+                   );
                 })}
               </div>
 
@@ -881,69 +974,102 @@ export default function HubPortal() {
                     </div>
                   ) : (
                     <>
-                      {/* Events list */}
-                      {selectedDayData.dayEvents.map((ev) => (
-                        <div key={ev.id} className="flex justify-between items-center p-3.5 bg-slate-900/40 border border-white/5 rounded-2xl hover:border-white/10 transition-all duration-300 group">
-                          <div className="flex items-start gap-3 min-w-0">
-                            <div className="w-2.5 h-10 rounded-full shrink-0 mt-0.5" style={{ backgroundColor: ev.color }} />
-                            <div className="min-w-0">
-                              <h5 className="text-xs font-black text-white tracking-tight">{ev.title}</h5>
-                              <p className="text-[10px] text-slate-400 mt-1 leading-normal font-medium">{ev.description || 'Sem descrição'}</p>
-                              <div className="flex flex-wrap items-center gap-3 mt-2 text-[9px] font-bold text-slate-500 uppercase tracking-wider">
-                                <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {new Date(ev.start_time).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} - {new Date(ev.end_time).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
-                                {ev.location && <span className="flex items-center gap-1"><MapPin className="w-3 h-3" /> {ev.location}</span>}
-                              </div>
-                            </div>
-                          </div>
-                          <button 
-                            onClick={() => handleDeleteEvent(ev.id)}
-                            className="p-2 bg-transparent text-slate-500 hover:text-red-400 rounded-lg hover:bg-red-500/10 transition-all duration-300 opacity-0 group-hover:opacity-100 cursor-pointer"
-                            title="Deletar evento"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ))}
+                       {/* Events list */}
+                       {selectedDayData.dayEvents.map((ev) => {
+                         const isHighlighted = highlightedItemId === ev.id;
+                         return (
+                           <div 
+                             key={ev.id} 
+                             id={`agenda-item-${ev.id}`}
+                             className={`flex justify-between items-center p-3.5 rounded-2xl transition-all duration-500 group ${
+                               isHighlighted 
+                                 ? 'bg-indigo-500/10 border border-indigo-500/50 shadow-[0_0_20px_rgba(99,102,241,0.15)] scale-[1.01]' 
+                                 : 'bg-slate-900/40 border border-white/5 hover:border-white/10'
+                             }`}
+                           >
+                             <div className="flex items-start gap-3 min-w-0">
+                               <div className="w-2.5 h-10 rounded-full shrink-0 mt-0.5" style={{ backgroundColor: ev.color }} />
+                               <div className="min-w-0">
+                                 <h5 className="text-xs font-black text-white tracking-tight">{ev.title}</h5>
+                                 <p className="text-[10px] text-slate-400 mt-1 leading-normal font-medium">{ev.description || 'Sem descrição'}</p>
+                                 <div className="flex flex-wrap items-center gap-3 mt-2 text-[9px] font-bold text-slate-500 uppercase tracking-wider">
+                                   <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {new Date(ev.start_time).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} - {new Date(ev.end_time).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+                                   {ev.location && <span className="flex items-center gap-1"><MapPin className="w-3 h-3" /> {ev.location}</span>}
+                                 </div>
+                               </div>
+                             </div>
+                             <button 
+                               onClick={() => handleDeleteEvent(ev.id)}
+                               className="p-2 bg-transparent text-slate-500 hover:text-red-400 rounded-lg hover:bg-red-500/10 transition-all duration-300 opacity-0 group-hover:opacity-100 cursor-pointer"
+                               title="Deletar evento"
+                             >
+                               <Trash2 className="w-4 h-4" />
+                             </button>
+                           </div>
+                         );
+                       })}
 
-                      {/* Tasks due list */}
-                      {selectedDayData.dayTasks.map((tk) => (
-                        <div key={tk.id} className="flex justify-between items-center p-3.5 bg-blue-500/5 border border-blue-500/10 rounded-2xl group hover:border-blue-500/25 transition-all duration-300">
-                          <div className="flex items-center gap-3">
-                            <button 
-                              onClick={() => handleToggleTask(tk.id)}
-                              className="w-5 h-5 rounded-lg border border-blue-500/20 text-transparent hover:text-blue-400 hover:bg-blue-500/10 flex items-center justify-center transition-all cursor-pointer"
-                              title="Marcar como concluída"
-                            >
-                              <Check className="w-3.5 h-3.5" />
-                            </button>
-                            <div>
-                              <h5 className="text-xs font-black text-white tracking-tight flex items-center gap-2">
-                                {tk.title}
-                                <span className="text-[8px] px-1.5 py-0.2 bg-blue-500/10 text-blue-400 border border-blue-500/10 font-bold uppercase tracking-wide rounded">Tarefa G-Work</span>
-                              </h5>
-                              <p className="text-[9px] font-bold text-slate-500 uppercase tracking-wider mt-1.5">Prazo: Hoje • Prioridade: {tk.priority}</p>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
+                       {/* Tasks due list */}
+                       {selectedDayData.dayTasks.map((tk) => {
+                         const isHighlighted = highlightedItemId === tk.id;
+                         return (
+                           <div 
+                             key={tk.id} 
+                             id={`agenda-item-${tk.id}`}
+                             className={`flex justify-between items-center p-3.5 rounded-2xl transition-all duration-500 group ${
+                               isHighlighted
+                                 ? 'bg-blue-500/15 border border-blue-500 shadow-[0_0_20px_rgba(59,130,246,0.15)] scale-[1.01]'
+                                 : 'bg-blue-500/5 border border-blue-500/10 hover:border-blue-500/25'
+                             }`}
+                           >
+                             <div className="flex items-center gap-3">
+                               <button 
+                                 onClick={() => handleToggleTask(tk.id)}
+                                 className="w-5 h-5 rounded-lg border border-blue-500/20 text-transparent hover:text-blue-400 hover:bg-blue-500/10 flex items-center justify-center transition-all cursor-pointer"
+                                 title="Marcar como concluída"
+                               >
+                                 <Check className="w-3.5 h-3.5" />
+                               </button>
+                               <div>
+                                 <h5 className="text-xs font-black text-white tracking-tight flex items-center gap-2">
+                                   {tk.title}
+                                   <span className="text-[8px] px-1.5 py-0.2 bg-blue-500/10 text-blue-400 border border-blue-500/10 font-bold uppercase tracking-wide rounded">Tarefa G-Work</span>
+                                 </h5>
+                                 <p className="text-[9px] font-bold text-slate-500 uppercase tracking-wider mt-1.5">Prazo: Hoje • Prioridade: {tk.priority}</p>
+                               </div>
+                             </div>
+                           </div>
+                         );
+                       })}
 
-                      {/* Reminders due list */}
-                      {selectedDayData.dayReminders.map((rm) => (
-                        <div key={rm.id} className="flex justify-between items-center p-3.5 bg-orange-500/5 border border-orange-500/10 rounded-2xl hover:border-orange-500/25 transition-all duration-300">
-                          <div>
-                            <h5 className="text-xs font-black text-white tracking-tight flex items-center gap-2">
-                              {rm.title}
-                              <span className="text-[8px] px-1.5 py-0.2 bg-orange-500/10 text-orange-400 border border-orange-500/10 font-bold uppercase tracking-wide rounded">Cobrança G-Finance</span>
-                            </h5>
-                            <p className="text-[9px] font-bold text-slate-500 uppercase tracking-wider mt-1.5">
-                              Vencimento: Hoje • Valor: {rm.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                            </p>
-                          </div>
-                          <Link href="/finance/calendar" className="px-3 py-1.5 bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 border border-orange-500/20 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all">
-                            Pagar
-                          </Link>
-                        </div>
-                      ))}
+                       {/* Reminders due list */}
+                       {selectedDayData.dayReminders.map((rm) => {
+                         const isHighlighted = highlightedItemId === rm.id;
+                         return (
+                           <div 
+                             key={rm.id} 
+                             id={`agenda-item-${rm.id}`}
+                             className={`flex justify-between items-center p-3.5 rounded-2xl transition-all duration-500 ${
+                               isHighlighted
+                                 ? 'bg-orange-500/15 border border-orange-500 shadow-[0_0_20px_rgba(245,158,11,0.15)] scale-[1.01]'
+                                 : 'bg-orange-500/5 border border-orange-500/10 hover:border-orange-500/25'
+                             }`}
+                           >
+                             <div>
+                               <h5 className="text-xs font-black text-white tracking-tight flex items-center gap-2">
+                                 {rm.title}
+                                 <span className="text-[8px] px-1.5 py-0.2 bg-orange-500/10 text-orange-400 border border-orange-500/10 font-bold uppercase tracking-wide rounded">Cobrança G-Finance</span>
+                               </h5>
+                               <p className="text-[9px] font-bold text-slate-500 uppercase tracking-wider mt-1.5">
+                                 Vencimento: Hoje • Valor: {rm.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                               </p>
+                             </div>
+                             <Link href="/finance/calendar" className="px-3 py-1.5 bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 border border-orange-500/20 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all">
+                               Pagar
+                             </Link>
+                           </div>
+                         );
+                       })}
                     </>
                   )}
                 </div>
