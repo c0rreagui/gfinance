@@ -874,7 +874,10 @@ export default function HubPortal() {
               </div>
 
               {/* Grid Days */}
-              <div className="grid grid-cols-7 gap-2">
+              <div 
+                key={monthName}
+                className="grid grid-cols-7 gap-2 animate-in fade-in duration-300"
+              >
                 {calendarDays.map((cell, idx) => {
                   const { dayEvents, dayTasks, dayReminders } = getDayItems(cell.date);
                   const isSelected = isSameDay(cell.date, selectedDate);
@@ -1019,7 +1022,7 @@ export default function HubPortal() {
                              </div>
                              <button 
                                onClick={() => handleDeleteEvent(ev.id)}
-                               className="p-2 bg-transparent text-slate-500 hover:text-red-400 rounded-lg hover:bg-red-500/10 transition-all duration-300 opacity-0 group-hover:opacity-100 cursor-pointer"
+                               className="p-2 bg-transparent text-slate-500 hover:text-red-400 rounded-lg hover:bg-red-500/10 transition-all duration-300 opacity-100 md:opacity-0 md:group-hover:opacity-100 cursor-pointer"
                                title="Deletar evento"
                              >
                                <Trash2 className="w-4 h-4" />
@@ -1103,7 +1106,7 @@ export default function HubPortal() {
                 <div className="flex justify-between items-center mb-4">
                   <div className="flex items-center gap-2.5">
                     <Briefcase className="w-5 h-5 text-blue-400" />
-                    <h3 className="text-sm font-black tracking-tight text-white uppercase">G-Work Tarefas</h3>
+                    <h3 className="text-sm font-extrabold tracking-wide text-white uppercase">G-Work Tarefas</h3>
                   </div>
                   <Link href="/tasks" className="text-slate-500 hover:text-blue-400 text-[10px] font-black uppercase tracking-widest transition-colors flex items-center gap-0.5">
                     Kanban <ChevronRight className="w-3.5 h-3.5" />
@@ -1112,7 +1115,8 @@ export default function HubPortal() {
 
                 <div className="space-y-2.5 max-h-[220px] overflow-y-auto pr-1 no-scrollbar">
                   {tasks.length === 0 ? (
-                    <div className="text-center py-8">
+                    <div className="text-center py-8 bg-slate-900/10 rounded-2xl border border-dashed border-white/5 flex flex-col items-center justify-center">
+                      <CheckCircle2 className="w-6 h-6 text-slate-700 mb-2 stroke-[1.5]" />
                       <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Nenhuma tarefa pendente no momento</p>
                     </div>
                   ) : (
@@ -1143,7 +1147,7 @@ export default function HubPortal() {
                 <div className="flex justify-between items-center mb-4">
                   <div className="flex items-center gap-2.5">
                     <Wallet className="w-5 h-5 text-emerald-400" />
-                    <h3 className="text-sm font-black tracking-tight text-white uppercase">G-Finance Cartões</h3>
+                    <h3 className="text-sm font-extrabold tracking-wide text-white uppercase">G-Finance Cartões</h3>
                   </div>
                   <Link href="/cards" className="text-slate-500 hover:text-emerald-400 text-[10px] font-black uppercase tracking-widest transition-colors flex items-center gap-0.5">
                     Cartões <ChevronRight className="w-3.5 h-3.5" />
@@ -1152,7 +1156,8 @@ export default function HubPortal() {
 
                 <div className="space-y-3">
                   {creditCards.length === 0 ? (
-                    <div className="text-center py-8">
+                    <div className="text-center py-8 bg-slate-900/10 rounded-2xl border border-dashed border-white/5 flex flex-col items-center justify-center">
+                      <Wallet className="w-6 h-6 text-slate-700 mb-2 stroke-[1.5]" />
                       <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Nenhum cartão cadastrado</p>
                     </div>
                   ) : (
