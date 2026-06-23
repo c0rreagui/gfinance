@@ -269,15 +269,25 @@ export default function HubPortal() {
       setOauthSessionToSync(null); // Consome a sessão imediatamente para evitar loops
 
       const expiresAt = new Date(Date.now() + 3600 * 1000).toISOString();
+      const updateData: {
+        google_access_token: string;
+        google_token_expires_at: string;
+        updated_at: string;
+        google_refresh_token?: string;
+      } = {
+        google_access_token: session.provider_token,
+        google_token_expires_at: expiresAt,
+        updated_at: new Date().toISOString(),
+      };
+
+      if (session.provider_refresh_token) {
+        updateData.google_refresh_token = session.provider_refresh_token;
+      }
+
       try {
         const { error: updateError } = await supabase
           .from('profiles')
-          .update({
-            google_access_token: session.provider_token,
-            google_refresh_token: session.provider_refresh_token ?? null,
-            google_token_expires_at: expiresAt,
-            updated_at: new Date().toISOString(),
-          })
+          .update(updateData)
           .eq('id', session.user.id);
         
         if (updateError) {

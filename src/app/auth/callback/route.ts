@@ -50,18 +50,26 @@ export async function GET(request: Request) {
     // Token expira em 3600 segundos (padrão do Google OAuth)
     const expiresAt = new Date(Date.now() + 3600 * 1000).toISOString();
 
+    const upsertData: {
+      id: string;
+      google_access_token: string;
+      google_token_expires_at: string;
+      updated_at: string;
+      google_refresh_token?: string;
+    } = {
+      id: userId,
+      google_access_token: session.provider_token,
+      google_token_expires_at: expiresAt,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (session.provider_refresh_token) {
+      upsertData.google_refresh_token = session.provider_refresh_token;
+    }
+
     const { error: upsertError } = await supabase
       .from('profiles')
-      .upsert(
-        {
-          id: userId,
-          google_access_token: session.provider_token,
-          google_refresh_token: session.provider_refresh_token ?? null,
-          google_token_expires_at: expiresAt,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'id' }
-      );
+      .upsert(upsertData, { onConflict: 'id' });
 
     if (upsertError) {
       // Log mas não bloqueia o login — o token do localStorage ainda funciona por ~1h

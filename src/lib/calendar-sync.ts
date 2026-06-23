@@ -49,8 +49,33 @@ export async function syncGoogleCalendarEvents(userId: string): Promise<{ succes
     throw new Error(`Failed to fetch local calendar events: ${localFetchError.message}`);
   }
 
-  const googleEventIdsFetched = new Set(googleEvents.map((item: any) => item.id));
-  const upsertRows: any[] = [];
+  const googleEventIdsFetched = new Set<string>(googleEvents.map((item: { id: string }) => item.id));
+  
+  // Map google_event_id to local UUID to allow upsert by primary key (onConflict: 'id')
+  const googleToLocalIdMap = new Map<string, string>();
+  if (localEvents && localEvents.length > 0) {
+    for (const ev of localEvents) {
+      if (ev.google_event_id) {
+        googleToLocalIdMap.set(ev.google_event_id, ev.id);
+      }
+    }
+  }
+
+  interface CalendarEventUpsert {
+    id?: string;
+    user_id: string;
+    google_event_id: string;
+    title: string;
+    description: string;
+    start_time: string;
+    end_time: string;
+    location: string;
+    is_all_day: boolean;
+    color: string;
+    category: string;
+  }
+
+  const upsertRows: CalendarEventUpsert[] = [];
   
   // 5. Build upsert rows for fetched Google events
   for (const item of googleEvents) {
@@ -79,7 +104,10 @@ export async function syncGoogleCalendarEvents(userId: string): Promise<{ succes
     if (category === 'finance') color = '#10b981'; // Emerald
     if (category === 'personal') color = '#ec4899'; // Pink
 
+    const existingId = googleToLocalIdMap.get(item.id);
+
     upsertRows.push({
+      ...(existingId ? { id: existingId } : {}),
       user_id: userId,
       google_event_id: item.id,
       title: item.summary || 'Sem título',
@@ -93,12 +121,12 @@ export async function syncGoogleCalendarEvents(userId: string): Promise<{ succes
     });
   }
 
-  // 6. Perform Supabase upsert
+  // 6. Perform Supabase upsert on conflict of 'id'
   let upsertedCount = 0;
   if (upsertRows.length > 0) {
     const { error: upsertError } = await supabase
       .from('calendar_events')
-      .upsert(upsertRows, { onConflict: 'user_id,google_event_id' });
+      .upsert(upsertRows, { onConflict: 'id' });
 
     if (upsertError) {
       throw new Error(`Failed to upsert calendar events: ${upsertError.message}`);
