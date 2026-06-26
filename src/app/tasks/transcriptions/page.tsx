@@ -24,7 +24,8 @@ import {
   Check,
   AlertCircle,
   Loader2,
-  X
+  X,
+  RefreshCw
 } from 'lucide-react';
 
 const getErrorMessage = (errObj: any): string => {
@@ -72,6 +73,43 @@ export default function TranscriptionsPage() {
     failedCount: number;
     errors: { fileName: string; error: string }[];
   } | null>(null);
+
+  // Syncing Google Drive state and handler
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const handleSyncDrive = async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+    try {
+      const res = await fetch('/api/tasks/sync-drive', { method: 'POST' });
+      const data = await res.json();
+      
+      if (!res.ok) {
+        throw new Error(data.error || 'Erro ao sincronizar com o Google Drive.');
+      }
+      
+      if (data.success) {
+        await refreshData();
+        if (data.filesImported > 0) {
+          setSuccessMsg(`Sincronização concluída! Importado(s) ${data.filesImported} novo(s) arquivo(s) de transcrição.`);
+          setTimeout(() => setSuccessMsg(''), 8000);
+        } else {
+          setSuccessMsg('Sincronização concluída. Nenhum novo arquivo encontrado no Google Drive.');
+          setTimeout(() => setSuccessMsg(''), 5000);
+        }
+      } else {
+        throw new Error(data.message || 'Falha ao sincronizar.');
+      }
+    } catch (err) {
+      const error = err as Error;
+      console.error('[Sync Drive] Error:', error);
+      setErrorMsg(error.message || 'Erro ao sincronizar com Google Drive.');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   // Sync selected transcription when list updates
   useEffect(() => {
@@ -609,7 +647,19 @@ export default function TranscriptionsPage() {
         
         {/* Gravações header & Bulk selection toggle */}
         <div className="p-5 pb-2 border-b border-slate-200 dark:border-white/5 flex justify-between items-center bg-white/20 dark:bg-slate-900/20">
-          <h3 className="font-bold text-xs uppercase dark:text-white tracking-wider">Gravações</h3>
+          <div className="flex items-center gap-2">
+            <h3 className="font-bold text-xs uppercase dark:text-white tracking-wider">Gravações</h3>
+            <button
+              onClick={handleSyncDrive}
+              disabled={isSyncing}
+              className={`p-1.5 rounded-lg border border-slate-200 dark:border-white/5 hover:bg-slate-50 dark:hover:bg-white/5 text-slate-500 dark:text-slate-400 transition-all ${
+                isSyncing ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+              }`}
+              title="Sincronizar com Google Drive"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-blue-500' : ''}`} />
+            </button>
+          </div>
           <button
             onClick={() => {
               setIsBulkMode(!isBulkMode);
