@@ -1090,7 +1090,7 @@ export default function Settings() {
                 <button
                   type="button"
                   onClick={handleTestLLMConnection}
-                  disabled={testingLlm || (llmProvider !== 'gemini' && !llmApiUrl)}
+                  disabled={testingLlm || (llmProvider === 'custom' && !llmApiUrl)}
                   className="px-6 py-4 bg-slate-900 text-white dark:bg-slate-950 dark:hover:bg-slate-900 hover:bg-slate-800 border border-slate-800 dark:border-white/5 text-xs font-black rounded-2xl uppercase tracking-widest transition-all cursor-pointer disabled:opacity-50 text-center flex items-center justify-center gap-2"
                 >
                   {testingLlm ? (
