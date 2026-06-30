@@ -102,7 +102,8 @@ export default function Simulator() {
         const { data: balancesData } = await supabase
           .from('balances')
           .select('amount')
-          .eq('user_id', user.id);
+          .eq('user_id', user.id)
+          .eq('type', 'total');
         
         const balTotal = (balancesData || []).reduce((acc, b) => acc + (Number(b.amount) || 0), 0);
         setDbBalancesTotal(balTotal);
