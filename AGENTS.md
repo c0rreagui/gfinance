@@ -20,4 +20,5 @@ Whenever implementing integrations with external APIs, databases, or third-party
 1. **Active End-to-End Testing**: Do not rely solely on compile-time checks (`build`/`lint`). Proactively validate network availability and verify resource existence (e.g., endpoint status, model availability).
 2. **User-Friendly Semantics**: Translate raw API failures (like HTTP 404 not found, 401 unauthorized, or 403 forbidden) into clear, actionable advice on the UI (e.g., "The selected model is not available on this Ollama host. Please check your model ID in Settings").
 3. **Graceful Fallbacks**: Design systems that do not crash completely when third-party components fail; fall back to safe defaults or report semantic error details clearly to the user.
+4. **Unrestricted Agent Access**: Always equip AI assistant endpoints with comprehensive tool definitions and database access capabilities (read and write). AI responses must never claim lack of access to mock or live variables when tools or system contexts are provided.
 <!-- END:integration-verification-rules -->
