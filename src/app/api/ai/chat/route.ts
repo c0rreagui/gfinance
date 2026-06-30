@@ -10,10 +10,11 @@
 
 import { NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
-import { generateFinancialResponse, is429Error } from '@/lib/gemini';
-import { generateWorkResponse } from '@/lib/gemini-work';
-import { generateHubResponse } from '@/lib/gemini-hub';
+import { generateFinancialResponse, is429Error, getFinancialSystemPrompt } from '@/lib/gemini';
+import { generateWorkResponse, getWorkSystemPrompt } from '@/lib/gemini-work';
+import { generateHubResponse, getHubSystemPrompt } from '@/lib/gemini-hub';
 import { compactSessionHistory, AppModule } from '@/lib/memory';
+import { generateCustomLLMResponse } from '@/lib/custom-llm';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60; // Limite de 60 segundos para evitar timeout de processamentos paralelos/concorrentes do Gemini no Vercel
@@ -145,88 +146,129 @@ export async function POST(req: Request): Promise<NextResponse> {
         parts: [{ text: msg.content }]
       }));
 
+    // Fetch profile, AI memory, and custom LLM settings
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('ai_memory, ai_memory_work, ai_memory_hub, llm_provider, llm_api_url, llm_api_key, llm_model')
+      .eq('id', user.id)
+      .single();
+
+    const useCustomLLM = profile?.llm_provider && profile.llm_provider !== 'gemini';
+
     let aiResponse: string;
 
-    if (module === 'work') {
-      // =====================================================================
-      // G-WORK — CPO Assistant
-      // =====================================================================
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('ai_memory_work')
-        .eq('id', user.id)
-        .single();
+    if (useCustomLLM) {
+      console.info(`[AI Chat Route] Usando LLM Customizada (${profile.llm_provider}) para o módulo: ${module}`);
+      let systemPrompt = '';
+      
+      if (module === 'work') {
+        systemPrompt = getWorkSystemPrompt(profile.ai_memory_work || '');
+      } else if (module === 'hub') {
+        systemPrompt = getHubSystemPrompt(profile.ai_memory_hub || '');
+      } else {
+        const [
+          { data: dbBalances },
+          { data: dbTransactions },
+          { data: dbGoals },
+          { data: dbReminders },
+          { data: dbCards }
+        ] = await Promise.all([
+          supabase.from('balances').select('label, amount, trend, icon, type').eq('user_id', user.id).limit(20),
+          supabase.from('transactions').select('date, description, amount, category, card_id').eq('user_id', user.id).order('date', { ascending: false }).limit(80),
+          supabase.from('goals').select('name, target_amount, current_amount').eq('user_id', user.id).limit(20),
+          supabase.from('reminders').select('title, due_date, amount, urgency, card_id').eq('user_id', user.id).eq('paid', false).order('due_date', { ascending: true }).limit(5),
+          supabase.from('credit_cards').select('card_name, card_limit, closing_day, due_day, last_four').eq('user_id', user.id)
+        ]);
 
-      const aiMemoryWork = profile?.ai_memory_work || '';
+        const financialContext = {
+          balances: dbBalances || [],
+          transactions: dbTransactions || [],
+          goals: dbGoals || [],
+          reminders: dbReminders || [],
+          creditCards: dbCards || []
+        };
 
-      aiResponse = await generateWorkResponse(
+        systemPrompt = getFinancialSystemPrompt(profile.ai_memory || '', financialContext);
+      }
+
+      aiResponse = await generateCustomLLMResponse(
         message,
         chatHistory,
+        module,
+        {
+          apiUrl: profile.llm_api_url || '',
+          apiKey: profile.llm_api_key,
+          model: profile.llm_model || ''
+        },
         supabase,
-        aiMemoryWork
-      );
-
-    } else if (module === 'hub') {
-      // =====================================================================
-      // G-HUB — CoS Assistant
-      // =====================================================================
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('ai_memory_hub')
-        .eq('id', user.id)
-        .single();
-
-      const aiMemoryHub = profile?.ai_memory_hub || '';
-
-      aiResponse = await generateHubResponse(
-        message,
-        chatHistory,
-        supabase,
-        aiMemoryHub
+        systemPrompt
       );
 
     } else {
-      // =====================================================================
-      // G-FINANCE — CFO Assistant
-      // =====================================================================
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('ai_memory')
-        .eq('id', user.id)
-        .single();
+      // Usar modelo nativo do Gemini (comportamento original)
+      if (module === 'work') {
+        // =====================================================================
+        // G-WORK — CPO Assistant
+        // =====================================================================
+        const aiMemoryWork = profile?.ai_memory_work || '';
 
-      const aiMemory = profile?.ai_memory || '';
+        aiResponse = await generateWorkResponse(
+          message,
+          chatHistory,
+          supabase,
+          aiMemoryWork
+        );
 
-      const [
-        { data: dbBalances },
-        { data: dbTransactions },
-        { data: dbGoals },
-        { data: dbReminders },
-        { data: dbCards }
-      ] = await Promise.all([
-        supabase.from('balances').select('label, amount, trend, icon, type').eq('user_id', user.id).limit(20),
-        supabase.from('transactions').select('date, description, amount, category, card_id').eq('user_id', user.id).order('date', { ascending: false }).limit(80),
-        supabase.from('goals').select('name, target_amount, current_amount').eq('user_id', user.id).limit(20),
-        supabase.from('reminders').select('title, due_date, amount, urgency, card_id').eq('user_id', user.id).eq('paid', false).order('due_date', { ascending: true }).limit(5),
-        supabase.from('credit_cards').select('card_name, card_limit, closing_day, due_day, last_four').eq('user_id', user.id)
-      ]);
+      } else if (module === 'hub') {
+        // =====================================================================
+        // G-HUB — CoS Assistant
+        // =====================================================================
+        const aiMemoryHub = profile?.ai_memory_hub || '';
 
-      const financialContext = {
-        balances: dbBalances || [],
-        transactions: dbTransactions || [],
-        goals: dbGoals || [],
-        reminders: dbReminders || [],
-        creditCards: dbCards || []
-      };
+        aiResponse = await generateHubResponse(
+          message,
+          chatHistory,
+          supabase,
+          aiMemoryHub
+        );
 
-      aiResponse = await generateFinancialResponse(
-        message,
-        financialContext,
-        chatHistory,
-        providerToken || undefined,
-        supabase,
-        aiMemory
-      );
+      } else {
+        // =====================================================================
+        // G-FINANCE — CFO Assistant
+        // =====================================================================
+        const aiMemory = profile?.ai_memory || '';
+
+        const [
+          { data: dbBalances },
+          { data: dbTransactions },
+          { data: dbGoals },
+          { data: dbReminders },
+          { data: dbCards }
+        ] = await Promise.all([
+          supabase.from('balances').select('label, amount, trend, icon, type').eq('user_id', user.id).limit(20),
+          supabase.from('transactions').select('date, description, amount, category, card_id').eq('user_id', user.id).order('date', { ascending: false }).limit(80),
+          supabase.from('goals').select('name, target_amount, current_amount').eq('user_id', user.id).limit(20),
+          supabase.from('reminders').select('title, due_date, amount, urgency, card_id').eq('user_id', user.id).eq('paid', false).order('due_date', { ascending: true }).limit(5),
+          supabase.from('credit_cards').select('card_name, card_limit, closing_day, due_day, last_four').eq('user_id', user.id)
+        ]);
+
+        const financialContext = {
+          balances: dbBalances || [],
+          transactions: dbTransactions || [],
+          goals: dbGoals || [],
+          reminders: dbReminders || [],
+          creditCards: dbCards || []
+        };
+
+        aiResponse = await generateFinancialResponse(
+          message,
+          financialContext,
+          chatHistory,
+          providerToken || undefined,
+          supabase,
+          aiMemory
+        );
+      }
     }
 
     // 7. Auto-Compactação se o histórico estiver ficando longo
@@ -283,10 +325,13 @@ export async function POST(req: Request): Promise<NextResponse> {
       }
     }
 
-    if (is429Error(err)) {
+    const errStr = String(err).toLowerCase();
+    const isGeminiError = is429Error(err) || errStr.includes('googlegenerativeai') || errStr.includes('gemini');
+    
+    if (isGeminiError) {
       return NextResponse.json(
-        { error: 'O limite temporário de requisições foi atingido. Por favor, aguarde alguns segundos antes de tentar novamente.' },
-        { status: 429 }
+        { error: 'O assistente de IA está temporariamente indisponível devido a alta demanda ou limite de requisições atingido. Por favor, aguarde alguns segundos e tente novamente.' },
+        { status: 503 }
       );
     }
 

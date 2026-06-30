@@ -64,6 +64,14 @@ export default function Settings() {
   const [dynamicMemories, setDynamicMemories] = useState<any[]>([]);
   const [dynamicLoading, setDynamicLoading] = useState(false);
 
+  // Custom LLM Settings states
+  const [llmProvider, setLlmProvider] = useState<'gemini' | 'ollama' | 'openai' | 'custom'>('gemini');
+  const [llmApiUrl, setLlmApiUrl] = useState('');
+  const [llmApiKey, setLlmApiKey] = useState('');
+  const [llmModel, setLlmModel] = useState('');
+  const [testingLlm, setTestingLlm] = useState(false);
+  const [llmTestResult, setLlmTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
   const fetchStaticMemory = async (type: string) => {
     setStaticLoading(true);
     setStaticError('');
@@ -208,6 +216,10 @@ export default function Settings() {
             setDriveFolderId(currentProfile.google_drive_folder_id || '');
             setDriveFolderName(currentProfile.google_drive_folder_name || '');
             setLastSyncAt(currentProfile.google_drive_last_sync_at || null);
+            setLlmProvider(currentProfile.llm_provider || 'gemini');
+            setLlmApiUrl(currentProfile.llm_api_url || '');
+            setLlmApiKey(currentProfile.llm_api_key || '');
+            setLlmModel(currentProfile.llm_model || '');
           }
           setProfile(currentProfile);
         }
@@ -468,6 +480,61 @@ export default function Settings() {
       setProfileError(`Erro ao salvar perfil: ${err.message}`);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSaveLLMSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!profile.id) return;
+    setProfileError('');
+    setProfileSuccess('');
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          llm_provider: llmProvider,
+          llm_api_url: llmApiUrl || null,
+          llm_api_key: llmApiKey || null,
+          llm_model: llmModel || null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', profile.id);
+
+      if (error) throw error;
+      setProfileSuccess('Configurações de inteligência artificial salvas com sucesso!');
+      await fetchProfile();
+    } catch (err: any) {
+      setProfileError(`Erro ao salvar configurações de LLM: ${err.message}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleTestLLMConnection = async () => {
+    setTestingLlm(true);
+    setLlmTestResult(null);
+    try {
+      const res = await fetch('/api/ai/test-connection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: llmProvider,
+          apiUrl: llmApiUrl,
+          apiKey: llmApiKey,
+          model: llmModel
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setLlmTestResult({ success: true, message: 'Conexão estabelecida com sucesso!' });
+      } else {
+        setLlmTestResult({ success: false, message: data.error || 'Erro desconhecido na resposta.' });
+      }
+    } catch (err: any) {
+      setLlmTestResult({ success: false, message: err.message || 'Erro de rede ao testar conexão.' });
+    } finally {
+      setTestingLlm(false);
     }
   };
 
@@ -858,6 +925,120 @@ export default function Settings() {
                 )}
               </div>
             )}
+          </div>
+
+          {/* Personalização de LLM Panel */}
+          <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md p-10 rounded-[48px] border border-white/50 dark:border-white/5 shadow-sm space-y-8 animate-in">
+            <div>
+              <h4 className="font-black text-xl dark:text-white flex items-center gap-2.5">
+                <SlidersHorizontal className="w-6 h-6 text-indigo-500" />
+                Personalização de Inteligência Artificial (LLM)
+              </h4>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
+                Configure e personalize a inteligência dos assistentes do ecossistema G-Hub. Escolha o Gemini padrão ou aponte para um provedor externo compatível com OpenAI (como Ollama Cloud ou Ollama Local).
+              </p>
+            </div>
+
+            <form onSubmit={handleSaveLLMSettings} className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Provedor de LLM</label>
+                  <select
+                    value={llmProvider}
+                    onChange={(e) => setLlmProvider(e.target.value as any)}
+                    className="w-full px-6 py-4 bg-white/40 dark:bg-slate-800/40 border border-slate-200 dark:border-white/5 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all font-bold text-slate-700 dark:text-white text-sm cursor-pointer"
+                  >
+                    <option value="gemini">Google Gemini (Nativo)</option>
+                    <option value="ollama">Ollama Cloud / Local</option>
+                    <option value="openai">OpenAI (GPT Models)</option>
+                    <option value="custom">API Customizada (Compatível com OpenAI)</option>
+                  </select>
+                </div>
+
+                {llmProvider !== 'gemini' && (
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Nome do Modelo (Model ID)</label>
+                    <input
+                      type="text"
+                      placeholder={llmProvider === 'ollama' ? 'llama3' : llmProvider === 'openai' ? 'gpt-4o' : 'custom-model-id'}
+                      value={llmModel}
+                      onChange={(e) => setLlmModel(e.target.value)}
+                      className="w-full px-6 py-4 bg-white/40 dark:bg-slate-800/40 border border-slate-200 dark:border-white/5 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all font-bold text-slate-700 dark:text-white"
+                      required
+                    />
+                  </div>
+                )}
+
+                {llmProvider !== 'gemini' && (
+                  <div className="md:col-span-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">URL Base da API</label>
+                    <input
+                      type="url"
+                      placeholder={llmProvider === 'ollama' ? 'https://api.ollama.cloud' : llmProvider === 'openai' ? 'https://api.openai.com' : 'https://api.seumodelo.com'}
+                      value={llmApiUrl}
+                      onChange={(e) => setLlmApiUrl(e.target.value)}
+                      className="w-full px-6 py-4 bg-white/40 dark:bg-slate-800/40 border border-slate-200 dark:border-white/5 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all font-bold text-slate-700 dark:text-white"
+                      required
+                    />
+                    <p className="text-[10px] text-slate-400 mt-2">Dica: Adicione o endereço raiz da API. O endpoint de chat completions (/v1/chat/completions) será resolvido automaticamente se omitido.</p>
+                  </div>
+                )}
+
+                {llmProvider !== 'gemini' && (
+                  <div className="md:col-span-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">API Key (Chave de Autenticação)</label>
+                    <input
+                      type="password"
+                      placeholder="Deixe em branco se a API não necessitar de autenticação"
+                      value={llmApiKey}
+                      onChange={(e) => setLlmApiKey(e.target.value)}
+                      className="w-full px-6 py-4 bg-white/40 dark:bg-slate-800/40 border border-slate-200 dark:border-white/5 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all font-bold text-slate-700 dark:text-white"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {llmTestResult && (
+                <div className={`p-4 rounded-2xl border text-sm font-semibold flex items-start gap-2 ${
+                  llmTestResult.success
+                    ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+                    : 'bg-red-500/10 border-red-500/20 text-red-600 dark:text-red-400'
+                }`}>
+                  {llmTestResult.success ? (
+                    <CheckCircle className="w-5 h-5 shrink-0 mt-0.5" />
+                  ) : (
+                    <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+                  )}
+                  <span>{llmTestResult.message}</span>
+                </div>
+              )}
+
+              <div className="pt-4 flex flex-col sm:flex-row justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={handleTestLLMConnection}
+                  disabled={testingLlm || (llmProvider !== 'gemini' && !llmApiUrl)}
+                  className="px-6 py-4 bg-slate-900 text-white dark:bg-slate-950 dark:hover:bg-slate-900 hover:bg-slate-800 border border-slate-800 dark:border-white/5 text-xs font-black rounded-2xl uppercase tracking-widest transition-all cursor-pointer disabled:opacity-50 text-center flex items-center justify-center gap-2"
+                >
+                  {testingLlm ? (
+                    <>
+                      <div className="animate-spin rounded-full h-3.5 w-3.5 border-t-2 border-white"></div>
+                      <span>Testando Conexão...</span>
+                    </>
+                  ) : (
+                    <span>Testar Conexão</span>
+                  )}
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="px-10 py-4 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black rounded-2xl uppercase tracking-widest shadow-xl shadow-indigo-600/20 transition-all cursor-pointer disabled:opacity-50"
+                >
+                  {saving ? 'Salvando...' : 'Salvar Ajustes de IA'}
+                </button>
+              </div>
+            </form>
           </div>
 
           {/* Agente IA (G-Work) Panel */}

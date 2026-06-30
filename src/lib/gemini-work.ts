@@ -29,11 +29,12 @@ function getGeminiClient(): GoogleGenerativeAI {
 export function is429Error(err: any): boolean {
   if (!err) return false;
   
+  const statusCodes = [429, 502, 503, 504];
   if (
-    err.status === 429 ||
-    err.statusCode === 429 ||
-    err.response?.status === 429 ||
-    err.response?.statusCode === 429
+    statusCodes.includes(err.status) ||
+    statusCodes.includes(err.statusCode) ||
+    statusCodes.includes(err.response?.status) ||
+    statusCodes.includes(err.response?.statusCode)
   ) {
     return true;
   }
@@ -42,7 +43,12 @@ export function is429Error(err: any): boolean {
   const errMsg = err.message ? String(err.message).toLowerCase() : '';
   const errStatus = err.status ? String(err.status) : '';
   
-  const keywords = ['429', 'resource_exhausted', 'resource exhausted', 'quota', 'rate limit', 'too many requests'];
+  const keywords = [
+    '429', '502', '503', '504',
+    'resource_exhausted', 'resource exhausted', 'quota', 'rate limit', 'too many requests',
+    'service unavailable', 'overloaded', 'high demand', 'spikes in demand', 'try again later',
+    'temp', 'temporary', 'deadline exceeded', 'timeout'
+  ];
   return keywords.some(
     (keyword) => errStr.includes(keyword) || errMsg.includes(keyword) || errStatus === '429'
   );
@@ -53,14 +59,15 @@ export async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
   while (true) {
     try {
       return await fn();
-    } catch (err: any) {
-      if (is429Error(err) && attempt < 3) {
+    } catch (err) {
+      const error = err as Error;
+      if (is429Error(error) && attempt < 3) {
         attempt++;
         const delay = Math.pow(2, attempt - 1) * 1000;
-        console.warn(`[Gemini Retry] Rate limit (429) detectado. Tentativa ${attempt} de 3 de reprocessamento em ${delay}ms...`, err);
+        console.warn(`[Gemini Retry] Erro temporário ou limite (429/503) detectado. Tentativa ${attempt} de 3 de reprocessamento em ${delay}ms...`, error);
         await new Promise((resolve) => setTimeout(resolve, delay));
       } else {
-        throw err;
+        throw error;
       }
     }
   }
@@ -73,7 +80,7 @@ export async function sendMessageWithRetry(chat: any, message: string | any[]): 
 // ---------------------------------------------------------------------------
 // Tools do G-Work — Autonomia total sobre tasks, projects, transcriptions
 // ---------------------------------------------------------------------------
-const workTools = [
+export const workTools = [
   {
     functionDeclarations: [
       // ---- TASKS ----
@@ -238,12 +245,7 @@ const workTools = [
 // ---------------------------------------------------------------------------
 // CPO Assistant — Resposta Conversacional para o G-Work
 // ---------------------------------------------------------------------------
-export async function generateWorkResponse(
-  query: string,
-  chatHistory: { role: 'user' | 'model'; parts: { text: string }[] }[] = [],
-  supabaseClient: any,
-  aiMemoryWork?: string
-): Promise<string> {
+export function getWorkSystemPrompt(aiMemoryWork: string): string {
   const currentDate = new Date();
   const formattedDate = currentDate.toLocaleDateString('pt-BR', {
     weekday: 'long',
@@ -255,7 +257,7 @@ export async function generateWorkResponse(
     timeZone: 'America/Sao_Paulo'
   });
 
-  const systemPrompt = `
+  return `
     Você é o "CPO Assistant" — o parceiro de execução e estratégia de produto por trás do G-Work (plataforma de gestão de vida, tarefas e projetos do Guilherme, CTO & Fundador).
     Sua persona é tática, direta e orientada a resultados. Você funciona como um Chief Product Officer virtual: entende o contexto, prioriza o que importa e ajuda a executar sem fricção.
     
@@ -301,9 +303,17 @@ export async function generateWorkResponse(
        - Quando sugerir criação de tarefas ou responder ao usuário sobre a organização visual das tarefas, reforce que a estrutura hierárquica completa é navegável no Roadmap, enquanto o Kanban serve para focar na execução imediata de tasks atômicas com badges relacionando-as ao seu respectivo parent (Story ou Feature) e projeto.
        - A ação de Drag & Drop no Kanban foi corrigida para ser executada apenas usando o Grip handle vertical no card da task, e mapeia o drop no topo de outros cards resolvendo seu status automaticamente para evitar falhas de restrição.
     6. **Concisão e Resumos Sintéticos**: Ao analisar, listar ou propor agrupamentos de grandes volumes de tarefas (ex: sugerir unificação de 33 tarefas), seja extremamente conciso e focado em tópicos sintéticos de 1 linha. Nunca gere respostas prolixas repetindo descrições longas de cada tarefa individual, para evitar cortes abruptos no texto de saída por limite de tokens.
-
   `;
+}
 
+export async function generateWorkResponse(
+  query: string,
+  chatHistory: { role: 'user' | 'model'; parts: { text: string }[] }[] = [],
+  supabaseClient?: any,
+  aiMemoryWork?: string
+): Promise<string> {
+  const systemPrompt = getWorkSystemPrompt(aiMemoryWork || '');
+  
   const genAI = getGeminiClient();
   const model = genAI.getGenerativeModel({
     model: CONVERSATIONAL_MODEL,
@@ -339,124 +349,10 @@ export async function generateWorkResponse(
       const { name, args } = call;
       console.info(`[CPO Assistant Tool] "${name}" com args:`, args);
 
-      let toolResult: any;
-
-      try {
-        if (name === 'list_work_tasks') {
-          const { status, priority, type, project_id, search, limit } = args as any;
-          let q = supabaseClient.from('tasks').select('id, title, description, type, status, priority, project_id, parent_id, due_date, created_at').eq('user_id', userId);
-          if (status) q = q.eq('status', status);
-          if (priority) q = q.eq('priority', priority);
-          if (type) q = q.eq('type', type);
-          if (project_id) q = q.eq('project_id', project_id);
-          if (search) q = q.or(`title.ilike.%${search}%,description.ilike.%${search}%`);
-          const { data, error } = await q.order('created_at', { ascending: false }).limit(limit || 50);
-          if (error) throw error;
-          toolResult = { success: true, tasks: data || [], count: data?.length || 0 };
-
-        } else if (name === 'create_work_task') {
-          const { title, description, type, status, priority, project_id, parent_id, due_date } = args as any;
-          const { data, error } = await supabaseClient.from('tasks').insert({
-            user_id: userId,
-            title,
-            description: description || null,
-            type: type || 'task',
-            status: status || 'todo',
-            priority: priority || 'medium',
-            project_id: project_id || null,
-            parent_id: parent_id || null,
-            due_date: due_date ? new Date(due_date).toISOString() : null
-          }).select('*');
-          if (error) throw error;
-          toolResult = { success: true, created: data?.[0] };
-
-        } else if (name === 'update_work_task') {
-          const { task_id, title, description, type, status, priority, project_id, parent_id, due_date } = args as any;
-          const updates: any = {};
-          if (title !== undefined) updates.title = title;
-          if (description !== undefined) updates.description = description || null;
-          if (type !== undefined) updates.type = type;
-          if (status !== undefined) updates.status = status;
-          if (priority !== undefined) updates.priority = priority;
-          if (project_id !== undefined) updates.project_id = project_id || null;
-          if (parent_id !== undefined) updates.parent_id = parent_id || null;
-          if (due_date !== undefined) updates.due_date = due_date ? new Date(due_date).toISOString() : null;
-          const { data, error } = await supabaseClient.from('tasks').update(updates).eq('id', task_id).eq('user_id', userId).select('*');
-          if (error) throw error;
-          toolResult = { success: true, updated: data?.[0] };
-
-        } else if (name === 'delete_work_task') {
-          const { task_id } = args as any;
-          const { error } = await supabaseClient.from('tasks').delete().eq('id', task_id).eq('user_id', userId);
-          if (error) throw error;
-          toolResult = { success: true };
-
-        } else if (name === 'list_work_projects') {
-          const { data, error } = await supabaseClient.from('tasks_projects').select('*').eq('user_id', userId).order('name', { ascending: true });
-          if (error) throw error;
-          toolResult = { success: true, projects: data || [] };
-
-        } else if (name === 'create_work_project') {
-          const { name: projName, description, color } = args as any;
-          const { data, error } = await supabaseClient.from('tasks_projects').insert({
-            user_id: userId,
-            name: projName,
-            description: description || null,
-            color: color || null
-          }).select('*');
-          if (error) throw error;
-          toolResult = { success: true, created: data?.[0] };
-
-        } else if (name === 'update_work_project') {
-          const { project_id, name: projName, description, color } = args as any;
-          const updates: any = {};
-          if (projName !== undefined) updates.name = projName;
-          if (description !== undefined) updates.description = description;
-          if (color !== undefined) updates.color = color;
-          const { data, error } = await supabaseClient.from('tasks_projects').update(updates).eq('id', project_id).eq('user_id', userId).select('*');
-          if (error) throw error;
-          toolResult = { success: true, updated: data?.[0] };
-
-        } else if (name === 'delete_work_project') {
-          const { project_id } = args as any;
-          const { error } = await supabaseClient.from('tasks_projects').delete().eq('id', project_id).eq('user_id', userId);
-          if (error) throw error;
-          toolResult = { success: true };
-
-        } else if (name === 'list_transcriptions') {
-          const { limit } = args as any;
-          const { data, error } = await supabaseClient.from('transcriptions').select('id, file_name, created_at, token_count').eq('user_id', userId).order('created_at', { ascending: false }).limit(limit || 20);
-          if (error) throw error;
-          toolResult = { success: true, transcriptions: data || [] };
-
-        } else if (name === 'delete_transcription') {
-          const { transcription_id } = args as any;
-          const { error } = await supabaseClient.from('transcriptions').delete().eq('id', transcription_id).eq('user_id', userId);
-          if (error) throw error;
-          toolResult = { success: true };
-
-        } else if (name === 'list_ai_insights') {
-          const { limit } = args as any;
-          const { data, error } = await supabaseClient.from('ai_insights').select('id, title, summary, created_at').eq('user_id', userId).order('created_at', { ascending: false }).limit(limit || 20);
-          if (error) throw error;
-          toolResult = { success: true, insights: data || [] };
-
-        } else if (name === 'dismiss_ai_insight') {
-          const { insight_id } = args as any;
-          const { error } = await supabaseClient.from('ai_insights').delete().eq('id', insight_id).eq('user_id', userId);
-          if (error) throw error;
-          toolResult = { success: true };
-
-        } else {
-          throw new Error(`Ferramenta desconhecida: ${name}`);
-        }
-      } catch (err: any) {
-        console.error(`[CPO Assistant Tool] Erro em "${name}":`, err);
-        toolResult = { success: false, error: err.message || 'Erro técnico na ferramenta.' };
-      }
+      const res = await executeWorkTool(name, args, supabaseClient, userId);
 
       return {
-        functionResponse: { name, response: toolResult }
+        functionResponse: { name, response: res.toolResult }
       };
     });
 
@@ -466,4 +362,133 @@ export async function generateWorkResponse(
   }
 
   return result.response.text();
+}
+
+export async function executeWorkTool(
+  name: string,
+  args: any,
+  supabaseClient: any,
+  userId: string
+): Promise<{ toolResult: any; databaseModified: boolean }> {
+  let toolResult: any;
+  let databaseModified = false;
+
+  try {
+    if (name === 'list_work_tasks') {
+      const { status, priority, type, project_id, search, limit } = args as any;
+      let q = supabaseClient.from('tasks').select('id, title, description, type, status, priority, project_id, parent_id, due_date, created_at').eq('user_id', userId);
+      if (status) q = q.eq('status', status);
+      if (priority) q = q.eq('priority', priority);
+      if (type) q = q.eq('type', type);
+      if (project_id) q = q.eq('project_id', project_id);
+      if (search) q = q.or(`title.ilike.%${search}%,description.ilike.%${search}%`);
+      const { data, error } = await q.order('created_at', { ascending: false }).limit(limit || 50);
+      if (error) throw error;
+      toolResult = { success: true, tasks: data || [], count: data?.length || 0 };
+
+    } else if (name === 'create_work_task') {
+      const { title, description, type, status, priority, project_id, parent_id, due_date } = args as any;
+      const { data, error } = await supabaseClient.from('tasks').insert({
+        user_id: userId,
+        title,
+        description: description || null,
+        type: type || 'task',
+        status: status || 'todo',
+        priority: priority || 'medium',
+        project_id: project_id || null,
+        parent_id: parent_id || null,
+        due_date: due_date ? new Date(due_date).toISOString() : null
+      }).select('*');
+      if (error) throw error;
+      databaseModified = true;
+      toolResult = { success: true, created: data?.[0] };
+
+    } else if (name === 'update_work_task') {
+      const { task_id, title, description, type, status, priority, project_id, parent_id, due_date } = args as any;
+      const updates: any = {};
+      if (title !== undefined) updates.title = title;
+      if (description !== undefined) updates.description = description || null;
+      if (type !== undefined) updates.type = type;
+      if (status !== undefined) updates.status = status;
+      if (priority !== undefined) updates.priority = priority;
+      if (project_id !== undefined) updates.project_id = project_id || null;
+      if (parent_id !== undefined) updates.parent_id = parent_id || null;
+      if (due_date !== undefined) updates.due_date = due_date ? new Date(due_date).toISOString() : null;
+      const { data, error } = await supabaseClient.from('tasks').update(updates).eq('id', task_id).eq('user_id', userId).select('*');
+      if (error) throw error;
+      databaseModified = true;
+      toolResult = { success: true, updated: data?.[0] };
+
+    } else if (name === 'delete_work_task') {
+      const { task_id } = args as any;
+      const { error } = await supabaseClient.from('tasks').delete().eq('id', task_id).eq('user_id', userId);
+      if (error) throw error;
+      databaseModified = true;
+      toolResult = { success: true };
+
+    } else if (name === 'list_work_projects') {
+      const { data, error } = await supabaseClient.from('tasks_projects').select('*').eq('user_id', userId).order('name', { ascending: true });
+      if (error) throw error;
+      toolResult = { success: true, projects: data || [] };
+
+    } else if (name === 'create_work_project') {
+      const { name: projName, description, color } = args as any;
+      const { data, error } = await supabaseClient.from('tasks_projects').insert({
+        user_id: userId,
+        name: projName,
+        description: description || null,
+        color: color || null
+      }).select('*');
+      if (error) throw error;
+      toolResult = { success: true, created: data?.[0] };
+
+    } else if (name === 'update_work_project') {
+      const { project_id, name: projName, description, color } = args as any;
+      const updates: any = {};
+      if (projName !== undefined) updates.name = projName;
+      if (description !== undefined) updates.description = description;
+      if (color !== undefined) updates.color = color;
+      const { data, error } = await supabaseClient.from('tasks_projects').update(updates).eq('id', project_id).eq('user_id', userId).select('*');
+      if (error) throw error;
+      toolResult = { success: true, updated: data?.[0] };
+
+    } else if (name === 'delete_work_project') {
+      const { project_id } = args as any;
+      const { error } = await supabaseClient.from('tasks_projects').delete().eq('id', project_id).eq('user_id', userId);
+      if (error) throw error;
+      toolResult = { success: true };
+
+    } else if (name === 'list_transcriptions') {
+      const { limit } = args as any;
+      const { data, error } = await supabaseClient.from('transcriptions').select('id, file_name, created_at, token_count').eq('user_id', userId).order('created_at', { ascending: false }).limit(limit || 20);
+      if (error) throw error;
+      toolResult = { success: true, transcriptions: data || [] };
+
+    } else if (name === 'delete_transcription') {
+      const { transcription_id } = args as any;
+      const { error } = await supabaseClient.from('transcriptions').delete().eq('id', transcription_id).eq('user_id', userId);
+      if (error) throw error;
+      toolResult = { success: true };
+
+    } else if (name === 'list_ai_insights') {
+      const { limit } = args as any;
+      const { data, error } = await supabaseClient.from('ai_insights').select('id, title, summary, created_at').eq('user_id', userId).order('created_at', { ascending: false }).limit(limit || 20);
+      if (error) throw error;
+      toolResult = { success: true, insights: data || [] };
+
+    } else if (name === 'dismiss_ai_insight') {
+      const { insight_id } = args as any;
+      const { error } = await supabaseClient.from('ai_insights').delete().eq('id', insight_id).eq('user_id', userId);
+      if (error) throw error;
+      toolResult = { success: true };
+
+    } else {
+      throw new Error(`Ferramenta desconhecida: ${name}`);
+    }
+  } catch (err: any) {
+    console.error(`[CPO Assistant Tool] Erro em "${name}":`, err);
+    toolResult = { success: false, error: err.message || 'Erro técnico na ferramenta.' };
+  }
+
+  return { toolResult, databaseModified };
 }

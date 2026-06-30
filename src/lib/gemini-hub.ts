@@ -31,11 +31,12 @@ function getGeminiClient(): GoogleGenerativeAI {
 export function is429Error(err: any): boolean {
   if (!err) return false;
   
+  const statusCodes = [429, 502, 503, 504];
   if (
-    err.status === 429 ||
-    err.statusCode === 429 ||
-    err.response?.status === 429 ||
-    err.response?.statusCode === 429
+    statusCodes.includes(err.status) ||
+    statusCodes.includes(err.statusCode) ||
+    statusCodes.includes(err.response?.status) ||
+    statusCodes.includes(err.response?.statusCode)
   ) {
     return true;
   }
@@ -44,7 +45,12 @@ export function is429Error(err: any): boolean {
   const errMsg = err.message ? String(err.message).toLowerCase() : '';
   const errStatus = err.status ? String(err.status) : '';
   
-  const keywords = ['429', 'resource_exhausted', 'resource exhausted', 'quota', 'rate limit', 'too many requests'];
+  const keywords = [
+    '429', '502', '503', '504',
+    'resource_exhausted', 'resource exhausted', 'quota', 'rate limit', 'too many requests',
+    'service unavailable', 'overloaded', 'high demand', 'spikes in demand', 'try again later',
+    'temp', 'temporary', 'deadline exceeded', 'timeout'
+  ];
   return keywords.some(
     (keyword) => errStr.includes(keyword) || errMsg.includes(keyword) || errStatus === '429'
   );
@@ -55,14 +61,15 @@ export async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
   while (true) {
     try {
       return await fn();
-    } catch (err: any) {
-      if (is429Error(err) && attempt < 3) {
+    } catch (err) {
+      const error = err as Error;
+      if (is429Error(error) && attempt < 3) {
         attempt++;
         const delay = Math.pow(2, attempt - 1) * 1000;
-        console.warn(`[Gemini Retry] Rate limit (429) detectado. Tentativa ${attempt} de 3 em ${delay}ms...`, err);
+        console.warn(`[Gemini Retry] Erro temporário ou limite (429/503) detectado. Tentativa ${attempt} de 3 em ${delay}ms...`, error);
         await new Promise((resolve) => setTimeout(resolve, delay));
       } else {
-        throw err;
+        throw error;
       }
     }
   }
@@ -75,7 +82,7 @@ export async function sendMessageWithRetry(chat: any, message: string | any[]): 
 // ---------------------------------------------------------------------------
 // Tools do G-Hub CoS Assistant
 // ---------------------------------------------------------------------------
-const hubTools = [
+export const hubTools = [
   {
     functionDeclarations: [
       // ---- CALENDAR EVENTS ----
@@ -238,12 +245,8 @@ const hubTools = [
 // ---------------------------------------------------------------------------
 // CoS Assistant — Resposta Conversacional do G-Hub
 // ---------------------------------------------------------------------------
-export async function generateHubResponse(
-  query: string,
-  chatHistory: { role: 'user' | 'model'; parts: { text: string }[] }[] = [],
-  supabaseClient: any,
-  aiMemoryHub?: string
-): Promise<string> {
+
+export function getHubSystemPrompt(aiMemoryHub: string): string {
   const currentDate = new Date();
   const formattedDate = currentDate.toLocaleDateString('pt-BR', {
     weekday: 'long',
@@ -255,7 +258,7 @@ export async function generateHubResponse(
     timeZone: 'America/Sao_Paulo'
   });
 
-  const systemPrompt = `
+  return `
     Você é o "CoS Assistant" (Chief of Staff) — o braço direito estratégico de Guilherme Corrêa (CTO & Fundador) no ecossistema G-Hub.
     Sua missão é atuar com visão holística sobre as finanças do Guilherme (módulo G-Finance) e a produtividade/tarefas dele (módulo G-Work), além de gerenciar a sua agenda pessoal e compromissos.
 
@@ -285,6 +288,18 @@ export async function generateHubResponse(
     - Escreva de forma executiva, em tópicos estruturados quando útil.
     - Se encontrar conflitos de agenda ou tarefas de alta prioridade nas finanças ou trabalho, avise de forma proativa ("Alerta: você possui 3 boletos vencendo amanhã e a tarefa X atrasada").
   `;
+}
+
+// ---------------------------------------------------------------------------
+// Chief of Staff Assistant (G-Hub)
+// ---------------------------------------------------------------------------
+export async function generateHubResponse(
+  query: string,
+  chatHistory: { role: 'user' | 'model'; parts: { text: string }[] }[] = [],
+  supabaseClient?: any,
+  aiMemoryHub?: string
+): Promise<string> {
+  const systemPrompt = getHubSystemPrompt(aiMemoryHub || '');
 
   const genAI = getGeminiClient();
   const model = genAI.getGenerativeModel({
@@ -320,251 +335,11 @@ export async function generateHubResponse(
     const promises = functionCalls.map(async (call: any) => {
       const { name, args } = call;
       console.info(`[CoS Assistant Tool] Invocando "${name}" com args:`, args);
-      let toolResult: any = null;
 
-      try {
-        if (name === 'list_calendar_events') {
-          // Sync Google Calendar events in background first before listing to ensure fresh context
-          try {
-            await syncGoogleCalendarEvents(userId);
-          } catch (syncErr) {
-            console.warn('[CoS List Sync Warning] Silent calendar sync failed before listing:', syncErr);
-          }
-
-          const { start_date, end_date, search } = args as any;
-          let queryBuilder = supabaseClient.from('calendar_events').select('*').eq('user_id', userId);
-          
-          if (start_date) queryBuilder = queryBuilder.gte('start_time', start_date);
-          if (end_date) queryBuilder = queryBuilder.lte('end_time', end_date);
-          if (search) queryBuilder = queryBuilder.ilike('title', `%${search}%`);
-
-          const { data, error } = await queryBuilder.order('start_time', { ascending: true });
-          if (error) throw error;
-          toolResult = { success: true, events: data || [] };
-
-        } else if (name === 'create_calendar_event') {
-          const { title, description, start_time, end_time, location, is_all_day, color, category } = args as any;
-          const { data, error } = await supabaseClient.from('calendar_events').insert({
-            user_id: userId,
-            title,
-            description: description || null,
-            start_time: new Date(start_time).toISOString(),
-            end_time: new Date(end_time).toISOString(),
-            location: location || null,
-            is_all_day: is_all_day || false,
-            color: color || '#6366f1',
-            category: category || 'general'
-          }).select('*');
-
-          if (error) throw error;
-          const createdEvent = data?.[0];
-
-          // Sync to Google Calendar
-          if (createdEvent) {
-            try {
-              const googleToken = await getValidGoogleToken(userId);
-              if (googleToken) {
-                const googleEvent = await insertGoogleEvent(googleToken, {
-                  title: createdEvent.title,
-                  description: createdEvent.description,
-                  start_time: createdEvent.start_time,
-                  end_time: createdEvent.end_time,
-                  location: createdEvent.location
-                });
-                if (googleEvent && googleEvent.id) {
-                  await supabaseClient.from('calendar_events')
-                    .update({ google_event_id: googleEvent.id })
-                    .eq('id', createdEvent.id);
-                  createdEvent.google_event_id = googleEvent.id;
-                }
-              }
-            } catch (googleErr) {
-              console.warn('[CoS Create Sync Warning] Failed to push created event to Google Calendar:', googleErr);
-            }
-          }
-          toolResult = { success: true, created: createdEvent };
-
-        } else if (name === 'update_calendar_event') {
-          const { event_id, title, description, start_time, end_time, location, is_all_day, color, category } = args as any;
-          const updates: any = {};
-          if (title !== undefined) updates.title = title;
-          if (description !== undefined) updates.description = description;
-          if (start_time !== undefined) updates.start_time = new Date(start_time).toISOString();
-          if (end_time !== undefined) updates.end_time = new Date(end_time).toISOString();
-          if (location !== undefined) updates.location = location;
-          if (is_all_day !== undefined) updates.is_all_day = is_all_day;
-          if (color !== undefined) updates.color = color;
-          if (category !== undefined) updates.category = category;
-
-          const { data, error } = await supabaseClient
-            .from('calendar_events')
-            .update(updates)
-            .eq('id', event_id)
-            .eq('user_id', userId)
-            .select('*');
-
-          if (error) throw error;
-          const updatedEvent = data?.[0];
-
-          // Sync to Google Calendar
-          if (updatedEvent && updatedEvent.google_event_id) {
-            try {
-              const googleToken = await getValidGoogleToken(userId);
-              if (googleToken) {
-                await updateGoogleEvent(googleToken, updatedEvent.google_event_id, {
-                  title: updatedEvent.title,
-                  description: updatedEvent.description,
-                  start_time: updatedEvent.start_time,
-                  end_time: updatedEvent.end_time,
-                  location: updatedEvent.location
-                });
-              }
-            } catch (googleErr) {
-              console.warn('[CoS Update Sync Warning] Failed to push updated event to Google Calendar:', googleErr);
-            }
-          }
-          toolResult = { success: true, updated: updatedEvent };
-
-        } else if (name === 'delete_calendar_event') {
-          const { event_id } = args as any;
-          
-          // Fetch event first to get google_event_id
-          const { data: eventToDel } = await supabaseClient
-            .from('calendar_events')
-            .select('google_event_id')
-            .eq('id', event_id)
-            .eq('user_id', userId)
-            .single();
-
-          const { error } = await supabaseClient
-            .from('calendar_events')
-            .delete()
-            .eq('id', event_id)
-            .eq('user_id', userId);
-
-          if (error) throw error;
-
-          // Delete from Google Calendar
-          if (eventToDel && eventToDel.google_event_id) {
-            try {
-              const googleToken = await getValidGoogleToken(userId);
-              if (googleToken) {
-                await deleteGoogleEvent(googleToken, eventToDel.google_event_id);
-              }
-            } catch (googleErr) {
-              console.warn('[CoS Delete Sync Warning] Failed to delete event from Google Calendar:', googleErr);
-            }
-          }
-          toolResult = { success: true };
-
-        } else if (name === 'list_work_tasks') {
-          const { status, priority, search } = args as any;
-          let queryBuilder = supabaseClient.from('tasks').select('*').eq('user_id', userId);
-
-          if (status) queryBuilder = queryBuilder.eq('status', status);
-          if (priority) queryBuilder = queryBuilder.eq('priority', priority);
-          if (search) queryBuilder = queryBuilder.ilike('title', `%${search}%`);
-
-          const { data, error } = await queryBuilder.order('sort_order', { ascending: true });
-          if (error) throw error;
-          toolResult = { success: true, tasks: data || [] };
-
-        } else if (name === 'create_work_task') {
-          const { title, description, status, priority, project_id, due_date } = args as any;
-          const { data, error } = await supabaseClient.from('tasks').insert({
-            user_id: userId,
-            title,
-            description: description || null,
-            status: status || 'todo',
-            priority: priority || 'medium',
-            project_id: project_id || null,
-            due_date: due_date ? new Date(due_date).toISOString() : null,
-            type: 'task'
-          }).select('*');
-
-          if (error) throw error;
-          toolResult = { success: true, created: data?.[0] };
-
-        } else if (name === 'update_work_task') {
-          const { task_id, title, description, status, priority, project_id, due_date } = args as any;
-          const updates: any = {};
-          if (title !== undefined) updates.title = title;
-          if (description !== undefined) updates.description = description;
-          if (status !== undefined) updates.status = status;
-          if (priority !== undefined) updates.priority = priority;
-          if (project_id !== undefined) updates.project_id = project_id || null;
-          if (due_date !== undefined) updates.due_date = due_date ? new Date(due_date).toISOString() : null;
-
-          const { data, error } = await supabaseClient
-            .from('tasks')
-            .update(updates)
-            .eq('id', task_id)
-            .eq('user_id', userId)
-            .select('*');
-
-          if (error) throw error;
-          toolResult = { success: true, updated: data?.[0] };
-
-        } else if (name === 'delete_work_task') {
-          const { task_id } = args as any;
-          const { error } = await supabaseClient
-            .from('tasks')
-            .delete()
-            .eq('id', task_id)
-            .eq('user_id', userId);
-
-          if (error) throw error;
-          toolResult = { success: true };
-
-        } else if (name === 'list_work_projects') {
-          const { data, error } = await supabaseClient
-            .from('tasks_projects')
-            .select('*')
-            .eq('user_id', userId)
-            .order('name', { ascending: true });
-
-          if (error) throw error;
-          toolResult = { success: true, projects: data || [] };
-
-        } else if (name === 'list_financial_balances') {
-          const { data, error } = await supabaseClient
-            .from('balances')
-            .select('*')
-            .eq('user_id', userId);
-
-          if (error) throw error;
-          toolResult = { success: true, balances: data || [] };
-
-        } else if (name === 'list_credit_cards') {
-          const { data, error } = await supabaseClient
-            .from('credit_cards')
-            .select('*')
-            .eq('user_id', userId);
-
-          if (error) throw error;
-          toolResult = { success: true, creditCards: data || [] };
-
-        } else if (name === 'list_financial_reminders') {
-          const { data, error } = await supabaseClient
-            .from('reminders')
-            .select('*')
-            .eq('user_id', userId)
-            .eq('paid', false)
-            .order('due_date', { ascending: true });
-
-          if (error) throw error;
-          toolResult = { success: true, reminders: data || [] };
-
-        } else {
-          throw new Error(`Ferramenta desconhecida no hub: ${name}`);
-        }
-      } catch (err: any) {
-        console.error(`[CoS Assistant Tool] Erro em ${name}:`, err);
-        toolResult = { success: false, error: err.message || 'Erro de execução da ferramenta.' };
-      }
+      const res = await executeHubTool(name, args, supabaseClient, userId);
 
       return {
-        functionResponse: { name, response: toolResult }
+        functionResponse: { name, response: res.toolResult }
       };
     });
 
@@ -574,4 +349,263 @@ export async function generateHubResponse(
   }
 
   return result.response.text();
+}
+
+export async function executeHubTool(
+  name: string,
+  args: any,
+  supabaseClient: any,
+  userId: string
+): Promise<{ toolResult: any; databaseModified: boolean }> {
+  let toolResult: any = null;
+  let databaseModified = false;
+
+  try {
+    if (name === 'list_calendar_events') {
+      // Sync Google Calendar events in background first before listing to ensure fresh context
+      try {
+        await syncGoogleCalendarEvents(userId);
+      } catch (syncErr) {
+        console.warn('[CoS List Sync Warning] Silent calendar sync failed before listing:', syncErr);
+      }
+
+      const { start_date, end_date, search } = args as any;
+      let queryBuilder = supabaseClient.from('calendar_events').select('*').eq('user_id', userId);
+      
+      if (start_date) queryBuilder = queryBuilder.gte('start_time', start_date);
+      if (end_date) queryBuilder = queryBuilder.lte('end_time', end_date);
+      if (search) queryBuilder = queryBuilder.ilike('title', `%${search}%`);
+
+      const { data, error } = await queryBuilder.order('start_time', { ascending: true });
+      if (error) throw error;
+      toolResult = { success: true, events: data || [] };
+
+    } else if (name === 'create_calendar_event') {
+      const { title, description, start_time, end_time, location, is_all_day, color, category } = args as any;
+      const { data, error } = await supabaseClient.from('calendar_events').insert({
+        user_id: userId,
+        title,
+        description: description || null,
+        start_time: new Date(start_time).toISOString(),
+        end_time: new Date(end_time).toISOString(),
+        location: location || null,
+        is_all_day: is_all_day || false,
+        color: color || '#6366f1',
+        category: category || 'general'
+      }).select('*');
+
+      if (error) throw error;
+      const createdEvent = data?.[0];
+
+      // Sync to Google Calendar
+      if (createdEvent) {
+        try {
+          const googleToken = await getValidGoogleToken(userId);
+          if (googleToken) {
+            const googleEvent = await insertGoogleEvent(googleToken, {
+              title: createdEvent.title,
+              description: createdEvent.description,
+              start_time: createdEvent.start_time,
+              end_time: createdEvent.end_time,
+              location: createdEvent.location
+            });
+            if (googleEvent && googleEvent.id) {
+              await supabaseClient.from('calendar_events')
+                .update({ google_event_id: googleEvent.id })
+                .eq('id', createdEvent.id);
+              createdEvent.google_event_id = googleEvent.id;
+            }
+          }
+        } catch (googleErr) {
+          console.warn('[CoS Create Sync Warning] Failed to push created event to Google Calendar:', googleErr);
+        }
+      }
+      databaseModified = true;
+      toolResult = { success: true, created: createdEvent };
+
+    } else if (name === 'update_calendar_event') {
+      const { event_id, title, description, start_time, end_time, location, is_all_day, color, category } = args as any;
+      const updates: any = {};
+      if (title !== undefined) updates.title = title;
+      if (description !== undefined) updates.description = description;
+      if (start_time !== undefined) updates.start_time = new Date(start_time).toISOString();
+      if (end_time !== undefined) updates.end_time = new Date(end_time).toISOString();
+      if (location !== undefined) updates.location = location;
+      if (is_all_day !== undefined) updates.is_all_day = is_all_day;
+      if (color !== undefined) updates.color = color;
+      if (category !== undefined) updates.category = category;
+
+      const { data, error } = await supabaseClient
+        .from('calendar_events')
+        .update(updates)
+        .eq('id', event_id)
+        .eq('user_id', userId)
+        .select('*');
+
+      if (error) throw error;
+      const updatedEvent = data?.[0];
+
+      // Sync to Google Calendar
+      if (updatedEvent && updatedEvent.google_event_id) {
+        try {
+          const googleToken = await getValidGoogleToken(userId);
+          if (googleToken) {
+            await updateGoogleEvent(googleToken, updatedEvent.google_event_id, {
+              title: updatedEvent.title,
+              description: updatedEvent.description,
+              start_time: updatedEvent.start_time,
+              end_time: updatedEvent.end_time,
+              location: updatedEvent.location
+            });
+          }
+        } catch (googleErr) {
+          console.warn('[CoS Update Sync Warning] Failed to push updated event to Google Calendar:', googleErr);
+        }
+      }
+      databaseModified = true;
+      toolResult = { success: true, updated: updatedEvent };
+
+    } else if (name === 'delete_calendar_event') {
+      const { event_id } = args as any;
+      
+      // Fetch event first to get google_event_id
+      const { data: eventToDel } = await supabaseClient
+        .from('calendar_events')
+        .select('google_event_id')
+        .eq('id', event_id)
+        .eq('user_id', userId)
+        .single();
+
+      const { error } = await supabaseClient
+        .from('calendar_events')
+        .delete()
+        .eq('id', event_id)
+        .eq('user_id', userId);
+
+      if (error) throw error;
+
+      // Delete from Google Calendar
+      if (eventToDel && eventToDel.google_event_id) {
+        try {
+          const googleToken = await getValidGoogleToken(userId);
+          if (googleToken) {
+            await deleteGoogleEvent(googleToken, eventToDel.google_event_id);
+          }
+        } catch (googleErr) {
+          console.warn('[CoS Delete Sync Warning] Failed to delete event from Google Calendar:', googleErr);
+        }
+      }
+      databaseModified = true;
+      toolResult = { success: true };
+
+    } else if (name === 'list_work_tasks') {
+      const { status, priority, search } = args as any;
+      let queryBuilder = supabaseClient.from('tasks').select('*').eq('user_id', userId);
+
+      if (status) queryBuilder = queryBuilder.eq('status', status);
+      if (priority) queryBuilder = queryBuilder.eq('priority', priority);
+      if (search) queryBuilder = queryBuilder.ilike('title', `%${search}%`);
+
+      const { data, error } = await queryBuilder.order('sort_order', { ascending: true });
+      if (error) throw error;
+      toolResult = { success: true, tasks: data || [] };
+
+    } else if (name === 'create_work_task') {
+      const { title, description, status, priority, project_id, due_date } = args as any;
+      const { data, error } = await supabaseClient.from('tasks').insert({
+        user_id: userId,
+        title,
+        description: description || null,
+        status: status || 'todo',
+        priority: priority || 'medium',
+        project_id: project_id || null,
+        due_date: due_date ? new Date(due_date).toISOString() : null,
+        type: 'task'
+      }).select('*');
+
+      if (error) throw error;
+      databaseModified = true;
+      toolResult = { success: true, created: data?.[0] };
+
+    } else if (name === 'update_work_task') {
+      const { task_id, title, description, status, priority, project_id, due_date } = args as any;
+      const updates: any = {};
+      if (title !== undefined) updates.title = title;
+      if (description !== undefined) updates.description = description;
+      if (status !== undefined) updates.status = status;
+      if (priority !== undefined) updates.priority = priority;
+      if (project_id !== undefined) updates.project_id = project_id || null;
+      if (due_date !== undefined) updates.due_date = due_date ? new Date(due_date).toISOString() : null;
+
+      const { data, error } = await supabaseClient
+        .from('tasks')
+        .update(updates)
+        .eq('id', task_id)
+        .eq('user_id', userId)
+        .select('*');
+
+      if (error) throw error;
+      databaseModified = true;
+      toolResult = { success: true, updated: data?.[0] };
+
+    } else if (name === 'delete_work_task') {
+      const { task_id } = args as any;
+      const { error } = await supabaseClient
+        .from('tasks')
+        .delete()
+        .eq('id', task_id)
+        .eq('user_id', userId);
+
+      if (error) throw error;
+      databaseModified = true;
+      toolResult = { success: true };
+
+    } else if (name === 'list_work_projects') {
+      const { data, error } = await supabaseClient
+        .from('tasks_projects')
+        .select('*')
+        .eq('user_id', userId)
+        .order('name', { ascending: true });
+
+      if (error) throw error;
+      toolResult = { success: true, projects: data || [] };
+
+    } else if (name === 'list_financial_balances') {
+      const { data, error } = await supabaseClient
+        .from('balances')
+        .select('*')
+        .eq('user_id', userId);
+
+      if (error) throw error;
+      toolResult = { success: true, balances: data || [] };
+
+    } else if (name === 'list_credit_cards') {
+      const { data, error } = await supabaseClient
+        .from('credit_cards')
+        .select('*')
+        .eq('user_id', userId);
+
+      if (error) throw error;
+      toolResult = { success: true, creditCards: data || [] };
+
+    } else if (name === 'list_financial_reminders') {
+      const { data, error } = await supabaseClient
+        .from('reminders')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('paid', false)
+        .order('due_date', { ascending: true });
+
+      if (error) throw error;
+      toolResult = { success: true, reminders: data || [] };
+
+    } else {
+      throw new Error(`Ferramenta desconhecida no hub: ${name}`);
+    }
+  } catch (err: any) {
+    console.error(`[CoS Assistant Tool] Erro em ${name}:`, err);
+    toolResult = { success: false, error: err.message || 'Erro de execução da ferramenta.' };
+  }
+
+  return { toolResult, databaseModified };
 }

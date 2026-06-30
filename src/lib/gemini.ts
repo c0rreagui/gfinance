@@ -46,11 +46,12 @@ export interface AITransaction {
 export function is429Error(err: any): boolean {
   if (!err) return false;
   
+  const statusCodes = [429, 502, 503, 504];
   if (
-    err.status === 429 ||
-    err.statusCode === 429 ||
-    err.response?.status === 429 ||
-    err.response?.statusCode === 429
+    statusCodes.includes(err.status) ||
+    statusCodes.includes(err.statusCode) ||
+    statusCodes.includes(err.response?.status) ||
+    statusCodes.includes(err.response?.statusCode)
   ) {
     return true;
   }
@@ -59,7 +60,12 @@ export function is429Error(err: any): boolean {
   const errMsg = err.message ? String(err.message).toLowerCase() : '';
   const errStatus = err.status ? String(err.status) : '';
   
-  const keywords = ['429', 'resource_exhausted', 'resource exhausted', 'quota', 'rate limit', 'too many requests'];
+  const keywords = [
+    '429', '502', '503', '504',
+    'resource_exhausted', 'resource exhausted', 'quota', 'rate limit', 'too many requests',
+    'service unavailable', 'overloaded', 'high demand', 'spikes in demand', 'try again later',
+    'temp', 'temporary', 'deadline exceeded', 'timeout'
+  ];
   return keywords.some(
     (keyword) => errStr.includes(keyword) || errMsg.includes(keyword) || errStatus === '429'
   );
@@ -70,14 +76,15 @@ export async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
   while (true) {
     try {
       return await fn();
-    } catch (err: any) {
-      if (is429Error(err) && attempt < 3) {
+    } catch (err) {
+      const error = err as Error;
+      if (is429Error(error) && attempt < 3) {
         attempt++;
         const delay = Math.pow(2, attempt - 1) * 1000;
-        console.warn(`[Gemini Retry] Rate limit (429) detectado. Tentativa ${attempt} de 3 de reprocessamento em ${delay}ms...`, err);
+        console.warn(`[Gemini Retry] Erro temporário ou limite (429/503) detectado. Tentativa ${attempt} de 3 em ${delay}ms...`, error);
         await new Promise((resolve) => setTimeout(resolve, delay));
       } else {
-        throw err;
+        throw error;
       }
     }
   }
@@ -240,7 +247,7 @@ export async function parseStatementWithAI(
 // ---------------------------------------------------------------------------
 // Definições de Ferramentas (Tools) do Gemini AI Brain
 // ---------------------------------------------------------------------------
-const geminiTools = [
+export const geminiTools = [
   {
     functionDeclarations: [
       {
@@ -452,20 +459,7 @@ const geminiTools = [
 // ---------------------------------------------------------------------------
 // Analista Financeiro Conversacional
 // ---------------------------------------------------------------------------
-export async function generateFinancialResponse(
-  query: string,
-  financialContext: {
-    balances: any[];
-    transactions: any[];
-    goals: any[];
-    reminders: any[];
-    creditCards?: any[];
-  },
-  chatHistory: { role: 'user' | 'model'; parts: { text: string }[] }[] = [],
-  oauthToken?: string,
-  supabaseClient?: any,
-  aiMemory?: string
-): Promise<string> {
+export function getFinancialSystemPrompt(aiMemory: string, financialContext: any): string {
   const currentDate = new Date();
   const formattedDate = currentDate.toLocaleDateString('pt-BR', {
     weekday: 'long',
@@ -477,7 +471,7 @@ export async function generateFinancialResponse(
     timeZone: 'America/Sao_Paulo'
   });
 
-  const systemPrompt = `
+  return `
     Você é o "Gemini Brain", a mente analítica, CFO virtual e consultor estratégico por trás do G-Finance (a plataforma de controle financeiro premium do Guilherme, CTO & Fundador).
     Sua persona é direta, elegante, cirúrgica e altamente orientada a dados. Guilherme valoriza precisão absoluta e detesta introduções longas, clichês vazios ou termos exageradamente alegres/simplistas ("claro!", "com certeza!", "vamos lá!"). Vá direto ao ponto de forma executiva.
     
@@ -526,8 +520,28 @@ export async function generateFinancialResponse(
     2. Ao citar valores monetários, formate no padrão monetário do Brasil (ex: R$ 1.250,50).
     3. Use markdown leve (negritos, listas) para estruturar as análises de forma altamente legível.
     4. Fale estritamente em português brasileiro (pt-BR).
-    5. **Concisão e Resumos Sintéticos**: Ao analisar, listar ou propor agrupamentos de grandes volumes de dados (ex: resumir dezenas de transações), seja conciso e direto. Evite redundâncias textuais e repetições excessivas de detalhes individuais para garantir que a resposta caiba no limite de tokens da API e não seja cortada.
+    5. **Concisão e Resumos Sintéticos**: Ao analisar, listar ou propoe agrupamentos de grandes volumes de dados (ex: resumir dezenas de transações), seja conciso e direto. Evite redundâncias textuais e repetições excessivas de detalhes individuais para garantir que a resposta caiba no limite de tokens da API e não seja cortada.
   `;
+}
+
+// ---------------------------------------------------------------------------
+// Analista Financeiro Conversacional
+// ---------------------------------------------------------------------------
+export async function generateFinancialResponse(
+  query: string,
+  financialContext: {
+    balances: any[];
+    transactions: any[];
+    goals: any[];
+    reminders: any[];
+    creditCards?: any[];
+  },
+  chatHistory: { role: 'user' | 'model'; parts: { text: string }[] }[] = [],
+  oauthToken?: string,
+  supabaseClient?: any,
+  aiMemory?: string
+): Promise<string> {
+  const systemPrompt = getFinancialSystemPrompt(aiMemory || '', financialContext);
 
   const hasApiKey = apiKey && apiKey !== 'your-gemini-api-key-here';
 
@@ -609,251 +623,13 @@ export async function generateFinancialResponse(
       const { name, args } = call;
       console.info(`[Gemini Brain Tool Execution] Iniciando "${name}" com argumentos:`, args);
 
-      let toolResult: any;
-
-      try {
-        if (name === 'list_user_transactions') {
-          const { searchQuery, category, limit } = args as any;
-          let queryBuilder = supabaseClient.from('transactions').select('*').eq('user_id', userId);
-          
-          if (category) queryBuilder = queryBuilder.eq('category', category);
-          if (searchQuery) queryBuilder = queryBuilder.ilike('description', `%${searchQuery}%`);
-          
-          const { data, error } = await queryBuilder
-            .order('date', { ascending: false })
-            .limit(limit || 30);
-
-          if (error) throw error;
-          toolResult = { success: true, transactions: data || [] };
-
-        } else if (name === 'create_user_transaction') {
-          const { description, amount, category, date } = args as any;
-          const icon = amount > 0 ? 'ArrowDownLeft' : 'CreditCard';
-
-          const { data, error } = await supabaseClient.from('transactions').insert({
-            user_id: userId,
-            description,
-            amount: Number(amount),
-            category,
-            date: date ? new Date(date).toISOString() : new Date().toISOString(),
-            icon
-          }).select('*');
-
-          if (error) throw error;
-
-          databaseModified = true;
-          toolResult = { success: true, created: data?.[0] };
-
-        } else if (name === 'update_user_transaction') {
-          const { transactionId, description, amount, category, date } = args as any;
-          const updates: any = {};
-          
-          if (description) updates.description = description;
-          if (amount !== undefined) {
-            updates.amount = Number(amount);
-            updates.icon = amount > 0 ? 'ArrowDownLeft' : 'CreditCard';
-          }
-          if (category) updates.category = category;
-          if (date) updates.date = new Date(date).toISOString();
-
-          const { data, error } = await supabaseClient
-            .from('transactions')
-            .update(updates)
-            .eq('id', transactionId)
-            .eq('user_id', userId)
-            .select('*');
-
-          if (error) throw error;
-
-          databaseModified = true;
-          toolResult = { success: true, updated: data?.[0] };
-
-        } else if (name === 'delete_user_transaction') {
-          const { transactionId } = args as any;
-
-          const { data, error } = await supabaseClient
-            .from('transactions')
-            .delete()
-            .eq('id', transactionId)
-            .eq('user_id', userId)
-            .select('*');
-
-          if (error) throw error;
-
-          databaseModified = true;
-          toolResult = { success: true, deleted: data };
-
-        } else if (name === 'delete_user_transactions') {
-          const { transactionIds, deleteAll, category } = args as any;
-          let queryBuilder = supabaseClient.from('transactions').delete().eq('user_id', userId);
-
-          if (deleteAll) {
-            console.info(`[Gemini Tool] Executando exclusão completa de todas as transações do usuário: ${userId}`);
-          } else if (transactionIds && transactionIds.length > 0) {
-            queryBuilder = queryBuilder.in('id', transactionIds);
-          } else if (category) {
-            queryBuilder = queryBuilder.eq('category', category);
-          } else {
-            throw new Error('Nenhum parâmetro de exclusão fornecido (forneça transactionIds, deleteAll ou category).');
-          }
-
-          const { data, error } = await queryBuilder.select('*');
-          if (error) throw error;
-
-          databaseModified = true;
-          toolResult = { success: true, count: data?.length || 0, deleted: data };
-
-        } else if (name === 'list_user_reminders') {
-          const { isRecurring, paid } = args as any;
-          let queryBuilder = supabaseClient.from('reminders').select('*').eq('user_id', userId);
-          if (isRecurring !== undefined) {
-            queryBuilder = queryBuilder.eq('is_recurring', isRecurring);
-          }
-          if (paid !== undefined) {
-            queryBuilder = queryBuilder.eq('paid', paid);
-          }
-          const { data, error } = await queryBuilder.order('due_date', { ascending: true });
-          if (error) throw error;
-          toolResult = { success: true, reminders: data || [] };
-
-        } else if (name === 'create_user_reminder') {
-          const { title, amount, dueDate, urgency, isRecurring, paid } = args as any;
-          const { data, error } = await supabaseClient.from('reminders').insert({
-            user_id: userId,
-            title,
-            amount: Number(amount),
-            due_date: new Date(dueDate).toISOString(),
-            urgency: urgency || 'low',
-            is_recurring: isRecurring || false,
-            paid: paid || false
-          }).select('*');
-          if (error) throw error;
-          databaseModified = true;
-          toolResult = { success: true, created: data?.[0] };
-
-        } else if (name === 'update_user_reminder') {
-          const { reminderId, title, amount, dueDate, urgency, isRecurring, paid } = args as any;
-          const updates: any = {};
-          if (title !== undefined) updates.title = title;
-          if (amount !== undefined) updates.amount = Number(amount);
-          if (dueDate !== undefined) updates.due_date = new Date(dueDate).toISOString();
-          if (urgency !== undefined) updates.urgency = urgency;
-          if (isRecurring !== undefined) updates.is_recurring = isRecurring;
-          if (paid !== undefined) updates.paid = paid;
-
-          const { data, error } = await supabaseClient
-            .from('reminders')
-            .update(updates)
-            .eq('id', reminderId)
-            .eq('user_id', userId)
-            .select('*');
-          if (error) throw error;
-          databaseModified = true;
-          toolResult = { success: true, updated: data?.[0] };
-
-        } else if (name === 'delete_user_reminder') {
-          const { reminderId } = args as any;
-          const { data, error } = await supabaseClient
-            .from('reminders')
-            .delete()
-            .eq('id', reminderId)
-            .eq('user_id', userId)
-            .select('*');
-          if (error) throw error;
-          databaseModified = true;
-          toolResult = { success: true, deleted: data };
-
-        } else if (name === 'list_user_goals') {
-          const { data, error } = await supabaseClient
-            .from('goals')
-            .select('*')
-            .eq('user_id', userId)
-            .order('name', { ascending: true });
-          if (error) throw error;
-          toolResult = { success: true, goals: data || [] };
-
-        } else if (name === 'create_user_goal') {
-          const { name: goalName, targetAmount, currentAmount, color } = args as any;
-          const { data, error } = await supabaseClient.from('goals').insert({
-            user_id: userId,
-            name: goalName,
-            target_amount: Number(targetAmount),
-            current_amount: Number(currentAmount || 0),
-            color: color || 'emerald'
-          }).select('*');
-          if (error) throw error;
-          databaseModified = true;
-          toolResult = { success: true, created: data?.[0] };
-
-        } else if (name === 'update_user_goal') {
-          const { goalId, name: goalName, targetAmount, currentAmount, color } = args as any;
-          const updates: any = {};
-          if (goalName !== undefined) updates.name = goalName;
-          if (targetAmount !== undefined) updates.target_amount = Number(targetAmount);
-          if (currentAmount !== undefined) updates.current_amount = Number(currentAmount);
-          if (color !== undefined) updates.color = color;
-
-          const { data, error } = await supabaseClient
-            .from('goals')
-            .update(updates)
-            .eq('id', goalId)
-            .eq('user_id', userId)
-            .select('*');
-          if (error) throw error;
-          databaseModified = true;
-          toolResult = { success: true, updated: data?.[0] };
-
-        } else if (name === 'delete_user_goal') {
-          const { goalId } = args as any;
-          const { data, error } = await supabaseClient
-            .from('goals')
-            .delete()
-            .eq('id', goalId)
-            .eq('user_id', userId)
-            .select('*');
-          if (error) throw error;
-          databaseModified = true;
-          toolResult = { success: true, deleted: data };
-
-        } else if (name === 'list_user_credit_cards') {
-          const { data, error } = await supabaseClient
-            .from('credit_cards')
-            .select('*')
-            .eq('user_id', userId)
-            .order('created_at', { ascending: true });
-          if (error) throw error;
-          toolResult = { success: true, creditCards: data || [] };
-
-        } else if (name === 'update_user_credit_card') {
-          const { cardId, cardName, cardLimit, manualInvoiceAmount, closingDay, dueDay, colorTheme } = args as any;
-          const updates: any = {};
-          if (cardName !== undefined) updates.card_name = cardName;
-          if (cardLimit !== undefined) updates.card_limit = Number(cardLimit);
-          if (manualInvoiceAmount !== undefined) updates.manual_invoice_amount = manualInvoiceAmount;
-          if (closingDay !== undefined) updates.closing_day = Number(closingDay);
-          if (dueDay !== undefined) updates.due_day = Number(dueDay);
-          if (colorTheme !== undefined) updates.color_theme = colorTheme;
-
-          const { data, error } = await supabaseClient
-            .from('credit_cards')
-            .update(updates)
-            .eq('id', cardId)
-            .eq('user_id', userId)
-            .select('*');
-          if (error) throw error;
-          databaseModified = true;
-          toolResult = { success: true, updated: data?.[0] };
-
-        } else {
-          throw new Error(`Função de ferramenta desconhecida: ${name}`);
-        }
-      } catch (err: any) {
-        console.error(`[Gemini Brain Tool Execution] Erro ao rodar "${name}":`, err);
-        toolResult = { success: false, error: err.message || 'Erro técnico na ferramenta.' };
+      const res = await executeFinancialTool(name, args, supabaseClient, userId);
+      if (res.databaseModified) {
+        databaseModified = true;
       }
 
       return {
-        functionResponse: { name, response: toolResult }
+        functionResponse: { name, response: res.toolResult }
       };
     });
 
@@ -871,4 +647,257 @@ export async function generateFinancialResponse(
   }
 
   return result.response.text();
+}
+
+export async function executeFinancialTool(
+  name: string,
+  args: any,
+  supabaseClient: any,
+  userId: string
+): Promise<{ toolResult: any; databaseModified: boolean }> {
+  let toolResult: any;
+  let databaseModified = false;
+
+  try {
+    if (name === 'list_user_transactions') {
+      const { searchQuery, category, limit } = args as any;
+      let queryBuilder = supabaseClient.from('transactions').select('*').eq('user_id', userId);
+      
+      if (category) queryBuilder = queryBuilder.eq('category', category);
+      if (searchQuery) queryBuilder = queryBuilder.ilike('description', `%${searchQuery}%`);
+      
+      const { data, error } = await queryBuilder
+        .order('date', { ascending: false })
+        .limit(limit || 30);
+
+      if (error) throw error;
+      toolResult = { success: true, transactions: data || [] };
+
+    } else if (name === 'create_user_transaction') {
+      const { description, amount, category, date } = args as any;
+      const icon = amount > 0 ? 'ArrowDownLeft' : 'CreditCard';
+
+      const { data, error } = await supabaseClient.from('transactions').insert({
+        user_id: userId,
+        description,
+        amount: Number(amount),
+        category,
+        date: date ? new Date(date).toISOString() : new Date().toISOString(),
+        icon
+      }).select('*');
+
+      if (error) throw error;
+
+      databaseModified = true;
+      toolResult = { success: true, created: data?.[0] };
+
+    } else if (name === 'update_user_transaction') {
+      const { transactionId, description, amount, category, date } = args as any;
+      const updates: any = {};
+      
+      if (description) updates.description = description;
+      if (amount !== undefined) {
+        updates.amount = Number(amount);
+        updates.icon = amount > 0 ? 'ArrowDownLeft' : 'CreditCard';
+      }
+      if (category) updates.category = category;
+      if (date) updates.date = new Date(date).toISOString();
+
+      const { data, error } = await supabaseClient
+        .from('transactions')
+        .update(updates)
+        .eq('id', transactionId)
+        .eq('user_id', userId)
+        .select('*');
+
+      if (error) throw error;
+
+      databaseModified = true;
+      toolResult = { success: true, updated: data?.[0] };
+
+    } else if (name === 'delete_user_transaction') {
+      const { transactionId } = args as any;
+
+      const { data, error } = await supabaseClient
+        .from('transactions')
+        .delete()
+        .eq('id', transactionId)
+        .eq('user_id', userId)
+        .select('*');
+
+      if (error) throw error;
+
+      databaseModified = true;
+      toolResult = { success: true, deleted: data };
+
+    } else if (name === 'delete_user_transactions') {
+      const { transactionIds, deleteAll, category } = args as any;
+      let queryBuilder = supabaseClient.from('transactions').delete().eq('user_id', userId);
+
+      if (deleteAll) {
+        console.info(`[Gemini Tool] Executando exclusão completa de todas as transações do usuário: ${userId}`);
+      } else if (transactionIds && transactionIds.length > 0) {
+        queryBuilder = queryBuilder.in('id', transactionIds);
+      } else if (category) {
+        queryBuilder = queryBuilder.eq('category', category);
+      } else {
+        throw new Error('Nenhum parâmetro de exclusão fornecido (forneça transactionIds, deleteAll ou category).');
+      }
+
+      const { data, error } = await queryBuilder.select('*');
+      if (error) throw error;
+
+      databaseModified = true;
+      toolResult = { success: true, count: data?.length || 0, deleted: data };
+
+    } else if (name === 'list_user_reminders') {
+      const { isRecurring, paid } = args as any;
+      let queryBuilder = supabaseClient.from('reminders').select('*').eq('user_id', userId);
+      if (isRecurring !== undefined) {
+        queryBuilder = queryBuilder.eq('is_recurring', isRecurring);
+      }
+      if (paid !== undefined) {
+        queryBuilder = queryBuilder.eq('paid', paid);
+      }
+      const { data, error } = await queryBuilder.order('due_date', { ascending: true });
+      if (error) throw error;
+      toolResult = { success: true, reminders: data || [] };
+
+    } else if (name === 'create_user_reminder') {
+      const { title, amount, dueDate, urgency, isRecurring, paid } = args as any;
+      const { data, error } = await supabaseClient.from('reminders').insert({
+        user_id: userId,
+        title,
+        amount: Number(amount),
+        due_date: new Date(dueDate).toISOString(),
+        urgency: urgency || 'low',
+        is_recurring: isRecurring || false,
+        paid: paid || false
+      }).select('*');
+      if (error) throw error;
+      databaseModified = true;
+      toolResult = { success: true, created: data?.[0] };
+
+    } else if (name === 'update_user_reminder') {
+      const { reminderId, title, amount, dueDate, urgency, isRecurring, paid } = args as any;
+      const updates: any = {};
+      if (title !== undefined) updates.title = title;
+      if (amount !== undefined) updates.amount = Number(amount);
+      if (dueDate !== undefined) updates.due_date = new Date(dueDate).toISOString();
+      if (urgency !== undefined) updates.urgency = urgency;
+      if (isRecurring !== undefined) updates.is_recurring = isRecurring;
+      if (paid !== undefined) updates.paid = paid;
+
+      const { data, error } = await supabaseClient
+        .from('reminders')
+        .update(updates)
+        .eq('id', reminderId)
+        .eq('user_id', userId)
+        .select('*');
+      if (error) throw error;
+      databaseModified = true;
+      toolResult = { success: true, updated: data?.[0] };
+
+    } else if (name === 'delete_user_reminder') {
+      const { reminderId } = args as any;
+      const { data, error } = await supabaseClient
+        .from('reminders')
+        .delete()
+        .eq('id', reminderId)
+        .eq('user_id', userId)
+        .select('*');
+      if (error) throw error;
+      databaseModified = true;
+      toolResult = { success: true, deleted: data };
+
+    } else if (name === 'list_user_goals') {
+      const { data, error } = await supabaseClient
+        .from('goals')
+        .select('*')
+        .eq('user_id', userId)
+        .order('name', { ascending: true });
+      if (error) throw error;
+      toolResult = { success: true, goals: data || [] };
+
+    } else if (name === 'create_user_goal') {
+      const { name: goalName, targetAmount, currentAmount, color } = args as any;
+      const { data, error } = await supabaseClient.from('goals').insert({
+        user_id: userId,
+        name: goalName,
+        target_amount: Number(targetAmount),
+        current_amount: Number(currentAmount || 0),
+        color: color || 'emerald'
+      }).select('*');
+      if (error) throw error;
+      databaseModified = true;
+      toolResult = { success: true, created: data?.[0] };
+
+    } else if (name === 'update_user_goal') {
+      const { goalId, name: goalName, targetAmount, currentAmount, color } = args as any;
+      const updates: any = {};
+      if (goalName !== undefined) updates.name = goalName;
+      if (targetAmount !== undefined) updates.target_amount = Number(targetAmount);
+      if (currentAmount !== undefined) updates.current_amount = Number(currentAmount);
+      if (color !== undefined) updates.color = color;
+
+      const { data, error } = await supabaseClient
+        .from('goals')
+        .update(updates)
+        .eq('id', goalId)
+        .eq('user_id', userId)
+        .select('*');
+      if (error) throw error;
+      databaseModified = true;
+      toolResult = { success: true, updated: data?.[0] };
+
+    } else if (name === 'delete_user_goal') {
+      const { goalId } = args as any;
+      const { data, error } = await supabaseClient
+        .from('goals')
+        .delete()
+        .eq('id', goalId)
+        .eq('user_id', userId)
+        .select('*');
+      if (error) throw error;
+      databaseModified = true;
+      toolResult = { success: true, deleted: data };
+
+    } else if (name === 'list_user_credit_cards') {
+      const { data, error } = await supabaseClient
+        .from('credit_cards')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: true });
+      if (error) throw error;
+      toolResult = { success: true, creditCards: data || [] };
+
+    } else if (name === 'update_user_credit_card') {
+      const { cardId, cardName, cardLimit, manualInvoiceAmount, closingDay, dueDay, colorTheme } = args as any;
+      const updates: any = {};
+      if (cardName !== undefined) updates.card_name = cardName;
+      if (cardLimit !== undefined) updates.card_limit = Number(cardLimit);
+      if (manualInvoiceAmount !== undefined) updates.manual_invoice_amount = manualInvoiceAmount;
+      if (closingDay !== undefined) updates.closing_day = Number(closingDay);
+      if (dueDay !== undefined) updates.due_day = Number(dueDay);
+      if (colorTheme !== undefined) updates.color_theme = colorTheme;
+
+      const { data, error } = await supabaseClient
+        .from('credit_cards')
+        .update(updates)
+        .eq('id', cardId)
+        .eq('user_id', userId)
+        .select('*');
+      if (error) throw error;
+      databaseModified = true;
+      toolResult = { success: true, updated: data?.[0] };
+
+    } else {
+      throw new Error(`Função de ferramenta desconhecida: ${name}`);
+    }
+  } catch (err: any) {
+    console.error(`[Gemini Brain Tool Execution] Erro ao rodar "${name}":`, err);
+    toolResult = { success: false, error: err.message || 'Erro técnico na ferramenta.' };
+  }
+
+  return { toolResult, databaseModified };
 }
