@@ -63,6 +63,9 @@ export default function Simulator() {
   // Simulated items
   const [simulatedItems, setSimulatedItems] = useState<SimulatedItem[]>([]);
 
+  // Manual starting balance overrides for each YYYY-MM month
+  const [manualBalances, setManualBalances] = useState<Record<string, number>>({});
+
   // Form input states
   const [newItemName, setNewItemName] = useState('');
   const [newItemAmount, setNewItemAmount] = useState('');
@@ -70,15 +73,19 @@ export default function Simulator() {
   const [importUrl, setImportUrl] = useState('');
   const [scraping, setScraping] = useState(false);
 
-  // Load simulated items from localStorage on mount
+  // Load simulated items and manual balances from localStorage on mount
   useEffect(() => {
     try {
-      const stored = localStorage.getItem('gfinance_simulated_items');
-      if (stored) {
-        setSimulatedItems(JSON.parse(stored));
+      const storedItems = localStorage.getItem('gfinance_simulated_items');
+      if (storedItems) {
+        setSimulatedItems(JSON.parse(storedItems));
+      }
+      const storedBalances = localStorage.getItem('gfinance_simulator_manual_balances');
+      if (storedBalances) {
+        setManualBalances(JSON.parse(storedBalances));
       }
     } catch (e) {
-      console.error('[Simulator] Failed to load simulated items:', e);
+      console.error('[Simulator] Failed to load simulated items/balances:', e);
     }
   }, []);
 
@@ -88,6 +95,21 @@ export default function Simulator() {
       localStorage.setItem('gfinance_simulated_items', JSON.stringify(items));
     } catch (e) {
       console.error('[Simulator] Failed to save simulated items:', e);
+    }
+  };
+
+  const handleUpdateManualBalance = (monthKey: string, value: number | undefined) => {
+    const updated = { ...manualBalances };
+    if (value === undefined || isNaN(value)) {
+      delete updated[monthKey];
+    } else {
+      updated[monthKey] = value;
+    }
+    setManualBalances(updated);
+    try {
+      localStorage.setItem('gfinance_simulator_manual_balances', JSON.stringify(updated));
+    } catch (e) {
+      console.error('[Simulator] Failed to save manual balances:', e);
     }
   };
 
@@ -340,6 +362,11 @@ export default function Simulator() {
         invoices: 0
       };
 
+      // Determine starting balance: manual override or running balance cascade
+      const startingBalance = manualBalances[key] !== undefined 
+        ? manualBalances[key] 
+        : runningBalance;
+
       // Calculate simulated items active in this specific month
       const activeSimulated = simulatedItems.filter(item => {
         const itemMonthStart = new Date(item.startMonth + '-01');
@@ -358,12 +385,12 @@ export default function Simulator() {
 
       // predict ending balance
       const totalOutflows = base.subscriptions + base.oneOffBills + base.invoices + simulatedSpent;
-      const endingBalance = runningBalance + base.incomes - totalOutflows;
+      const endingBalance = startingBalance + base.incomes - totalOutflows;
 
       timelineList.push({
         monthKey: key,
         label,
-        startingBalance: runningBalance,
+        startingBalance,
         incomes: base.incomes,
         subscriptions: base.subscriptions,
         oneOffBills: base.oneOffBills,
@@ -378,7 +405,7 @@ export default function Simulator() {
     });
 
     return timelineList;
-  }, [projectionMonths, baseMonthlyProjections, simulatedItems, dbBalancesTotal]);
+  }, [projectionMonths, baseMonthlyProjections, simulatedItems, dbBalancesTotal, manualBalances]);
 
   // Group the 6 projected months by semester for grouped rendering in the timeline
   const groupedTimeline = useMemo(() => {
@@ -1017,11 +1044,31 @@ export default function Simulator() {
 
                   {/* Math Breakdown Lists */}
                   <div className="pt-6 border-t border-white/10 space-y-4 text-xs font-semibold">
-                    <div className="flex justify-between items-center text-slate-400">
+                    <div className="flex justify-between items-center text-slate-400 py-1">
                       <span>Saldo Inicial</span>
-                      <span className="text-white">
-                        {displayPanelData.startingBalance.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] font-bold text-slate-500">R$</span>
+                        <input
+                          type="number"
+                          placeholder={Math.round(displayPanelData.startingBalance).toString()}
+                          value={manualBalances[selectedMonth] !== undefined ? manualBalances[selectedMonth] : ''}
+                          onChange={(e) => {
+                            const val = e.target.value === '' ? undefined : parseFloat(e.target.value);
+                            handleUpdateManualBalance(selectedMonth, val);
+                          }}
+                          className="w-24 px-2 py-0.5 bg-slate-800/80 dark:bg-slate-900/80 border border-white/10 rounded-lg text-white font-bold text-right focus:outline-none focus:ring-1 focus:ring-emerald-500 text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
+                        {manualBalances[selectedMonth] !== undefined && (
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateManualBalance(selectedMonth, undefined)}
+                            className="text-[9px] text-rose-400 hover:text-rose-300 font-bold ml-1.5 shrink-0"
+                            title="Resetar para saldo calculado"
+                          >
+                            Reset
+                          </button>
+                        )}
+                      </div>
                     </div>
                     
                     {/* Receitas Previstas */}
