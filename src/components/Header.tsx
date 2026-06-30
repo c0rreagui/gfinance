@@ -99,6 +99,8 @@ export const Header: React.FC = () => {
 
   const getPageTitle = () => {
     if (pathname.startsWith('/tasks')) return 'G-Work';
+    if (pathname === '/finance/simulator') return 'Simulador de Saldo';
+    if (pathname === '/finance/calendar') return 'Calendário Financeiro';
     if (pathname.startsWith('/finance')) return 'Dashboard Financeiro';
     if (pathname.startsWith('/transactions')) return 'Extrato de Lançamentos';
     if (pathname.startsWith('/cards')) return 'Meus Cartões';

@@ -23,7 +23,8 @@ import {
   LayoutDashboard,
   Columns3,
   FolderKanban,
-  FileText
+  FileText,
+  SlidersHorizontal
 } from 'lucide-react';
 
 interface SidebarItem {
@@ -55,6 +56,7 @@ export const Sidebar: React.FC = () => {
     { name: 'Dívidas', icon: Landmark, path: '/debts' },
     { name: 'Investimentos', icon: Target, path: '/wealth' },
     { name: 'Assinaturas', icon: Repeat, path: '/subscriptions' },
+    { name: 'Simulador', icon: SlidersHorizontal, path: '/finance/simulator' },
     { name: 'Relatórios', icon: BarChart3, path: '/analytics' },
     { name: 'Cripto', icon: Coins, path: '/crypto' },
     { name: 'Fontes de Dados', icon: Link2, path: '/integrations' },
