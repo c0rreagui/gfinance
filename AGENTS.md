@@ -12,3 +12,12 @@ Whenever designing backend routes, external API integrations (such as LLM client
 2. **Transient Error Handling**: Always catch transient errors (429, 502, 503, 504, rate limits, timeouts) and handle them using backoff retry logic (up to 3-5 attempts).
 3. **Function Calling Loops**: Ensure that all LLM integrations run tool calling in a dynamic loop (e.g. up to 5 iterations) to resolve multiple database mutations and actions in a single chat turn.
 <!-- END:loop-engineering-rules -->
+
+<!-- BEGIN:integration-verification-rules -->
+# Integration Verification & Graceful Degradation
+
+Whenever implementing integrations with external APIs, databases, or third-party services:
+1. **Active End-to-End Testing**: Do not rely solely on compile-time checks (`build`/`lint`). Proactively validate network availability and verify resource existence (e.g., endpoint status, model availability).
+2. **User-Friendly Semantics**: Translate raw API failures (like HTTP 404 not found, 401 unauthorized, or 403 forbidden) into clear, actionable advice on the UI (e.g., "The selected model is not available on this Ollama host. Please check your model ID in Settings").
+3. **Graceful Fallbacks**: Design systems that do not crash completely when third-party components fail; fall back to safe defaults or report semantic error details clearly to the user.
+<!-- END:integration-verification-rules -->
