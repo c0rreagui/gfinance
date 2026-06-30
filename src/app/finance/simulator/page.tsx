@@ -352,7 +352,8 @@ export default function Simulator() {
       endingBalance: number;
     }[] = [];
 
-    let runningBalance = dbBalancesTotal;
+    // The default starting point is the DB consolidated balance
+    let lastStartingBalance = dbBalancesTotal;
 
     projectionMonths.forEach(({ key, label }) => {
       const base = baseMonthlyProjections[key] || {
@@ -362,10 +363,10 @@ export default function Simulator() {
         invoices: 0
       };
 
-      // Determine starting balance: manual override or running balance cascade
+      // Determine starting balance: manual override or carry over the previous month's starting balance
       const startingBalance = manualBalances[key] !== undefined 
         ? manualBalances[key] 
-        : runningBalance;
+        : lastStartingBalance;
 
       // Calculate simulated items active in this specific month
       const activeSimulated = simulatedItems.filter(item => {
@@ -383,7 +384,7 @@ export default function Simulator() {
         return acc + valuePerInstallment;
       }, 0);
 
-      // predict ending balance
+      // predict ending balance for this month
       const totalOutflows = base.subscriptions + base.oneOffBills + base.invoices + simulatedSpent;
       const endingBalance = startingBalance + base.incomes - totalOutflows;
 
@@ -400,8 +401,8 @@ export default function Simulator() {
         endingBalance
       });
 
-      // Pass ending balance as starting balance for next month
-      runningBalance = endingBalance;
+      // Keep this month's starting balance as the default/carry-forward for the next month
+      lastStartingBalance = startingBalance;
     });
 
     return timelineList;
