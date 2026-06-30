@@ -185,157 +185,24 @@ export default function Simulator() {
     return monthsList;
   }, [currentDate]);
 
-  // Aggregate monthly base costs from Database data for each projection month
+  // Clean sandbox: no database projection math for incomes or expenses
   const baseMonthlyProjections = useMemo(() => {
     const projectionsMap: Record<string, MonthlyData> = {};
 
-    projectionMonths.forEach(({ key, label, monthIndex, year }) => {
-      const isCurrentMonth = monthIndex === currentDate.getMonth() && year === currentDate.getFullYear();
-      const currentDay = currentDate.getDate();
-
-      // 1. Filter incomes (reminders with positive amounts due in this specific month)
-      // If recurring, matches target month if target is equal to or after original due date month
-      // If current month, only sum reminders whose due date is today or in the future
-      const monthlyIncomes = reminders
-        .filter(r => {
-          const rDate = new Date(r.due_date);
-          const rMonth = rDate.getMonth();
-          const rYear = rDate.getFullYear();
-
-          const matchesMonth = r.is_recurring
-            ? ((year > rYear) || (year === rYear && monthIndex >= rMonth))
-            : (rMonth === monthIndex && rYear === year);
-
-          if (!matchesMonth || Number(r.amount) <= 0) return false;
-          
-          if (isCurrentMonth) {
-            const rDay = rDate.getDate();
-            return rDay >= currentDay;
-          }
-          return true;
-        })
-        .reduce((acc, r) => acc + (Number(r.amount) || 0), 0);
-
-      // 2. Filter recurring subscriptions (negative reminders, is_recurring = true, due in this month)
-      const monthlySubs = reminders
-        .filter(r => {
-          const rDate = new Date(r.due_date);
-          const rMonth = rDate.getMonth();
-          const rYear = rDate.getFullYear();
-
-          const matchesMonth = r.is_recurring
-            ? ((year > rYear) || (year === rYear && monthIndex >= rMonth))
-            : (rMonth === monthIndex && rYear === year);
-
-          if (!matchesMonth || Number(r.amount) >= 0 || !r.is_recurring) return false;
-          
-          if (isCurrentMonth) {
-            const rDay = rDate.getDate();
-            return rDay >= currentDay;
-          }
-          return true;
-        })
-        .reduce((acc, r) => acc + Math.abs(Number(r.amount) || 0), 0);
-
-      // 3. Filter one-off unpaid bills (negative reminders, is_recurring = false, due in this month)
-      const monthlyBills = reminders
-        .filter(r => {
-          const rDate = new Date(r.due_date);
-          const rMonth = rDate.getMonth();
-          const rYear = rDate.getFullYear();
-
-          const matchesMonth = rMonth === monthIndex && rYear === year;
-
-          if (!matchesMonth || Number(r.amount) >= 0 || r.is_recurring || r.paid) return false;
-          
-          if (isCurrentMonth) {
-            const rDay = rDate.getDate();
-            return rDay >= currentDay;
-          }
-          return true;
-        })
-        .reduce((acc, r) => acc + Math.abs(Number(r.amount) || 0), 0);
-
-      // 4. Calculate Card Invoices for this month
-      // Assign transactions and recurring card reminders to their billing cycles
-      let monthlyInvoices = 0;
-      creditCards.forEach(card => {
-        const closingDay = card.closing_day || 25;
-
-        // Sum card transactions that closes in the cycle corresponding to this month's invoice payment
-        const cardTxsSum = cardTransactions
-          .filter(t => {
-            const tDate = new Date(t.date);
-            const tDay = tDate.getDate();
-            const tMonth = tDate.getMonth();
-            const tYear = tDate.getFullYear();
-
-            let billingMonth = tMonth;
-            let billingYear = tYear;
-            if (tDay > closingDay) {
-              const nextBillingDate = new Date(tYear, tMonth + 1, 1);
-              billingMonth = nextBillingDate.getMonth();
-              billingYear = nextBillingDate.getFullYear();
-            }
-
-            return t.card_id === card.id && billingMonth === monthIndex && billingYear === year;
-          })
-          .reduce((acc, t) => acc + Math.abs(Number(t.amount) || 0), 0);
-
-        // Sum card reminders (installments or bills set to go through card)
-        const cardRemsSum = reminders
-          .filter(r => {
-            if (r.card_id !== card.id || Number(r.amount) >= 0 || r.paid) return false;
-
-            const rDate = new Date(r.due_date);
-            const rMonth = rDate.getMonth();
-            const rYear = rDate.getFullYear();
-            const rDay = rDate.getDate();
-
-            if (r.is_recurring) {
-              const isActive = (year > rYear) || (year === rYear && monthIndex >= rMonth);
-              if (!isActive) return false;
-
-              let billingMonth = monthIndex;
-              let billingYear = year;
-              if (rDay > closingDay) {
-                const nextBillingDate = new Date(year, monthIndex + 1, 1);
-                billingMonth = nextBillingDate.getMonth();
-                billingYear = nextBillingDate.getFullYear();
-              }
-              return billingMonth === monthIndex && billingYear === year;
-            } else {
-              const matchesMonth = rMonth === monthIndex && rYear === year;
-              if (!matchesMonth) return false;
-
-              let billingMonth = rMonth;
-              let billingYear = rYear;
-              if (rDay > closingDay) {
-                const nextBillingDate = new Date(rYear, rMonth + 1, 1);
-                billingMonth = nextBillingDate.getMonth();
-                billingYear = nextBillingDate.getFullYear();
-              }
-              return billingMonth === monthIndex && billingYear === year;
-            }
-          })
-          .reduce((acc, r) => acc + Math.abs(Number(r.amount) || 0), 0);
-
-        monthlyInvoices += (cardTxsSum + cardRemsSum);
-      });
-
+    projectionMonths.forEach(({ key, label }) => {
       projectionsMap[key] = {
         monthKey: key,
         label,
         balances: dbBalancesTotal,
-        incomes: monthlyIncomes,
-        subscriptions: monthlySubs,
-        oneOffBills: monthlyBills,
-        invoices: monthlyInvoices
+        incomes: 0,
+        subscriptions: 0,
+        oneOffBills: 0,
+        invoices: 0
       };
     });
 
     return projectionsMap;
-  }, [projectionMonths, reminders, creditCards, cardTransactions, dbBalancesTotal, currentDate]);
+  }, [projectionMonths, dbBalancesTotal]);
 
   // Calculate the simulation results over the 6 months timeline
   const simulatedTimeline = useMemo(() => {
@@ -1024,7 +891,7 @@ export default function Simulator() {
                   {/* Depletion Progress Bar */}
                   <div className="space-y-2 pt-4">
                     <div className="flex justify-between text-[10px] font-black uppercase tracking-widest text-slate-400">
-                      <span>Consumo de Receita + Saldo</span>
+                      <span>Consumo do Saldo</span>
                       <span className={displayPanelData.depletionPercent > 80 ? 'text-orange-400' : 'text-slate-300'}>
                         {displayPanelData.depletionPercent}%
                       </span>
@@ -1068,118 +935,6 @@ export default function Simulator() {
                           >
                             Reset
                           </button>
-                        )}
-                      </div>
-                    </div>
-                    
-                    {/* Receitas Previstas */}
-                    <div className="flex justify-between items-center text-slate-400 relative group cursor-help py-1">
-                      <div className="flex items-center gap-1.5">
-                        <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />
-                        <span>Receitas Previstas</span>
-                      </div>
-                      <span className="text-emerald-400">
-                        + {displayPanelData.incomes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                      </span>
-                      
-                      {/* Tooltip */}
-                      <div className="absolute right-0 bottom-full mb-2 hidden group-hover:block w-64 bg-slate-950/95 border border-white/15 p-4 rounded-xl shadow-2xl z-30 backdrop-blur-md animate-in fade-in slide-in-from-bottom-1 text-[10px]">
-                        <p className="font-bold text-[10px] text-slate-400 uppercase tracking-widest border-b border-white/10 pb-1.5 mb-2">Detalhamento Receitas</p>
-                        {displayPanelData.details.incomesList.length === 0 ? (
-                          <p className="text-slate-500 italic">Nenhuma receita prevista.</p>
-                        ) : (
-                          <div className="space-y-1.5 max-h-40 overflow-y-auto no-scrollbar">
-                            {displayPanelData.details.incomesList.map((item, idx) => (
-                              <div key={idx} className="flex justify-between gap-2">
-                                <span className="text-slate-300 truncate max-w-[150px]">{item.title}</span>
-                                <span className="text-emerald-400 font-bold shrink-0">{item.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Assinaturas / Recorrências */}
-                    <div className="flex justify-between items-center text-slate-400 relative group cursor-help py-1">
-                      <div className="flex items-center gap-1.5">
-                        <Repeat className="w-3.5 h-3.5 text-blue-400" />
-                        <span>Assinaturas / Recorrências</span>
-                      </div>
-                      <span className="text-slate-200">
-                        - {displayPanelData.subscriptions.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                      </span>
-                      
-                      {/* Tooltip */}
-                      <div className="absolute right-0 bottom-full mb-2 hidden group-hover:block w-64 bg-slate-950/95 border border-white/15 p-4 rounded-xl shadow-2xl z-30 backdrop-blur-md animate-in fade-in slide-in-from-bottom-1 text-[10px]">
-                        <p className="font-bold text-[10px] text-slate-400 uppercase tracking-widest border-b border-white/10 pb-1.5 mb-2">Detalhamento Assinaturas</p>
-                        {displayPanelData.details.subscriptionsList.length === 0 ? (
-                          <p className="text-slate-500 italic">Nenhuma assinatura recorrente.</p>
-                        ) : (
-                          <div className="space-y-1.5 max-h-40 overflow-y-auto no-scrollbar">
-                            {displayPanelData.details.subscriptionsList.map((item, idx) => (
-                              <div key={idx} className="flex justify-between gap-2">
-                                <span className="text-slate-300 truncate max-w-[150px]">{item.title}</span>
-                                <span className="text-slate-200 shrink-0">{item.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Contas a Pagar */}
-                    <div className="flex justify-between items-center text-slate-400 relative group cursor-help py-1">
-                      <div className="flex items-center gap-1.5">
-                        <Wallet className="w-3.5 h-3.5 text-amber-400" />
-                        <span>Contas a Pagar</span>
-                      </div>
-                      <span className="text-slate-200">
-                        - {displayPanelData.oneOffBills.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                      </span>
-                      
-                      {/* Tooltip */}
-                      <div className="absolute right-0 bottom-full mb-2 hidden group-hover:block w-64 bg-slate-950/95 border border-white/15 p-4 rounded-xl shadow-2xl z-30 backdrop-blur-md animate-in fade-in slide-in-from-bottom-1 text-[10px]">
-                        <p className="font-bold text-[10px] text-slate-400 uppercase tracking-widest border-b border-white/10 pb-1.5 mb-2">Detalhamento Contas</p>
-                        {displayPanelData.details.oneOffBillsList.length === 0 ? (
-                          <p className="text-slate-500 italic">Nenhuma conta pendente.</p>
-                        ) : (
-                          <div className="space-y-1.5 max-h-40 overflow-y-auto no-scrollbar">
-                            {displayPanelData.details.oneOffBillsList.map((item, idx) => (
-                              <div key={idx} className="flex justify-between gap-2">
-                                <span className="text-slate-300 truncate max-w-[150px]">{item.title}</span>
-                                <span className="text-slate-200 shrink-0">{item.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Faturas de Cartões */}
-                    <div className="flex justify-between items-center text-slate-400 relative group cursor-help py-1">
-                      <div className="flex items-center gap-1.5">
-                        <CreditCard className="w-3.5 h-3.5 text-indigo-400" />
-                        <span>Faturas de Cartões</span>
-                      </div>
-                      <span className="text-slate-200">
-                        - {displayPanelData.invoices.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                      </span>
-                      
-                      {/* Tooltip */}
-                      <div className="absolute right-0 bottom-full mb-2 hidden group-hover:block w-64 bg-slate-950/95 border border-white/15 p-4 rounded-xl shadow-2xl z-30 backdrop-blur-md animate-in fade-in slide-in-from-bottom-1 text-[10px]">
-                        <p className="font-bold text-[10px] text-slate-400 uppercase tracking-widest border-b border-white/10 pb-1.5 mb-2">Faturas por Cartão</p>
-                        {displayPanelData.details.invoicesList.length === 0 ? (
-                          <p className="text-slate-500 italic">Nenhuma fatura de cartão.</p>
-                        ) : (
-                          <div className="space-y-1.5 max-h-40 overflow-y-auto no-scrollbar">
-                            {displayPanelData.details.invoicesList.map((item, idx) => (
-                              <div key={idx} className="flex justify-between gap-2">
-                                <span className="text-slate-300 truncate max-w-[150px]">{item.card_name}</span>
-                                <span className="text-slate-200 shrink-0">{item.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
-                              </div>
-                            ))}
-                          </div>
                         )}
                       </div>
                     </div>
@@ -1232,10 +987,10 @@ export default function Simulator() {
                     Como funciona?
                   </h5>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                    Este simulador cruza o seu saldo bancário atual com despesas recorrentes e faturas registradas no banco para calcular a liquidez disponível.
+                    Este simulador funciona como um sandbox isolado. Ele desconsidera as receitas e despesas operacionais automáticas do banco para que você possa focar exclusivamente em simular compras planejadas.
                   </p>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                    Adicionar compras parceladas distribuirá automaticamente a parcela devida pelos meses subsequentes, projetando o impacto nos saldos finais futuros.
+                    Personalize o Saldo Inicial desejado e simule novos itens parcelados para projetar o impacto de desembolso ao longo dos semestres.
                   </p>
                 </div>
 
