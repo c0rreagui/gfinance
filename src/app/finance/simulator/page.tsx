@@ -321,6 +321,109 @@ export default function Simulator() {
     };
   }, [simulatedTimeline, selectedMonth, dbBalancesTotal]);
 
+  // Detailed breakdown lists for tooltips corresponding to active selected month
+  const activeMonthDetails = useMemo(() => {
+    const [yearStr, monthStr] = selectedMonth.split('-');
+    const year = parseInt(yearStr, 10);
+    const monthIndex = parseInt(monthStr, 10) - 1;
+
+    // 1. Incomes list
+    const incomesList = reminders
+      .filter(r => {
+        const rDate = new Date(r.due_date);
+        return rDate.getMonth() === monthIndex && rDate.getFullYear() === year && Number(r.amount) > 0;
+      })
+      .map(r => ({
+        title: r.title,
+        amount: Number(r.amount) || 0
+      }));
+
+    // 2. Subscriptions / Recorrências list
+    const subscriptionsList = reminders
+      .filter(r => {
+        const rDate = new Date(r.due_date);
+        return rDate.getMonth() === monthIndex && rDate.getFullYear() === year && Number(r.amount) < 0 && r.is_recurring;
+      })
+      .map(r => ({
+        title: r.title,
+        amount: Math.abs(Number(r.amount) || 0)
+      }));
+
+    // 3. Contas a Pagar list
+    const oneOffBillsList = reminders
+      .filter(r => {
+        const rDate = new Date(r.due_date);
+        return rDate.getMonth() === monthIndex && rDate.getFullYear() === year && Number(r.amount) < 0 && !r.is_recurring && !r.paid;
+      })
+      .map(r => ({
+        title: r.title,
+        amount: Math.abs(Number(r.amount) || 0)
+      }));
+
+    // 4. Faturas de Cartões list
+    const invoicesList: { card_name: string; amount: number }[] = [];
+    creditCards.forEach(card => {
+      let cardAmount = 0;
+      const isCurrentMonth = monthIndex === currentDate.getMonth() && year === currentDate.getFullYear();
+      if (card.manual_invoice_amount !== null && card.manual_invoice_amount !== undefined && isCurrentMonth) {
+        cardAmount = Number(card.manual_invoice_amount);
+      } else {
+        const cardTxsSum = cardTransactions
+          .filter(t => {
+            const tDate = new Date(t.date);
+            return t.card_id === card.id && tDate.getMonth() === monthIndex && tDate.getFullYear() === year;
+          })
+          .reduce((acc, t) => acc + Math.abs(Number(t.amount) || 0), 0);
+
+        const cardRemsSum = reminders
+          .filter(r => {
+            const rDate = new Date(r.due_date);
+            return r.card_id === card.id && rDate.getMonth() === monthIndex && rDate.getFullYear() === year && Number(r.amount) < 0 && !r.paid;
+          })
+          .reduce((acc, r) => acc + Math.abs(Number(r.amount) || 0), 0);
+
+        cardAmount = cardTxsSum + cardRemsSum;
+      }
+      
+      if (cardAmount > 0) {
+        invoicesList.push({
+          card_name: card.card_name || `Cartão final ${card.last_four || 'XXXX'}`,
+          amount: cardAmount
+        });
+      }
+    });
+
+    // 5. Compras Simuladas list
+    const simulatedList = simulatedItems
+      .filter(item => {
+        const itemMonthStart = new Date(item.startMonth + '-01');
+        const currentMonthTarget = new Date(selectedMonth + '-01');
+        const diffMonths = (currentMonthTarget.getFullYear() - itemMonthStart.getFullYear()) * 12 + (currentMonthTarget.getMonth() - itemMonthStart.getMonth());
+        return diffMonths >= 0 && diffMonths < item.installments;
+      })
+      .map(item => {
+        const valuePerInstallment = item.amount / item.installments;
+        const isParcel = item.installments > 1;
+        
+        const itemMonthStart = new Date(item.startMonth + '-01');
+        const currentMonthTarget = new Date(selectedMonth + '-01');
+        const currentInstallmentNumber = ((currentMonthTarget.getFullYear() - itemMonthStart.getFullYear()) * 12 + (currentMonthTarget.getMonth() - itemMonthStart.getMonth())) + 1;
+        
+        return {
+          title: item.name + (isParcel ? ` (Parc. ${currentInstallmentNumber}/${item.installments})` : ''),
+          amount: valuePerInstallment
+        };
+      });
+
+    return {
+      incomesList,
+      subscriptionsList,
+      oneOffBillsList,
+      invoicesList,
+      simulatedList
+    };
+  }, [selectedMonth, reminders, creditCards, cardTransactions, simulatedItems, currentDate]);
+
   // Form handlers
   const handleAddItem = (e: React.FormEvent) => {
     e.preventDefault();
@@ -703,7 +806,8 @@ export default function Simulator() {
                       </span>
                     </div>
                     
-                    <div className="flex justify-between items-center text-slate-400">
+                    {/* Receitas Previstas */}
+                    <div className="flex justify-between items-center text-slate-400 relative group cursor-help py-1">
                       <div className="flex items-center gap-1.5">
                         <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />
                         <span>Receitas Previstas</span>
@@ -711,9 +815,27 @@ export default function Simulator() {
                       <span className="text-emerald-400">
                         + {activeMonthData.incomes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                       </span>
+                      
+                      {/* Tooltip */}
+                      <div className="absolute right-0 bottom-full mb-2 hidden group-hover:block w-64 bg-slate-950/95 border border-white/15 p-4 rounded-xl shadow-2xl z-30 backdrop-blur-md animate-in fade-in slide-in-from-bottom-1 text-[10px]">
+                        <p className="font-bold text-[10px] text-slate-400 uppercase tracking-widest border-b border-white/10 pb-1.5 mb-2">Detalhamento Receitas</p>
+                        {activeMonthDetails.incomesList.length === 0 ? (
+                          <p className="text-slate-500 italic">Nenhuma receita prevista.</p>
+                        ) : (
+                          <div className="space-y-1.5 max-h-40 overflow-y-auto no-scrollbar">
+                            {activeMonthDetails.incomesList.map((item, idx) => (
+                              <div key={idx} className="flex justify-between gap-2">
+                                <span className="text-slate-300 truncate max-w-[150px]">{item.title}</span>
+                                <span className="text-emerald-400 font-bold shrink-0">{item.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
 
-                    <div className="flex justify-between items-center text-slate-400">
+                    {/* Assinaturas / Recorrências */}
+                    <div className="flex justify-between items-center text-slate-400 relative group cursor-help py-1">
                       <div className="flex items-center gap-1.5">
                         <Repeat className="w-3.5 h-3.5 text-blue-400" />
                         <span>Assinaturas / Recorrências</span>
@@ -721,9 +843,27 @@ export default function Simulator() {
                       <span className="text-slate-200">
                         - {activeMonthData.subscriptions.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                       </span>
+                      
+                      {/* Tooltip */}
+                      <div className="absolute right-0 bottom-full mb-2 hidden group-hover:block w-64 bg-slate-950/95 border border-white/15 p-4 rounded-xl shadow-2xl z-30 backdrop-blur-md animate-in fade-in slide-in-from-bottom-1 text-[10px]">
+                        <p className="font-bold text-[10px] text-slate-400 uppercase tracking-widest border-b border-white/10 pb-1.5 mb-2">Detalhamento Assinaturas</p>
+                        {activeMonthDetails.subscriptionsList.length === 0 ? (
+                          <p className="text-slate-500 italic">Nenhuma assinatura recorrente.</p>
+                        ) : (
+                          <div className="space-y-1.5 max-h-40 overflow-y-auto no-scrollbar">
+                            {activeMonthDetails.subscriptionsList.map((item, idx) => (
+                              <div key={idx} className="flex justify-between gap-2">
+                                <span className="text-slate-300 truncate max-w-[150px]">{item.title}</span>
+                                <span className="text-slate-200 shrink-0">{item.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
 
-                    <div className="flex justify-between items-center text-slate-400">
+                    {/* Contas a Pagar */}
+                    <div className="flex justify-between items-center text-slate-400 relative group cursor-help py-1">
                       <div className="flex items-center gap-1.5">
                         <Wallet className="w-3.5 h-3.5 text-amber-400" />
                         <span>Contas a Pagar</span>
@@ -731,9 +871,27 @@ export default function Simulator() {
                       <span className="text-slate-200">
                         - {activeMonthData.oneOffBills.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                       </span>
+                      
+                      {/* Tooltip */}
+                      <div className="absolute right-0 bottom-full mb-2 hidden group-hover:block w-64 bg-slate-950/95 border border-white/15 p-4 rounded-xl shadow-2xl z-30 backdrop-blur-md animate-in fade-in slide-in-from-bottom-1 text-[10px]">
+                        <p className="font-bold text-[10px] text-slate-400 uppercase tracking-widest border-b border-white/10 pb-1.5 mb-2">Detalhamento Contas</p>
+                        {activeMonthDetails.oneOffBillsList.length === 0 ? (
+                          <p className="text-slate-500 italic">Nenhuma conta pendente.</p>
+                        ) : (
+                          <div className="space-y-1.5 max-h-40 overflow-y-auto no-scrollbar">
+                            {activeMonthDetails.oneOffBillsList.map((item, idx) => (
+                              <div key={idx} className="flex justify-between gap-2">
+                                <span className="text-slate-300 truncate max-w-[150px]">{item.title}</span>
+                                <span className="text-slate-200 shrink-0">{item.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
 
-                    <div className="flex justify-between items-center text-slate-400">
+                    {/* Faturas de Cartões */}
+                    <div className="flex justify-between items-center text-slate-400 relative group cursor-help py-1">
                       <div className="flex items-center gap-1.5">
                         <CreditCard className="w-3.5 h-3.5 text-indigo-400" />
                         <span>Faturas de Cartões</span>
@@ -741,9 +899,27 @@ export default function Simulator() {
                       <span className="text-slate-200">
                         - {activeMonthData.invoices.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                       </span>
+                      
+                      {/* Tooltip */}
+                      <div className="absolute right-0 bottom-full mb-2 hidden group-hover:block w-64 bg-slate-950/95 border border-white/15 p-4 rounded-xl shadow-2xl z-30 backdrop-blur-md animate-in fade-in slide-in-from-bottom-1 text-[10px]">
+                        <p className="font-bold text-[10px] text-slate-400 uppercase tracking-widest border-b border-white/10 pb-1.5 mb-2">Faturas por Cartão</p>
+                        {activeMonthDetails.invoicesList.length === 0 ? (
+                          <p className="text-slate-500 italic">Nenhuma fatura de cartão.</p>
+                        ) : (
+                          <div className="space-y-1.5 max-h-40 overflow-y-auto no-scrollbar">
+                            {activeMonthDetails.invoicesList.map((item, idx) => (
+                              <div key={idx} className="flex justify-between gap-2">
+                                <span className="text-slate-300 truncate max-w-[150px]">{item.card_name}</span>
+                                <span className="text-slate-200 shrink-0">{item.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
 
-                    <div className="flex justify-between items-center text-slate-400">
+                    {/* Compras Simuladas */}
+                    <div className="flex justify-between items-center text-slate-400 relative group cursor-help py-1">
                       <div className="flex items-center gap-1.5">
                         <ShoppingBag className="w-3.5 h-3.5 text-rose-400" />
                         <span>Compras Simuladas</span>
@@ -751,6 +927,23 @@ export default function Simulator() {
                       <span className="text-rose-400">
                         - {activeMonthData.simulatedSpent.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                       </span>
+                      
+                      {/* Tooltip */}
+                      <div className="absolute right-0 bottom-full mb-2 hidden group-hover:block w-64 bg-slate-950/95 border border-white/15 p-4 rounded-xl shadow-2xl z-30 backdrop-blur-md animate-in fade-in slide-in-from-bottom-1 text-[10px]">
+                        <p className="font-bold text-[10px] text-slate-400 uppercase tracking-widest border-b border-white/10 pb-1.5 mb-2">Detalhamento Simuladas</p>
+                        {activeMonthDetails.simulatedList.length === 0 ? (
+                          <p className="text-slate-500 italic">Nenhuma compra simulada.</p>
+                        ) : (
+                          <div className="space-y-1.5 max-h-40 overflow-y-auto no-scrollbar">
+                            {activeMonthDetails.simulatedList.map((item, idx) => (
+                              <div key={idx} className="flex justify-between gap-2">
+                                <span className="text-slate-300 truncate max-w-[150px]">{item.title}</span>
+                                <span className="text-rose-400 font-bold shrink-0">{item.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
 
