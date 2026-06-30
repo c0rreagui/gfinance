@@ -68,6 +68,8 @@ export default function Simulator() {
   const [newItemName, setNewItemName] = useState('');
   const [newItemAmount, setNewItemAmount] = useState('');
   const [newItemInstallments, setNewItemInstallments] = useState(1);
+  const [importUrl, setImportUrl] = useState('');
+  const [scraping, setScraping] = useState(false);
 
   // Load simulated items from localStorage on mount
   useEffect(() => {
@@ -358,6 +360,32 @@ export default function Simulator() {
     }
   };
 
+  const handleScrapeProduct = async () => {
+    if (!importUrl.trim()) return;
+    try {
+      setScraping(true);
+      const res = await fetch(`/api/finance/simulator/scrape?url=${encodeURIComponent(importUrl.trim())}`);
+      const data = await res.json();
+      
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Falha ao extrair dados do produto.');
+      }
+
+      if (data.name) {
+        setNewItemName(data.name);
+      }
+      if (data.price !== undefined && data.price !== null) {
+        setNewItemAmount(String(data.price));
+      }
+      
+      setImportUrl('');
+    } catch (err: any) {
+      alert(err.message || 'Erro ao tentar ler o link. Certifique-se de que a URL está correta.');
+    } finally {
+      setScraping(false);
+    }
+  };
+
   // Helper values for active selected month
   const totalOutflows = activeMonthData.subscriptions + activeMonthData.oneOffBills + activeMonthData.invoices + activeMonthData.simulatedSpent;
   const netSavings = activeMonthData.incomes - totalOutflows;
@@ -414,6 +442,34 @@ export default function Simulator() {
                   </h4>
                   
                   <form onSubmit={handleAddItem} className="grid grid-cols-1 sm:grid-cols-3 gap-6 items-end">
+                    <div className="sm:col-span-3">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Importar de Link do Produto (Amazon, Shopee, Mercado Livre, etc.)</label>
+                      <div className="flex gap-3">
+                        <input 
+                          type="url" 
+                          placeholder="Cole a URL do produto aqui..."
+                          value={importUrl}
+                          onChange={(e) => setImportUrl(e.target.value)}
+                          className="flex-1 px-4 py-3 bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-white/5 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all font-bold text-xs text-slate-700 dark:text-white placeholder:text-slate-400"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleScrapeProduct}
+                          disabled={scraping || !importUrl.trim()}
+                          className="px-6 py-3 bg-slate-900 text-white dark:bg-slate-950 dark:hover:bg-slate-900 hover:bg-slate-800 border border-slate-800 dark:border-white/5 text-[10px] font-black rounded-xl uppercase tracking-widest transition-all cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2 shrink-0"
+                        >
+                          {scraping ? (
+                            <>
+                              <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                              Extraindo...
+                            </>
+                          ) : (
+                            'Extrair Dados'
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
                     <div className="sm:col-span-1">
                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Item / Compra</label>
                       <input 
