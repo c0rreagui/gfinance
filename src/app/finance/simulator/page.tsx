@@ -4,6 +4,7 @@
  * Módulo de Simulação de Saldo e Planejamento de Compras (G-Finance).
  * Permite projetar o saldo consolidado ao adicionar compras planejadas (à vista ou parceladas),
  * deduzindo recorrências, faturas de cartão de crédito e contas a pagar do mês corrente e futuros.
+ * Exibe o timeline mensal agrupado visualmente por semestres civis do ano.
  */
 
 'use client';
@@ -18,9 +19,7 @@ import {
   Wallet, 
   Repeat, 
   CreditCard, 
-  ArrowRight, 
   Info,
-  Calendar,
   AlertTriangle,
   Sparkles,
   ShoppingBag
@@ -54,7 +53,7 @@ export default function Simulator() {
   const [creditCards, setCreditCards] = useState<any[]>([]);
   const [cardTransactions, setCardTransactions] = useState<any[]>([]);
 
-  // Simulation parameters
+  // Simulation parameters (Default selected month is current month)
   const [selectedMonth, setSelectedMonth] = useState<string>(() => {
     const year = currentDate.getFullYear();
     const month = String(currentDate.getMonth() + 1).padStart(2, '0');
@@ -124,7 +123,7 @@ export default function Simulator() {
           .eq('user_id', user.id);
         setCreditCards(cardsData || []);
 
-        // 4. Fetch Credit Card transactions for current month's open invoices
+        // 4. Fetch Credit Card transactions
         const { data: txsData } = await supabase
           .from('transactions')
           .select('*')
@@ -169,48 +168,77 @@ export default function Simulator() {
     const projectionsMap: Record<string, MonthlyData> = {};
 
     projectionMonths.forEach(({ key, label, monthIndex, year }) => {
+      const isCurrentMonth = monthIndex === currentDate.getMonth() && year === currentDate.getFullYear();
+      const currentDay = currentDate.getDate();
+
       // 1. Filter incomes (reminders with positive amounts due in this specific month)
+      // If current month, only sum reminders whose due date is today or in the future
       const monthlyIncomes = reminders
         .filter(r => {
           const rDate = new Date(r.due_date);
-          return rDate.getMonth() === monthIndex && rDate.getFullYear() === year && Number(r.amount) > 0;
+          const isTargetMonth = rDate.getMonth() === monthIndex && rDate.getFullYear() === year;
+          if (!isTargetMonth || Number(r.amount) <= 0) return false;
+          if (isCurrentMonth) {
+            const rDay = rDate.getDate();
+            return rDay >= currentDay;
+          }
+          return true;
         })
         .reduce((acc, r) => acc + (Number(r.amount) || 0), 0);
 
       // 2. Filter recurring subscriptions (negative reminders, is_recurring = true, due in this month)
+      // If current month, only sum reminders whose due date is today or in the future
       const monthlySubs = reminders
         .filter(r => {
           const rDate = new Date(r.due_date);
-          return rDate.getMonth() === monthIndex && rDate.getFullYear() === year && Number(r.amount) < 0 && r.is_recurring;
+          const isTargetMonth = rDate.getMonth() === monthIndex && rDate.getFullYear() === year;
+          if (!isTargetMonth || Number(r.amount) >= 0 || !r.is_recurring) return false;
+          if (isCurrentMonth) {
+            const rDay = rDate.getDate();
+            return rDay >= currentDay;
+          }
+          return true;
         })
         .reduce((acc, r) => acc + Math.abs(Number(r.amount) || 0), 0);
 
       // 3. Filter one-off unpaid bills (negative reminders, is_recurring = false, due in this month)
+      // If current month, only sum reminders whose due date is today or in the future
       const monthlyBills = reminders
         .filter(r => {
           const rDate = new Date(r.due_date);
-          return rDate.getMonth() === monthIndex && rDate.getFullYear() === year && Number(r.amount) < 0 && !r.is_recurring && !r.paid;
+          const isTargetMonth = rDate.getMonth() === monthIndex && rDate.getFullYear() === year;
+          if (!isTargetMonth || Number(r.amount) >= 0 || r.is_recurring || r.paid) return false;
+          if (isCurrentMonth) {
+            const rDay = rDate.getDate();
+            return rDay >= currentDay;
+          }
+          return true;
         })
         .reduce((acc, r) => acc + Math.abs(Number(r.amount) || 0), 0);
 
       // 4. Calculate Card Invoices for this month
-      // Card due dates map to this month, invoice values sum transactions + card specific reminders
+      // Assign transactions to their billing cycles: closing_day vs due_day
       let monthlyInvoices = 0;
       creditCards.forEach(card => {
-        if (card.manual_invoice_amount !== null && card.manual_invoice_amount !== undefined) {
-          // If manual override is active, use it for current month projection
-          const isCurrentMonth = monthIndex === currentDate.getMonth() && year === currentDate.getFullYear();
-          if (isCurrentMonth) {
-            monthlyInvoices += Number(card.manual_invoice_amount);
-            return;
-          }
-        }
-        
-        // Sum card transactions that are within this month's invoice cycle (simplified to transaction date matching target month)
+        const closingDay = card.closing_day || 25;
+
+        // Sum card transactions that closes in the cycle corresponding to this month's invoice payment
         const cardTxsSum = cardTransactions
           .filter(t => {
             const tDate = new Date(t.date);
-            return t.card_id === card.id && tDate.getMonth() === monthIndex && tDate.getFullYear() === year;
+            const tDay = tDate.getDate();
+            const tMonth = tDate.getMonth();
+            const tYear = tDate.getFullYear();
+
+            let billingMonth = tMonth;
+            let billingYear = tYear;
+            if (tDay > closingDay) {
+              const nextBillingDate = new Date(tYear, tMonth + 1, 1);
+              billingMonth = nextBillingDate.getMonth();
+              billingYear = nextBillingDate.getFullYear();
+            }
+
+            return t.card_id === card.id && billingMonth === monthIndex && billingYear === year;
           })
           .reduce((acc, t) => acc + Math.abs(Number(t.amount) || 0), 0);
 
@@ -218,7 +246,19 @@ export default function Simulator() {
         const cardRemsSum = reminders
           .filter(r => {
             const rDate = new Date(r.due_date);
-            return r.card_id === card.id && rDate.getMonth() === monthIndex && rDate.getFullYear() === year && Number(r.amount) < 0 && !r.paid;
+            const rDay = rDate.getDate();
+            const rMonth = rDate.getMonth();
+            const rYear = rDate.getFullYear();
+
+            let billingMonth = rMonth;
+            let billingYear = rYear;
+            if (rDay > closingDay) {
+              const nextBillingDate = new Date(rYear, rMonth + 1, 1);
+              billingMonth = nextBillingDate.getMonth();
+              billingYear = nextBillingDate.getFullYear();
+            }
+
+            return r.card_id === card.id && billingMonth === monthIndex && billingYear === year && Number(r.amount) < 0 && !r.paid;
           })
           .reduce((acc, r) => acc + Math.abs(Number(r.amount) || 0), 0);
 
@@ -281,7 +321,6 @@ export default function Simulator() {
       }, 0);
 
       // predict ending balance
-      // EndingBalance = RunningBalance + Incomes - Subscriptions - Bills - Invoices - SimulatedSpent
       const totalOutflows = base.subscriptions + base.oneOffBills + base.invoices + simulatedSpent;
       const endingBalance = runningBalance + base.incomes - totalOutflows;
 
@@ -305,6 +344,36 @@ export default function Simulator() {
     return timelineList;
   }, [projectionMonths, baseMonthlyProjections, simulatedItems, dbBalancesTotal]);
 
+  // Group the 6 projected months by semester for grouped rendering in the timeline
+  const groupedTimeline = useMemo(() => {
+    const semestersMap: Record<string, {
+      key: string;
+      label: string;
+      months: typeof simulatedTimeline;
+    }> = {};
+
+    simulatedTimeline.forEach(month => {
+      const [yearStr, monthStr] = month.monthKey.split('-');
+      const year = parseInt(yearStr, 10);
+      const monthNum = parseInt(monthStr, 10);
+      
+      const semesterIndex = monthNum <= 6 ? 1 : 2;
+      const semKey = `${year}-S${semesterIndex}`;
+      const semLabel = `${semesterIndex}º Semestre ${year}`;
+
+      if (!semestersMap[semKey]) {
+        semestersMap[semKey] = {
+          key: semKey,
+          label: semLabel,
+          months: []
+        };
+      }
+      semestersMap[semKey].months.push(month);
+    });
+
+    return Object.values(semestersMap).sort((a, b) => a.key.localeCompare(b.key));
+  }, [simulatedTimeline]);
+
   // Get data for currently selected month
   const activeMonthData = useMemo(() => {
     return simulatedTimeline.find(t => t.monthKey === selectedMonth) || {
@@ -326,12 +395,20 @@ export default function Simulator() {
     const [yearStr, monthStr] = selectedMonth.split('-');
     const year = parseInt(yearStr, 10);
     const monthIndex = parseInt(monthStr, 10) - 1;
+    const isCurrentMonth = monthIndex === currentDate.getMonth() && year === currentDate.getFullYear();
+    const currentDay = currentDate.getDate();
 
     // 1. Incomes list
     const incomesList = reminders
       .filter(r => {
         const rDate = new Date(r.due_date);
-        return rDate.getMonth() === monthIndex && rDate.getFullYear() === year && Number(r.amount) > 0;
+        const isTargetMonth = rDate.getMonth() === monthIndex && rDate.getFullYear() === year;
+        if (!isTargetMonth || Number(r.amount) <= 0) return false;
+        if (isCurrentMonth) {
+          const rDay = rDate.getDate();
+          return rDay >= currentDay;
+        }
+        return true;
       })
       .map(r => ({
         title: r.title,
@@ -342,7 +419,13 @@ export default function Simulator() {
     const subscriptionsList = reminders
       .filter(r => {
         const rDate = new Date(r.due_date);
-        return rDate.getMonth() === monthIndex && rDate.getFullYear() === year && Number(r.amount) < 0 && r.is_recurring;
+        const isTargetMonth = rDate.getMonth() === monthIndex && rDate.getFullYear() === year;
+        if (!isTargetMonth || Number(r.amount) >= 0 || !r.is_recurring) return false;
+        if (isCurrentMonth) {
+          const rDay = rDate.getDate();
+          return rDay >= currentDay;
+        }
+        return true;
       })
       .map(r => ({
         title: r.title,
@@ -353,7 +436,13 @@ export default function Simulator() {
     const oneOffBillsList = reminders
       .filter(r => {
         const rDate = new Date(r.due_date);
-        return rDate.getMonth() === monthIndex && rDate.getFullYear() === year && Number(r.amount) < 0 && !r.is_recurring && !r.paid;
+        const isTargetMonth = rDate.getMonth() === monthIndex && rDate.getFullYear() === year;
+        if (!isTargetMonth || Number(r.amount) >= 0 || r.is_recurring || r.paid) return false;
+        if (isCurrentMonth) {
+          const rDay = rDate.getDate();
+          return rDay >= currentDay;
+        }
+        return true;
       })
       .map(r => ({
         title: r.title,
@@ -363,27 +452,47 @@ export default function Simulator() {
     // 4. Faturas de Cartões list
     const invoicesList: { card_name: string; amount: number }[] = [];
     creditCards.forEach(card => {
-      let cardAmount = 0;
-      const isCurrentMonth = monthIndex === currentDate.getMonth() && year === currentDate.getFullYear();
-      if (card.manual_invoice_amount !== null && card.manual_invoice_amount !== undefined && isCurrentMonth) {
-        cardAmount = Number(card.manual_invoice_amount);
-      } else {
-        const cardTxsSum = cardTransactions
-          .filter(t => {
-            const tDate = new Date(t.date);
-            return t.card_id === card.id && tDate.getMonth() === monthIndex && tDate.getFullYear() === year;
-          })
-          .reduce((acc, t) => acc + Math.abs(Number(t.amount) || 0), 0);
+      const closingDay = card.closing_day || 25;
+      
+      const cardTxsSum = cardTransactions
+        .filter(t => {
+          const tDate = new Date(t.date);
+          const tDay = tDate.getDate();
+          const tMonth = tDate.getMonth();
+          const tYear = tDate.getFullYear();
 
-        const cardRemsSum = reminders
-          .filter(r => {
-            const rDate = new Date(r.due_date);
-            return r.card_id === card.id && rDate.getMonth() === monthIndex && rDate.getFullYear() === year && Number(r.amount) < 0 && !r.paid;
-          })
-          .reduce((acc, r) => acc + Math.abs(Number(r.amount) || 0), 0);
+          let billingMonth = tMonth;
+          let billingYear = tYear;
+          if (tDay > closingDay) {
+            const nextBillingDate = new Date(tYear, tMonth + 1, 1);
+            billingMonth = nextBillingDate.getMonth();
+            billingYear = nextBillingDate.getFullYear();
+          }
 
-        cardAmount = cardTxsSum + cardRemsSum;
-      }
+          return t.card_id === card.id && billingMonth === monthIndex && billingYear === year;
+        })
+        .reduce((acc, t) => acc + Math.abs(Number(t.amount) || 0), 0);
+
+      const cardRemsSum = reminders
+        .filter(r => {
+          const rDate = new Date(r.due_date);
+          const rDay = rDate.getDate();
+          const rMonth = rDate.getMonth();
+          const rYear = rDate.getFullYear();
+
+          let billingMonth = rMonth;
+          let billingYear = rYear;
+          if (rDay > closingDay) {
+            const nextBillingDate = new Date(rYear, rMonth + 1, 1);
+            billingMonth = nextBillingDate.getMonth();
+            billingYear = nextBillingDate.getFullYear();
+          }
+
+          return r.card_id === card.id && billingMonth === monthIndex && billingYear === year && Number(r.amount) < 0 && !r.paid;
+        })
+        .reduce((acc, r) => acc + Math.abs(Number(r.amount) || 0), 0);
+
+      const cardAmount = cardTxsSum + cardRemsSum;
       
       if (cardAmount > 0) {
         invoicesList.push({
@@ -489,12 +598,26 @@ export default function Simulator() {
     }
   };
 
-  // Helper values for active selected month
-  const totalOutflows = activeMonthData.subscriptions + activeMonthData.oneOffBills + activeMonthData.invoices + activeMonthData.simulatedSpent;
-  const netSavings = activeMonthData.incomes - totalOutflows;
-  const depletionPercent = activeMonthData.startingBalance > 0
-    ? Math.min(Math.round((totalOutflows / (activeMonthData.startingBalance + activeMonthData.incomes)) * 100), 100)
-    : 0;
+  // Determine active view panel calculations based on selectedMonth
+  const displayPanelData = useMemo(() => {
+    const totalOutflows = activeMonthData.subscriptions + activeMonthData.oneOffBills + activeMonthData.invoices + activeMonthData.simulatedSpent;
+    const depletionPercent = activeMonthData.startingBalance > 0
+      ? Math.min(Math.round((totalOutflows / (activeMonthData.startingBalance + activeMonthData.incomes)) * 100), 100)
+      : 0;
+
+    return {
+      label: activeMonthData.label,
+      startingBalance: activeMonthData.startingBalance,
+      incomes: activeMonthData.incomes,
+      subscriptions: activeMonthData.subscriptions,
+      oneOffBills: activeMonthData.oneOffBills,
+      invoices: activeMonthData.invoices,
+      simulatedSpent: activeMonthData.simulatedSpent,
+      endingBalance: activeMonthData.endingBalance,
+      depletionPercent,
+      details: activeMonthDetails
+    };
+  }, [activeMonthData, activeMonthDetails]);
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden relative h-full">
@@ -514,14 +637,16 @@ export default function Simulator() {
             </div>
             
             <div className="flex items-center gap-3">
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Mês da Simulação</span>
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                Mês da Simulação
+              </span>
               <select
                 value={selectedMonth}
                 onChange={(e) => setSelectedMonth(e.target.value)}
                 className="px-4 py-2.5 bg-white/60 dark:bg-slate-800/60 border border-slate-200 dark:border-white/5 rounded-xl font-bold text-xs text-slate-700 dark:text-white focus:outline-none cursor-pointer"
               >
-                {projectionMonths.map(m => (
-                  <option key={m.key} value={m.key}>{m.label}</option>
+                {simulatedTimeline.map(m => (
+                  <option key={m.monthKey} value={m.monthKey}>{m.label}</option>
                 ))}
               </select>
             </div>
@@ -634,7 +759,7 @@ export default function Simulator() {
                   <div className="flex justify-between items-center mb-6">
                     <h4 className="font-black text-sm uppercase tracking-wider text-slate-800 dark:text-white flex items-center gap-2">
                       <ShoppingBag className="w-4 h-4 text-emerald-500" />
-                      Compras Planejadas no Mês
+                      Compras Planejadas Ativas
                     </h4>
                     {simulatedItems.length > 0 && (
                       <button
@@ -647,22 +772,33 @@ export default function Simulator() {
                     )}
                   </div>
 
-                  {activeMonthData.simulatedItemsList.length === 0 ? (
+                  {displayPanelData.details.simulatedList.length === 0 ? (
                     <div className="py-12 border-2 border-dashed border-slate-200 dark:border-white/5 rounded-2xl flex flex-col items-center justify-center text-slate-400 gap-3">
                       <ShoppingBag className="w-8 h-8 opacity-40 text-slate-400" />
-                      <p className="text-xs font-semibold">Nenhuma compra planejada atinge {activeMonthData.label}.</p>
+                      <p className="text-xs font-semibold">Nenhuma compra planejada atinge {displayPanelData.label}.</p>
                       <p className="text-[10px] text-slate-500">Adicione compras usando o formulário acima para ver o impacto.</p>
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      {activeMonthData.simulatedItemsList.map(item => {
+                      {simulatedItems.map(item => {
                         const isInstallment = item.installments > 1;
                         const installmentVal = item.amount / item.installments;
                         
-                        // Calculate which installment number we are currently in for this month
+                        // Check if item is active in the currently selected month
                         const itemMonthStart = new Date(item.startMonth + '-01');
                         const currentMonthTarget = new Date(selectedMonth + '-01');
-                        const currentInstallmentNumber = ((currentMonthTarget.getFullYear() - itemMonthStart.getFullYear()) * 12 + (currentMonthTarget.getMonth() - itemMonthStart.getMonth())) + 1;
+                        const diffMonths = (currentMonthTarget.getFullYear() - itemMonthStart.getFullYear()) * 12 + (currentMonthTarget.getMonth() - itemMonthStart.getMonth());
+                        const isActiveInView = diffMonths >= 0 && diffMonths < item.installments;
+                        
+                        let detailText = '';
+                        if (isActiveInView) {
+                          const currentInstallmentNumber = diffMonths + 1;
+                          detailText = isInstallment 
+                            ? `Parcelado em ${item.installments}x (Parc. ${currentInstallmentNumber} de ${item.installments} neste mês)` 
+                            : 'Compra à Vista';
+                        }
+
+                        if (!isActiveInView) return null;
 
                         return (
                           <div 
@@ -672,10 +808,7 @@ export default function Simulator() {
                             <div className="min-w-0 flex-1">
                               <h5 className="text-xs font-bold text-slate-800 dark:text-white truncate">{item.name}</h5>
                               <p className="text-[9px] text-slate-400 mt-0.5">
-                                {isInstallment 
-                                  ? `Parcelado em ${item.installments}x (Parc. ${currentInstallmentNumber} de ${item.installments} neste mês)` 
-                                  : 'Compra à Vista'} 
-                                &bull; Início em {new Date(item.startMonth + '-02').toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' })}
+                                {detailText} &bull; Início em {new Date(item.startMonth + '-02').toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' })}
                               </p>
                             </div>
                             
@@ -706,48 +839,63 @@ export default function Simulator() {
                   )}
                 </div>
 
-                {/* Simulated 6-Month Timeline Card */}
+                {/* Simulated Visual Timeline Card grouped by semesters */}
                 <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md p-8 rounded-[32px] border border-white/50 dark:border-white/5 shadow-sm space-y-6">
                   <h4 className="font-black text-sm uppercase tracking-wider text-slate-800 dark:text-white flex items-center gap-2">
                     <TrendingUp className="w-4 h-4 text-emerald-500" />
-                    Projeção e Fluxo de Caixa (6 Meses)
+                    Projeção e Fluxo de Caixa Futuro
                   </h4>
                   
-                  <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
-                    {simulatedTimeline.map((t, idx) => {
-                      const isNegative = t.endingBalance < 0;
-                      const isActive = t.monthKey === selectedMonth;
+                  <div className="space-y-8">
+                    {groupedTimeline.map((s) => (
+                      <div key={s.key} className="space-y-4">
+                        <span className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest block border-b border-slate-100 dark:border-white/5 pb-2">
+                          {s.label}
+                        </span>
+                        
+                        <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+                          {s.months.map((t) => {
+                            const isNegative = t.endingBalance < 0;
+                            const isActive = t.monthKey === selectedMonth;
+                            
+                            // Parse key to display Month abbreviation / Short year: ex JUN / 26
+                            const formattedLabelMonth = new Date(t.monthKey + '-02').toLocaleDateString('pt-BR', { month: 'short' }).toUpperCase().replace('.', '');
+                            const formattedLabelYear = new Date(t.monthKey + '-02').toLocaleDateString('pt-BR', { year: '2-digit' });
 
-                      return (
-                        <button
-                          key={t.monthKey}
-                          onClick={() => setSelectedMonth(t.monthKey)}
-                          className={`p-4 rounded-2xl border text-left flex flex-col justify-between transition-all duration-300 cursor-pointer h-32 ${
-                            isActive
-                              ? 'bg-emerald-500/10 border-emerald-500/30 ring-2 ring-emerald-500/20 shadow-md'
-                              : 'bg-slate-500/5 hover:bg-slate-500/10 border-slate-100 dark:border-white/5'
-                          }`}
-                        >
-                          <div>
-                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block truncate">
-                              {t.label.split(' ')[0]}
-                            </span>
-                            <span className="text-[8px] font-medium text-slate-500 dark:text-slate-400">
-                              {t.label.split(' ')[1]}
-                            </span>
-                          </div>
+                            return (
+                              <button
+                                key={t.monthKey}
+                                type="button"
+                                onClick={() => setSelectedMonth(t.monthKey)}
+                                className={`p-4 rounded-2xl border text-left flex flex-col justify-between transition-all duration-300 cursor-pointer h-32 ${
+                                  isActive
+                                    ? 'bg-emerald-500/10 border-emerald-500/30 ring-2 ring-emerald-500/20 shadow-md'
+                                    : 'bg-slate-500/5 hover:bg-slate-500/10 border-slate-100 dark:border-white/5'
+                                }`}
+                              >
+                                <div>
+                                  <span className="text-[10px] font-black text-slate-800 dark:text-white uppercase tracking-wider block truncate">
+                                    {formattedLabelMonth}
+                                  </span>
+                                  <span className="text-[8px] font-black text-slate-400 block">
+                                    / {formattedLabelYear}
+                                  </span>
+                                </div>
 
-                          <div className="mt-4">
-                            <span className="text-[9px] text-slate-400 block">Saldo Final</span>
-                            <span className={`text-xs font-black tracking-tight block ${
-                              isNegative ? 'text-rose-500' : 'text-slate-800 dark:text-white'
-                            }`}>
-                              {t.endingBalance.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 })}
-                            </span>
-                          </div>
-                        </button>
-                      );
-                    })}
+                                <div className="mt-4">
+                                  <span className="text-[9px] text-slate-400 block">Saldo Final</span>
+                                  <span className={`text-xs font-black tracking-tight block ${
+                                    isNegative ? 'text-rose-500' : 'text-slate-800 dark:text-white'
+                                  }`}>
+                                    {t.endingBalance.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 })}
+                                  </span>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
 
@@ -762,16 +910,16 @@ export default function Simulator() {
                   
                   <h4 className="font-black text-sm uppercase tracking-wider text-slate-400 flex items-center gap-2">
                     <Info className="w-4 h-4 text-emerald-500" />
-                    Projeção {activeMonthData.label}
+                    Projeção {displayPanelData.label}
                   </h4>
 
                   {/* Prediction Balance Main */}
                   <div className="space-y-1">
                     <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Saldo Final Previsto</span>
                     <h2 className={`text-3xl font-black tracking-tight ${
-                      activeMonthData.endingBalance < 0 ? 'text-rose-500' : 'text-emerald-400'
+                      displayPanelData.endingBalance < 0 ? 'text-rose-500' : 'text-emerald-400'
                     }`}>
-                      {activeMonthData.endingBalance.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                      {displayPanelData.endingBalance.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                     </h2>
                   </div>
 
@@ -779,20 +927,20 @@ export default function Simulator() {
                   <div className="space-y-2 pt-4">
                     <div className="flex justify-between text-[10px] font-black uppercase tracking-widest text-slate-400">
                       <span>Consumo de Receita + Saldo</span>
-                      <span className={depletionPercent > 80 ? 'text-orange-400' : 'text-slate-300'}>
-                        {depletionPercent}%
+                      <span className={displayPanelData.depletionPercent > 80 ? 'text-orange-400' : 'text-slate-300'}>
+                        {displayPanelData.depletionPercent}%
                       </span>
                     </div>
                     <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
                       <div 
                         className={`h-full rounded-full transition-all duration-500 ${
-                          depletionPercent > 90 
+                          displayPanelData.depletionPercent > 90 
                             ? 'bg-rose-500' 
-                            : depletionPercent > 70 
+                            : displayPanelData.depletionPercent > 70 
                               ? 'bg-orange-500' 
                               : 'bg-emerald-500'
                         }`}
-                        style={{ width: `${depletionPercent}%` }}
+                        style={{ width: `${displayPanelData.depletionPercent}%` }}
                       ></div>
                     </div>
                   </div>
@@ -802,7 +950,7 @@ export default function Simulator() {
                     <div className="flex justify-between items-center text-slate-400">
                       <span>Saldo Inicial</span>
                       <span className="text-white">
-                        {activeMonthData.startingBalance.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        {displayPanelData.startingBalance.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                       </span>
                     </div>
                     
@@ -813,17 +961,17 @@ export default function Simulator() {
                         <span>Receitas Previstas</span>
                       </div>
                       <span className="text-emerald-400">
-                        + {activeMonthData.incomes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        + {displayPanelData.incomes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                       </span>
                       
                       {/* Tooltip */}
                       <div className="absolute right-0 bottom-full mb-2 hidden group-hover:block w-64 bg-slate-950/95 border border-white/15 p-4 rounded-xl shadow-2xl z-30 backdrop-blur-md animate-in fade-in slide-in-from-bottom-1 text-[10px]">
                         <p className="font-bold text-[10px] text-slate-400 uppercase tracking-widest border-b border-white/10 pb-1.5 mb-2">Detalhamento Receitas</p>
-                        {activeMonthDetails.incomesList.length === 0 ? (
+                        {displayPanelData.details.incomesList.length === 0 ? (
                           <p className="text-slate-500 italic">Nenhuma receita prevista.</p>
                         ) : (
                           <div className="space-y-1.5 max-h-40 overflow-y-auto no-scrollbar">
-                            {activeMonthDetails.incomesList.map((item, idx) => (
+                            {displayPanelData.details.incomesList.map((item, idx) => (
                               <div key={idx} className="flex justify-between gap-2">
                                 <span className="text-slate-300 truncate max-w-[150px]">{item.title}</span>
                                 <span className="text-emerald-400 font-bold shrink-0">{item.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
@@ -841,17 +989,17 @@ export default function Simulator() {
                         <span>Assinaturas / Recorrências</span>
                       </div>
                       <span className="text-slate-200">
-                        - {activeMonthData.subscriptions.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        - {displayPanelData.subscriptions.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                       </span>
                       
                       {/* Tooltip */}
                       <div className="absolute right-0 bottom-full mb-2 hidden group-hover:block w-64 bg-slate-950/95 border border-white/15 p-4 rounded-xl shadow-2xl z-30 backdrop-blur-md animate-in fade-in slide-in-from-bottom-1 text-[10px]">
                         <p className="font-bold text-[10px] text-slate-400 uppercase tracking-widest border-b border-white/10 pb-1.5 mb-2">Detalhamento Assinaturas</p>
-                        {activeMonthDetails.subscriptionsList.length === 0 ? (
+                        {displayPanelData.details.subscriptionsList.length === 0 ? (
                           <p className="text-slate-500 italic">Nenhuma assinatura recorrente.</p>
                         ) : (
                           <div className="space-y-1.5 max-h-40 overflow-y-auto no-scrollbar">
-                            {activeMonthDetails.subscriptionsList.map((item, idx) => (
+                            {displayPanelData.details.subscriptionsList.map((item, idx) => (
                               <div key={idx} className="flex justify-between gap-2">
                                 <span className="text-slate-300 truncate max-w-[150px]">{item.title}</span>
                                 <span className="text-slate-200 shrink-0">{item.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
@@ -869,17 +1017,17 @@ export default function Simulator() {
                         <span>Contas a Pagar</span>
                       </div>
                       <span className="text-slate-200">
-                        - {activeMonthData.oneOffBills.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        - {displayPanelData.oneOffBills.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                       </span>
                       
                       {/* Tooltip */}
                       <div className="absolute right-0 bottom-full mb-2 hidden group-hover:block w-64 bg-slate-950/95 border border-white/15 p-4 rounded-xl shadow-2xl z-30 backdrop-blur-md animate-in fade-in slide-in-from-bottom-1 text-[10px]">
                         <p className="font-bold text-[10px] text-slate-400 uppercase tracking-widest border-b border-white/10 pb-1.5 mb-2">Detalhamento Contas</p>
-                        {activeMonthDetails.oneOffBillsList.length === 0 ? (
+                        {displayPanelData.details.oneOffBillsList.length === 0 ? (
                           <p className="text-slate-500 italic">Nenhuma conta pendente.</p>
                         ) : (
                           <div className="space-y-1.5 max-h-40 overflow-y-auto no-scrollbar">
-                            {activeMonthDetails.oneOffBillsList.map((item, idx) => (
+                            {displayPanelData.details.oneOffBillsList.map((item, idx) => (
                               <div key={idx} className="flex justify-between gap-2">
                                 <span className="text-slate-300 truncate max-w-[150px]">{item.title}</span>
                                 <span className="text-slate-200 shrink-0">{item.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
@@ -897,17 +1045,17 @@ export default function Simulator() {
                         <span>Faturas de Cartões</span>
                       </div>
                       <span className="text-slate-200">
-                        - {activeMonthData.invoices.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        - {displayPanelData.invoices.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                       </span>
                       
                       {/* Tooltip */}
                       <div className="absolute right-0 bottom-full mb-2 hidden group-hover:block w-64 bg-slate-950/95 border border-white/15 p-4 rounded-xl shadow-2xl z-30 backdrop-blur-md animate-in fade-in slide-in-from-bottom-1 text-[10px]">
                         <p className="font-bold text-[10px] text-slate-400 uppercase tracking-widest border-b border-white/10 pb-1.5 mb-2">Faturas por Cartão</p>
-                        {activeMonthDetails.invoicesList.length === 0 ? (
+                        {displayPanelData.details.invoicesList.length === 0 ? (
                           <p className="text-slate-500 italic">Nenhuma fatura de cartão.</p>
                         ) : (
                           <div className="space-y-1.5 max-h-40 overflow-y-auto no-scrollbar">
-                            {activeMonthDetails.invoicesList.map((item, idx) => (
+                            {displayPanelData.details.invoicesList.map((item, idx) => (
                               <div key={idx} className="flex justify-between gap-2">
                                 <span className="text-slate-300 truncate max-w-[150px]">{item.card_name}</span>
                                 <span className="text-slate-200 shrink-0">{item.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
@@ -925,17 +1073,17 @@ export default function Simulator() {
                         <span>Compras Simuladas</span>
                       </div>
                       <span className="text-rose-400">
-                        - {activeMonthData.simulatedSpent.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        - {displayPanelData.simulatedSpent.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                       </span>
                       
                       {/* Tooltip */}
                       <div className="absolute right-0 bottom-full mb-2 hidden group-hover:block w-64 bg-slate-950/95 border border-white/15 p-4 rounded-xl shadow-2xl z-30 backdrop-blur-md animate-in fade-in slide-in-from-bottom-1 text-[10px]">
                         <p className="font-bold text-[10px] text-slate-400 uppercase tracking-widest border-b border-white/10 pb-1.5 mb-2">Detalhamento Simuladas</p>
-                        {activeMonthDetails.simulatedList.length === 0 ? (
+                        {displayPanelData.details.simulatedList.length === 0 ? (
                           <p className="text-slate-500 italic">Nenhuma compra simulada.</p>
                         ) : (
                           <div className="space-y-1.5 max-h-40 overflow-y-auto no-scrollbar">
-                            {activeMonthDetails.simulatedList.map((item, idx) => (
+                            {displayPanelData.details.simulatedList.map((item, idx) => (
                               <div key={idx} className="flex justify-between gap-2">
                                 <span className="text-slate-300 truncate max-w-[150px]">{item.title}</span>
                                 <span className="text-rose-400 font-bold shrink-0">{item.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
@@ -948,12 +1096,12 @@ export default function Simulator() {
                   </div>
 
                   {/* Visual warning on negative forecasted balance */}
-                  {activeMonthData.endingBalance < 0 && (
+                  {displayPanelData.endingBalance < 0 && (
                     <div className="p-4 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-2xl flex items-start gap-2.5 mt-6 text-xs font-semibold">
                       <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
                       <div>
                         <p className="font-bold text-rose-300">Alerta de Fluxo de Caixa!</p>
-                        <p className="mt-0.5 leading-normal opacity-90">Simulações indicam que seu saldo consolidado ficará negativo neste mês. Revise compras ou planeje novos recebimentos.</p>
+                        <p className="mt-0.5 leading-normal opacity-90">Simulações indicam que seu saldo consolidado ficará negativo neste período. Revise compras ou planeje novos recebimentos.</p>
                       </div>
                     </div>
                   )}
