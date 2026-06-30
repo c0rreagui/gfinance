@@ -172,12 +172,20 @@ export default function Simulator() {
       const currentDay = currentDate.getDate();
 
       // 1. Filter incomes (reminders with positive amounts due in this specific month)
+      // If recurring, matches target month if target is equal to or after original due date month
       // If current month, only sum reminders whose due date is today or in the future
       const monthlyIncomes = reminders
         .filter(r => {
           const rDate = new Date(r.due_date);
-          const isTargetMonth = rDate.getMonth() === monthIndex && rDate.getFullYear() === year;
-          if (!isTargetMonth || Number(r.amount) <= 0) return false;
+          const rMonth = rDate.getMonth();
+          const rYear = rDate.getFullYear();
+
+          const matchesMonth = r.is_recurring
+            ? ((year > rYear) || (year === rYear && monthIndex >= rMonth))
+            : (rMonth === monthIndex && rYear === year);
+
+          if (!matchesMonth || Number(r.amount) <= 0) return false;
+          
           if (isCurrentMonth) {
             const rDay = rDate.getDate();
             return rDay >= currentDay;
@@ -187,12 +195,18 @@ export default function Simulator() {
         .reduce((acc, r) => acc + (Number(r.amount) || 0), 0);
 
       // 2. Filter recurring subscriptions (negative reminders, is_recurring = true, due in this month)
-      // If current month, only sum reminders whose due date is today or in the future
       const monthlySubs = reminders
         .filter(r => {
           const rDate = new Date(r.due_date);
-          const isTargetMonth = rDate.getMonth() === monthIndex && rDate.getFullYear() === year;
-          if (!isTargetMonth || Number(r.amount) >= 0 || !r.is_recurring) return false;
+          const rMonth = rDate.getMonth();
+          const rYear = rDate.getFullYear();
+
+          const matchesMonth = r.is_recurring
+            ? ((year > rYear) || (year === rYear && monthIndex >= rMonth))
+            : (rMonth === monthIndex && rYear === year);
+
+          if (!matchesMonth || Number(r.amount) >= 0 || !r.is_recurring) return false;
+          
           if (isCurrentMonth) {
             const rDay = rDate.getDate();
             return rDay >= currentDay;
@@ -202,12 +216,16 @@ export default function Simulator() {
         .reduce((acc, r) => acc + Math.abs(Number(r.amount) || 0), 0);
 
       // 3. Filter one-off unpaid bills (negative reminders, is_recurring = false, due in this month)
-      // If current month, only sum reminders whose due date is today or in the future
       const monthlyBills = reminders
         .filter(r => {
           const rDate = new Date(r.due_date);
-          const isTargetMonth = rDate.getMonth() === monthIndex && rDate.getFullYear() === year;
-          if (!isTargetMonth || Number(r.amount) >= 0 || r.is_recurring || r.paid) return false;
+          const rMonth = rDate.getMonth();
+          const rYear = rDate.getFullYear();
+
+          const matchesMonth = rMonth === monthIndex && rYear === year;
+
+          if (!matchesMonth || Number(r.amount) >= 0 || r.is_recurring || r.paid) return false;
+          
           if (isCurrentMonth) {
             const rDay = rDate.getDate();
             return rDay >= currentDay;
@@ -217,7 +235,7 @@ export default function Simulator() {
         .reduce((acc, r) => acc + Math.abs(Number(r.amount) || 0), 0);
 
       // 4. Calculate Card Invoices for this month
-      // Assign transactions to their billing cycles: closing_day vs due_day
+      // Assign transactions and recurring card reminders to their billing cycles
       let monthlyInvoices = 0;
       creditCards.forEach(card => {
         const closingDay = card.closing_day || 25;
@@ -245,20 +263,38 @@ export default function Simulator() {
         // Sum card reminders (installments or bills set to go through card)
         const cardRemsSum = reminders
           .filter(r => {
+            if (r.card_id !== card.id || Number(r.amount) >= 0 || r.paid) return false;
+
             const rDate = new Date(r.due_date);
-            const rDay = rDate.getDate();
             const rMonth = rDate.getMonth();
             const rYear = rDate.getFullYear();
+            const rDay = rDate.getDate();
 
-            let billingMonth = rMonth;
-            let billingYear = rYear;
-            if (rDay > closingDay) {
-              const nextBillingDate = new Date(rYear, rMonth + 1, 1);
-              billingMonth = nextBillingDate.getMonth();
-              billingYear = nextBillingDate.getFullYear();
+            if (r.is_recurring) {
+              const isActive = (year > rYear) || (year === rYear && monthIndex >= rMonth);
+              if (!isActive) return false;
+
+              let billingMonth = monthIndex;
+              let billingYear = year;
+              if (rDay > closingDay) {
+                const nextBillingDate = new Date(year, monthIndex + 1, 1);
+                billingMonth = nextBillingDate.getMonth();
+                billingYear = nextBillingDate.getFullYear();
+              }
+              return billingMonth === monthIndex && billingYear === year;
+            } else {
+              const matchesMonth = rMonth === monthIndex && rYear === year;
+              if (!matchesMonth) return false;
+
+              let billingMonth = rMonth;
+              let billingYear = rYear;
+              if (rDay > closingDay) {
+                const nextBillingDate = new Date(rYear, rMonth + 1, 1);
+                billingMonth = nextBillingDate.getMonth();
+                billingYear = nextBillingDate.getFullYear();
+              }
+              return billingMonth === monthIndex && billingYear === year;
             }
-
-            return r.card_id === card.id && billingMonth === monthIndex && billingYear === year && Number(r.amount) < 0 && !r.paid;
           })
           .reduce((acc, r) => acc + Math.abs(Number(r.amount) || 0), 0);
 
@@ -402,8 +438,14 @@ export default function Simulator() {
     const incomesList = reminders
       .filter(r => {
         const rDate = new Date(r.due_date);
-        const isTargetMonth = rDate.getMonth() === monthIndex && rDate.getFullYear() === year;
-        if (!isTargetMonth || Number(r.amount) <= 0) return false;
+        const rMonth = rDate.getMonth();
+        const rYear = rDate.getFullYear();
+
+        const matchesMonth = r.is_recurring
+          ? ((year > rYear) || (year === rYear && monthIndex >= rMonth))
+          : (rMonth === monthIndex && rYear === year);
+
+        if (!matchesMonth || Number(r.amount) <= 0) return false;
         if (isCurrentMonth) {
           const rDay = rDate.getDate();
           return rDay >= currentDay;
@@ -419,8 +461,14 @@ export default function Simulator() {
     const subscriptionsList = reminders
       .filter(r => {
         const rDate = new Date(r.due_date);
-        const isTargetMonth = rDate.getMonth() === monthIndex && rDate.getFullYear() === year;
-        if (!isTargetMonth || Number(r.amount) >= 0 || !r.is_recurring) return false;
+        const rMonth = rDate.getMonth();
+        const rYear = rDate.getFullYear();
+
+        const matchesMonth = r.is_recurring
+          ? ((year > rYear) || (year === rYear && monthIndex >= rMonth))
+          : (rMonth === monthIndex && rYear === year);
+
+        if (!matchesMonth || Number(r.amount) >= 0 || !r.is_recurring) return false;
         if (isCurrentMonth) {
           const rDay = rDate.getDate();
           return rDay >= currentDay;
@@ -436,8 +484,12 @@ export default function Simulator() {
     const oneOffBillsList = reminders
       .filter(r => {
         const rDate = new Date(r.due_date);
-        const isTargetMonth = rDate.getMonth() === monthIndex && rDate.getFullYear() === year;
-        if (!isTargetMonth || Number(r.amount) >= 0 || r.is_recurring || r.paid) return false;
+        const rMonth = rDate.getMonth();
+        const rYear = rDate.getFullYear();
+
+        const matchesMonth = rMonth === monthIndex && rYear === year;
+
+        if (!matchesMonth || Number(r.amount) >= 0 || r.is_recurring || r.paid) return false;
         if (isCurrentMonth) {
           const rDay = rDate.getDate();
           return rDay >= currentDay;
@@ -475,20 +527,38 @@ export default function Simulator() {
 
       const cardRemsSum = reminders
         .filter(r => {
+          if (r.card_id !== card.id || Number(r.amount) >= 0 || r.paid) return false;
+
           const rDate = new Date(r.due_date);
-          const rDay = rDate.getDate();
           const rMonth = rDate.getMonth();
           const rYear = rDate.getFullYear();
+          const rDay = rDate.getDate();
 
-          let billingMonth = rMonth;
-          let billingYear = rYear;
-          if (rDay > closingDay) {
-            const nextBillingDate = new Date(rYear, rMonth + 1, 1);
-            billingMonth = nextBillingDate.getMonth();
-            billingYear = nextBillingDate.getFullYear();
+          if (r.is_recurring) {
+            const isActive = (year > rYear) || (year === rYear && monthIndex >= rMonth);
+            if (!isActive) return false;
+
+            let billingMonth = monthIndex;
+            let billingYear = year;
+            if (rDay > closingDay) {
+              const nextBillingDate = new Date(year, monthIndex + 1, 1);
+              billingMonth = nextBillingDate.getMonth();
+              billingYear = nextBillingDate.getFullYear();
+            }
+            return billingMonth === monthIndex && billingYear === year;
+          } else {
+            const matchesMonth = rMonth === monthIndex && rYear === year;
+            if (!matchesMonth) return false;
+
+            let billingMonth = rMonth;
+            let billingYear = rYear;
+            if (rDay > closingDay) {
+              const nextBillingDate = new Date(rYear, rMonth + 1, 1);
+              billingMonth = nextBillingDate.getMonth();
+              billingYear = nextBillingDate.getFullYear();
+            }
+            return billingMonth === monthIndex && billingYear === year;
           }
-
-          return r.card_id === card.id && billingMonth === monthIndex && billingYear === year && Number(r.amount) < 0 && !r.paid;
         })
         .reduce((acc, r) => acc + Math.abs(Number(r.amount) || 0), 0);
 
