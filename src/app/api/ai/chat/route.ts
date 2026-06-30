@@ -196,6 +196,7 @@ export async function POST(req: Request): Promise<NextResponse> {
         chatHistory,
         module,
         {
+          provider: profile.llm_provider,
           apiUrl: profile.llm_api_url || '',
           apiKey: profile.llm_api_key,
           model: profile.llm_model || ''

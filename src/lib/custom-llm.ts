@@ -52,7 +52,8 @@ function sanitizeParameters(param: any) {
 }
 
 export interface CustomLLMConfig {
-  apiUrl: string;
+  provider: string;
+  apiUrl?: string | null;
   apiKey?: string | null;
   model: string;
 }
@@ -65,8 +66,15 @@ export async function generateCustomLLMResponse(
   supabaseClient: any,
   systemPrompt: string
 ): Promise<string> {
-  // 1. Resolver URL do endpoint compatível com OpenAI chat
-  let endpoint = llmConfig.apiUrl;
+  // 1. Resolver URL do endpoint compatível com OpenAI chat com fallback para provedores conhecidos
+  let endpoint = llmConfig.apiUrl || '';
+  if (!endpoint) {
+    if (llmConfig.provider === 'ollama') {
+      endpoint = 'https://api.ollama.cloud';
+    } else if (llmConfig.provider === 'openai') {
+      endpoint = 'https://api.openai.com';
+    }
+  }
   if (!endpoint.includes('/chat/completions') && !endpoint.includes('/completions')) {
     endpoint = endpoint.replace(/\/$/, '') + '/v1/chat/completions';
   }

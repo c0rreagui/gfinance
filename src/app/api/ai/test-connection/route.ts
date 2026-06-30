@@ -53,11 +53,16 @@ export async function POST(req: Request): Promise<NextResponse> {
   }
 
   // Test OpenAI / Ollama connection
-  if (!apiUrl) {
-    return NextResponse.json({ success: false, error: 'A URL da API é obrigatória.' });
+  let endpoint = apiUrl || '';
+  if (!endpoint) {
+    if (provider === 'ollama') {
+      endpoint = 'https://api.ollama.cloud';
+    } else if (provider === 'openai') {
+      endpoint = 'https://api.openai.com';
+    } else {
+      return NextResponse.json({ success: false, error: 'A URL da API é obrigatória para este provedor.' });
+    }
   }
-
-  let endpoint = apiUrl;
   if (!endpoint.includes('/chat/completions') && !endpoint.includes('/completions')) {
     endpoint = endpoint.replace(/\/$/, '') + '/v1/chat/completions';
   }

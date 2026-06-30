@@ -971,14 +971,13 @@ export default function Settings() {
 
                 {llmProvider !== 'gemini' && (
                   <div className="md:col-span-2">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">URL Base da API</label>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">URL Base da API (Opcional)</label>
                     <input
                       type="url"
                       placeholder={llmProvider === 'ollama' ? 'https://api.ollama.cloud' : llmProvider === 'openai' ? 'https://api.openai.com' : 'https://api.seumodelo.com'}
                       value={llmApiUrl}
                       onChange={(e) => setLlmApiUrl(e.target.value)}
                       className="w-full px-6 py-4 bg-white/40 dark:bg-slate-800/40 border border-slate-200 dark:border-white/5 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all font-bold text-slate-700 dark:text-white"
-                      required
                     />
                     <p className="text-[10px] text-slate-400 mt-2">Dica: Adicione o endereço raiz da API. O endpoint de chat completions (/v1/chat/completions) será resolvido automaticamente se omitido.</p>
                   </div>
@@ -989,10 +988,11 @@ export default function Settings() {
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">API Key (Chave de Autenticação)</label>
                     <input
                       type="password"
-                      placeholder="Deixe em branco se a API não necessitar de autenticação"
+                      placeholder="Digite a chave de autenticação (API Key)"
                       value={llmApiKey}
                       onChange={(e) => setLlmApiKey(e.target.value)}
                       className="w-full px-6 py-4 bg-white/40 dark:bg-slate-800/40 border border-slate-200 dark:border-white/5 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all font-bold text-slate-700 dark:text-white"
+                      required
                     />
                   </div>
                 )}
