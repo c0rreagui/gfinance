@@ -13,6 +13,28 @@ interface Profile {
   pin: string | null;
   initial_balance?: number;
 }
+const PRESETS_MODELS = {
+  ollama: [
+    { label: 'Llama 3 (Padrão)', value: 'llama3' },
+    { label: 'Llama 3 8B', value: 'llama3:8b' },
+    { label: 'Llama 3 70B', value: 'llama3:70b' },
+    { label: 'Gemma 2 (Padrão)', value: 'gemma2' },
+    { label: 'Gemma 2 9B', value: 'gemma2:9b' },
+    { label: 'Gemma 2 27B', value: 'gemma2:27b' },
+    { label: 'Gemma (Legacy)', value: 'gemma' },
+    { label: 'Mistral 7B', value: 'mistral' },
+    { label: 'Phi 3', value: 'phi3' },
+    { label: 'Qwen 2', value: 'qwen2' },
+    { label: 'Qwen 2 7B', value: 'qwen2:7b' },
+  ],
+  openai: [
+    { label: 'GPT-4o (Flagship)', value: 'gpt-4o' },
+    { label: 'GPT-4o Mini (Fast & Cheap)', value: 'gpt-4o-mini' },
+    { label: 'GPT-4 Turbo', value: 'gpt-4-turbo' },
+    { label: 'GPT-4', value: 'gpt-4' },
+    { label: 'GPT-3.5 Turbo', value: 'gpt-3.5-turbo' },
+  ]
+};
 
 export default function Settings() {
   const [profile, setProfile] = useState<Profile>({ id: '', full_name: '', avatar_url: '', pin: null, initial_balance: 0 });
@@ -71,6 +93,7 @@ export default function Settings() {
   const [llmModel, setLlmModel] = useState('');
   const [testingLlm, setTestingLlm] = useState(false);
   const [llmTestResult, setLlmTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [isCustomModel, setIsCustomModel] = useState(false);
 
   const fetchStaticMemory = async (type: string) => {
     setStaticLoading(true);
@@ -216,10 +239,17 @@ export default function Settings() {
             setDriveFolderId(currentProfile.google_drive_folder_id || '');
             setDriveFolderName(currentProfile.google_drive_folder_name || '');
             setLastSyncAt(currentProfile.google_drive_last_sync_at || null);
-            setLlmProvider(currentProfile.llm_provider || 'gemini');
+            const provider = currentProfile.llm_provider || 'gemini';
+            const modelVal = currentProfile.llm_model || '';
+            setLlmProvider(provider as any);
             setLlmApiUrl(currentProfile.llm_api_url || '');
             setLlmApiKey(currentProfile.llm_api_key || '');
-            setLlmModel(currentProfile.llm_model || '');
+            setLlmModel(modelVal);
+
+            // Determine if model is custom
+            const presets = PRESETS_MODELS[provider as 'ollama' | 'openai'] || [];
+            const isPreset = presets.some(m => m.value === modelVal);
+            setIsCustomModel(modelVal !== '' && !isPreset);
           }
           setProfile(currentProfile);
         }
@@ -945,7 +975,12 @@ export default function Settings() {
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Provedor de LLM</label>
                   <select
                     value={llmProvider}
-                    onChange={(e) => setLlmProvider(e.target.value as any)}
+                    onChange={(e) => {
+                      const prov = e.target.value as any;
+                      setLlmProvider(prov);
+                      setIsCustomModel(prov === 'custom');
+                      setLlmModel('');
+                    }}
                     className="w-full px-6 py-4 bg-white/40 dark:bg-slate-800/40 border border-slate-200 dark:border-white/5 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all font-bold text-slate-700 dark:text-white text-sm cursor-pointer"
                   >
                     <option value="gemini">Google Gemini (Nativo)</option>
@@ -958,9 +993,47 @@ export default function Settings() {
                 {llmProvider !== 'gemini' && (
                   <div>
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Nome do Modelo (Model ID)</label>
+                    <select
+                      value={isCustomModel ? 'custom' : llmModel}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === 'custom') {
+                          setIsCustomModel(true);
+                          setLlmModel('');
+                        } else {
+                          setIsCustomModel(false);
+                          setLlmModel(val);
+                        }
+                      }}
+                      className="w-full px-6 py-4 bg-white/40 dark:bg-slate-800/40 border border-slate-200 dark:border-white/5 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all font-bold text-slate-700 dark:text-white text-sm cursor-pointer"
+                      required
+                    >
+                      <option value="">Selecione um modelo...</option>
+                      {llmProvider === 'ollama' && (
+                        <optgroup label="Modelos Ollama">
+                          {PRESETS_MODELS.ollama.map(m => (
+                            <option key={m.value} value={m.value}>{m.label}</option>
+                          ))}
+                        </optgroup>
+                      )}
+                      {llmProvider === 'openai' && (
+                        <optgroup label="Modelos OpenAI">
+                          {PRESETS_MODELS.openai.map(m => (
+                            <option key={m.value} value={m.value}>{m.label}</option>
+                          ))}
+                        </optgroup>
+                      )}
+                      <option value="custom">Outro (Especificar ID personalizado)...</option>
+                    </select>
+                  </div>
+                )}
+
+                {llmProvider !== 'gemini' && isCustomModel && (
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Model ID Personalizado</label>
                     <input
                       type="text"
-                      placeholder={llmProvider === 'ollama' ? 'llama3' : llmProvider === 'openai' ? 'gpt-4o' : 'custom-model-id'}
+                      placeholder="Ex: mistral-nemo, gemma2:2b"
                       value={llmModel}
                       onChange={(e) => setLlmModel(e.target.value)}
                       className="w-full px-6 py-4 bg-white/40 dark:bg-slate-800/40 border border-slate-200 dark:border-white/5 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all font-bold text-slate-700 dark:text-white"

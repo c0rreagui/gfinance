@@ -140,8 +140,38 @@ export function AiChatHub({ isFloating = false, forcedModule }: { isFloating?: b
   const [chatSessions, setChatSessions] = useState<{ id: string; title: string; updated_at: string }[]>([]);
   const [showHistoryDropdown, setShowHistoryDropdown] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [activeModel, setActiveModel] = useState<string>('Google Gemini');
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const fetchActiveModel = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('llm_provider, llm_model')
+            .eq('id', user.id)
+            .single();
+
+          if (profile) {
+            if (profile.llm_provider && profile.llm_provider !== 'gemini') {
+              const providerLabel = profile.llm_provider.toUpperCase();
+              const modelLabel = profile.llm_model || 'default';
+              setActiveModel(`${providerLabel} (${modelLabel})`);
+            } else {
+              setActiveModel('Gemini 1.5 Flash');
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching active model:', err);
+      }
+    };
+
+    fetchActiveModel();
+  }, [module]);
 
   // Auto-resize textarea height based on content
   useEffect(() => {
@@ -431,6 +461,7 @@ export function AiChatHub({ isFloating = false, forcedModule }: { isFloating?: b
               </span>
             </h4>
             <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-0.5">{cfg.subtitle}</p>
+            <p className="text-[8px] text-slate-400/60 dark:text-slate-500/80 font-medium tracking-wide mt-0.5">Modelo: {activeModel}</p>
           </div>
         </div>
         <div className="flex items-center gap-1.5">
