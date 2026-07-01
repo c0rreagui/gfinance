@@ -125,17 +125,59 @@ export async function generateCustomLLMResponse(
       tools: openAITools.length > 0 ? openAITools : undefined
     };
 
-    console.info(`[Custom LLM Call] Enviando requisição para ${endpoint} (Tentativa ${loopCount})`);
-    
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(payload)
-    });
+    let attempts = 0;
+    const maxAttempts = 3;
+    let response: Response | null = null;
+    let lastError: any = null;
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`LLM customizada retornou erro HTTP ${response.status}: ${errorText}`);
+    while (attempts < maxAttempts) {
+      attempts++;
+      try {
+        console.info(`[Custom LLM Call] Enviando requisição para ${endpoint} (Tentativa ${loopCount}, Envio ${attempts})`);
+        
+        response = await fetch(endpoint, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(30000) // 30s timeout por tentativa
+        });
+
+        if (response.ok) {
+          break; // Success!
+        }
+
+        const statusCode = response.status;
+        const errorText = await response.text();
+        lastError = new Error(`HTTP ${statusCode}: ${errorText}`);
+
+        // Só retenta se for erro transiente (429, 502, 503, 504)
+        if (statusCode === 429 || statusCode === 502 || statusCode === 503 || statusCode === 504) {
+          if (attempts < maxAttempts) {
+            const delay = Math.pow(2, attempts) * 1000;
+            console.warn(`[Custom LLM Retry] Erro transiente ${statusCode}. Retentando em ${delay}ms...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+          }
+        } else {
+          // Erro definitivo (ex: 400, 401, 403, 404) -> lança imediatamente
+          throw lastError;
+        }
+      } catch (err: any) {
+        lastError = err;
+        const errStr = String(err).toLowerCase();
+        const isTransientNetworkError = errStr.includes('timeout') || errStr.includes('aborted') || errStr.includes('fetch failed') || errStr.includes('econnrefused');
+        
+        if (isTransientNetworkError && attempts < maxAttempts) {
+          const delay = Math.pow(2, attempts) * 1000;
+          console.warn(`[Custom LLM Retry] Falha de rede/timeout. Retentando em ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        } else {
+          throw err;
+        }
+      }
+    }
+
+    if (!response || !response.ok) {
+      throw lastError || new Error('Falha ao obter resposta da LLM após múltiplas tentativas.');
     }
 
     const json = await response.json();

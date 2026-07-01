@@ -545,6 +545,51 @@ export default function Settings() {
     setTestingLlm(true);
     setLlmTestResult(null);
     try {
+      const isProductionDomain = typeof window !== 'undefined' && !window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1');
+      const targetUrl = llmApiUrl || (llmProvider === 'ollama' ? 'http://localhost:11434' : 'https://api.openai.com');
+      const isLocal = targetUrl.includes('localhost') || targetUrl.includes('127.0.0.1') || targetUrl.includes('192.168.') || targetUrl.includes('10.');
+
+      if (isLocal && isProductionDomain) {
+        // Test local endpoint directly from user browser to bypass Vercel server private network barrier
+        let endpoint = targetUrl;
+        if (!endpoint.includes('/chat/completions') && !endpoint.includes('/completions')) {
+          endpoint = endpoint.replace(/\/$/, '') + '/v1/chat/completions';
+        }
+
+        try {
+          const res = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(llmApiKey ? { 'Authorization': `Bearer ${llmApiKey}` } : {})
+            },
+            body: JSON.stringify({
+              model: llmModel || 'llama3',
+              messages: [{ role: 'user', content: 'Ping' }],
+              max_tokens: 5
+            }),
+            signal: AbortSignal.timeout(6000)
+          });
+
+          if (res.ok) {
+            setLlmTestResult({
+              success: true,
+              message: 'Conectado com sucesso ao seu Ollama local! NOTA: Como você está acessando a nuvem (ghub-ia.vercel.app), as consultas do Chat falharão pois o servidor do Vercel não alcança sua máquina. Exponha o Ollama usando ngrok ou rode o projeto localmente no localhost:3000.'
+            });
+            return;
+          } else {
+            const txt = await res.text();
+            throw new Error(`Ollama retornou erro HTTP ${res.status}: ${txt}`);
+          }
+        } catch (clientErr: any) {
+          setLlmTestResult({
+            success: false,
+            message: `Falha ao conectar localmente: ${clientErr.message || 'CORS bloqueado ou Ollama desligado'}. Certifique-se de que o Ollama está rodando e com CORS ativado (OLLAMA_ORIGINS="*").`
+          });
+          return;
+        }
+      }
+
       const res = await fetch('/api/ai/test-connection', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

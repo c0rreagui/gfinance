@@ -103,6 +103,11 @@ export async function POST(req: Request): Promise<NextResponse> {
 
   } catch (err: any) {
     console.error('[Test LLM Connection Error]', err);
-    return NextResponse.json({ success: false, error: err.message || 'Erro ao conectar ao endpoint.' });
+    const errStr = String(err).toLowerCase();
+    let errorMsg = err.message || 'Erro ao conectar ao endpoint.';
+    if (endpoint.includes('localhost') || endpoint.includes('127.0.0.1')) {
+      errorMsg += ' Nota: O servidor na nuvem (Vercel) não consegue acessar seu localhost. Exponha o Ollama usando um túnel (ex: ngrok) ou execute o G-Hub localmente.';
+    }
+    return NextResponse.json({ success: false, error: errorMsg });
   }
 }
