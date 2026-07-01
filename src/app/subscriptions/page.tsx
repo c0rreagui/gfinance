@@ -24,7 +24,8 @@ import {
   X,
   Check,
   Smartphone,
-  Layers
+  Layers,
+  Pencil
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
@@ -169,6 +170,7 @@ export default function Subscriptions() {
   const [subCardId, setSubCardId] = useState('');
   const [modalError, setModalError] = useState('');
   const [modalSuccess, setModalSuccess] = useState('');
+  const [editingSubId, setEditingSubId] = useState<string | null>(null);
 
   // Filter state for calendar day click
   const [selectedDayFilter, setSelectedDayFilter] = useState<number | null>(null);
@@ -314,6 +316,102 @@ export default function Subscriptions() {
     });
   };
 
+  const handleOpenCreateModal = () => {
+    playHapticClick();
+    setEditingSubId(null);
+    setSubTitle('');
+    setSubPrice('');
+    setSubDueDay('10');
+    setSubIcon('Tv');
+    setSubColor('indigo');
+    setSubCardId('');
+    setIsModalOpen(true);
+  };
+
+  const handleEditSubClick = (sub: any) => {
+    playHapticClick();
+    setEditingSubId(sub.id);
+    setSubTitle(sub.name);
+    setSubPrice(String(sub.price));
+    setSubDueDay(String(sub.day));
+    
+    // Find the reminder item to retrieve its original icon and color strings
+    const originalReminder = reminders.find(r => r.id === sub.id);
+    if (originalReminder) {
+      setSubIcon(originalReminder.category_icon || 'Tv');
+      setSubColor(originalReminder.brand_color || 'indigo');
+      setSubCardId(originalReminder.card_id || '');
+    } else {
+      setSubIcon('Tv');
+      setSubColor('indigo');
+      setSubCardId(sub.card_id || '');
+    }
+    
+    setIsModalOpen(true);
+  };
+
+  const handleUpdateSub = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingSubId) return;
+    
+    setModalError('');
+    setModalSuccess('');
+
+    if (!subTitle || !subPrice || !subDueDay) {
+      setModalError('Preencha os campos obrigatórios.');
+      return;
+    }
+
+    const priceNum = parseFloat(subPrice);
+    const dayNum = parseInt(subDueDay, 10);
+
+    if (isNaN(priceNum) || priceNum <= 0) {
+      setModalError('O preço deve ser positivo.');
+      return;
+    }
+    if (isNaN(dayNum) || dayNum < 1 || dayNum > 31) {
+      setModalError('O dia de cobrança deve ser entre 1 e 31.');
+      return;
+    }
+
+    try {
+      const today = new Date();
+      const dueDate = new Date(today.getFullYear(), today.getMonth(), dayNum, 12, 0, 0);
+
+      const { error } = await supabase
+        .from('reminders')
+        .update({
+          title: subTitle,
+          amount: -priceNum, // negative for expense
+          due_date: dueDate.toISOString(),
+          category_icon: subIcon,
+          brand_color: subColor,
+          card_id: subCardId || null
+        })
+        .eq('id', editingSubId);
+
+      if (error) throw error;
+
+      setModalSuccess('Assinatura atualizada com sucesso!');
+      
+      setTimeout(() => {
+        setIsModalOpen(false);
+        setEditingSubId(null);
+        setSubTitle('');
+        setSubPrice('');
+        setSubDueDay('10');
+        setSubIcon('Tv');
+        setSubColor('indigo');
+        setSubCardId('');
+        setModalSuccess('');
+        fetchAllData();
+      }, 1000);
+
+    } catch (err: any) {
+      setModalError(err.message || 'Erro ao atualizar assinatura.');
+    }
+  };
+
   // Create Novo Lembrete Recorrente / Assinatura
   const handleCreateSub = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -418,7 +516,7 @@ export default function Subscriptions() {
             </div>
           </div>
           <button 
-            onClick={() => { playHapticClick(); setIsModalOpen(true); }}
+            onClick={handleOpenCreateModal}
             className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-xl shadow-emerald-500/10 cursor-pointer flex items-center gap-1.5 animate-in"
           >
             <Plus className="w-3.5 h-3.5" /> Nova Assinatura
@@ -443,7 +541,7 @@ export default function Subscriptions() {
               </p>
             </div>
             <button
-              onClick={() => { playHapticClick(); setIsModalOpen(true); }}
+              onClick={handleOpenCreateModal}
               className="px-5 py-3 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-black rounded-xl uppercase tracking-widest shadow-xl shadow-emerald-500/20 transition-all cursor-pointer flex items-center gap-1.5"
             >
               <Plus className="w-4 h-4" /> Cadastrar Minha Primeira Assinatura
@@ -560,6 +658,13 @@ export default function Subscriptions() {
                               title={isActive ? 'Pausar Assinatura' : 'Reativar Assinatura'}
                             >
                               {isActive ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3 fill-current" />}
+                            </button>
+                            <button
+                              onClick={() => handleEditSubClick(sub)}
+                              className="w-6 h-6 rounded-lg bg-slate-800/80 hover:bg-slate-700 border border-white/5 text-slate-300 flex items-center justify-center cursor-pointer transition-colors opacity-0 group-hover:opacity-100"
+                              title="Editar Assinatura"
+                            >
+                              <Pencil className="w-3 h-3" />
                             </button>
                             <button
                               onClick={() => handleDeleteSub(sub.id, sub.name)}
@@ -746,8 +851,14 @@ export default function Subscriptions() {
             <div>
               <div className="flex justify-between items-center mb-8">
                 <div>
-                  <h2 className="text-sm font-black uppercase tracking-wider">Nova Assinatura</h2>
-                  <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mt-0.5">Registre uma nova assinatura ou despesa recorrente mensal</p>
+                  <h2 className="text-sm font-black uppercase tracking-wider">
+                    {editingSubId ? 'Editar Assinatura' : 'Nova Assinatura'}
+                  </h2>
+                  <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mt-0.5">
+                    {editingSubId 
+                      ? 'Atualize os detalhes da assinatura ou despesa recorrente'
+                      : 'Registre uma nova assinatura ou despesa recorrente mensal'}
+                  </p>
                 </div>
                 <button
                   onClick={() => setIsModalOpen(false)}
@@ -771,7 +882,7 @@ export default function Subscriptions() {
                 </div>
               )}
 
-              <form onSubmit={handleCreateSub} className="space-y-4">
+              <form onSubmit={editingSubId ? handleUpdateSub : handleCreateSub} className="space-y-4">
                 <div>
                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Nome do Serviço / Recorrência</label>
                   <input
@@ -877,7 +988,7 @@ export default function Subscriptions() {
                     type="submit"
                     className="flex-1 py-3.5 bg-emerald-500 hover:bg-emerald-600 text-white text-[10px] font-black rounded-xl uppercase tracking-widest shadow-lg shadow-emerald-500/25 transition-all cursor-pointer text-center"
                   >
-                    Registrar Assinatura
+                    {editingSubId ? 'Salvar Alterações' : 'Registrar Assinatura'}
                   </button>
                 </div>
               </form>
