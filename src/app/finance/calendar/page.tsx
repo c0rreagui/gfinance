@@ -227,6 +227,28 @@ export default function FinancialCalendar() {
     localStorage.setItem('deduct_invoices_projection', String(deductInvoices));
   }, [deductInvoices]);
 
+  // Faturas ignoradas na projeção
+  const [ignoredInvoices, setIgnoredInvoices] = useState<string[]>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('ignored_invoices_projection');
+      return saved ? JSON.parse(saved) : [];
+    }
+    return [];
+  });
+
+  useEffect(() => {
+    localStorage.setItem('ignored_invoices_projection', JSON.stringify(ignoredInvoices));
+  }, [ignoredInvoices]);
+
+  const toggleIgnoreInvoice = (eventId: string) => {
+    playHapticClick();
+    setIgnoredInvoices((prev) =>
+      prev.includes(eventId)
+        ? prev.filter((id) => id !== eventId)
+        : [...prev, eventId]
+    );
+  };
+
   // Helper to check if credit card invoice is paid for a specific cycle due date (dueYear, dueMonth)
   const checkInvoicePaid = (card: any, dueYear: number, dueMonth: number): boolean => {
     const targetDueDate = new Date(Date.UTC(dueYear, dueMonth, card.due_day, 12, 0, 0));
@@ -717,12 +739,13 @@ export default function FinancialCalendar() {
       // Sum up day events (ignoring paid state for projections to anticipate cash flows)
       events.forEach((ev) => {
         // Exclude individual credit card transactions/reminders, invoice closing from cash flow.
-        // Include invoice due dates (invoice_due) if deductInvoices is active.
+        // Include invoice due dates (invoice_due) if deductInvoices is active and not ignored.
         const isCreditCardItem = ev.card_id || ev.type === 'invoice_closing';
         const isInvoiceDue = ev.type === 'invoice_due';
         
         if (isInvoiceDue) {
-          if (deductInvoices) {
+          const isIgnored = ignoredInvoices.includes(ev.id);
+          if (deductInvoices && !isIgnored) {
             currentRunningBalance += ev.amount;
           }
         } else if (!isCreditCardItem) {
@@ -734,7 +757,7 @@ export default function FinancialCalendar() {
     }
 
     return map;
-  }, [startBalancePriorToMonth, dailyEvents, daysInMonth, deductInvoices]);
+  }, [startBalancePriorToMonth, dailyEvents, daysInMonth, deductInvoices, ignoredInvoices]);
 
   // Selected Day Items
   const selectedDayItems = useMemo(() => {
@@ -756,12 +779,13 @@ export default function FinancialCalendar() {
       const events = dailyEvents[d] || [];
       events.forEach((ev) => {
         // Exclude individual credit card transactions/reminders, invoice closing from cash flow.
-        // Include invoice due dates (invoice_due) if deductInvoices is active.
+        // Include invoice due dates (invoice_due) if deductInvoices is active and not ignored.
         const isCreditCardItem = ev.card_id || ev.type === 'invoice_closing';
         const isInvoiceDue = ev.type === 'invoice_due';
         
         if (isInvoiceDue) {
-          if (deductInvoices) {
+          const isIgnored = ignoredInvoices.includes(ev.id);
+          if (deductInvoices && !isIgnored) {
             projectedExpenses += Math.abs(ev.amount);
           }
         } else if (!isCreditCardItem) {
@@ -778,7 +802,7 @@ export default function FinancialCalendar() {
       projectedExpenses,
       netProjections
     };
-  }, [dailyEvents, daysInMonth, deductInvoices]);
+  }, [dailyEvents, daysInMonth, deductInvoices, ignoredInvoices]);
 
   // 7. iCal Subscription Copy Link Action
   const handleSyncCalendar = () => {
@@ -1590,7 +1614,10 @@ export default function FinancialCalendar() {
                           : 'bg-red-500/10 text-red-400/90 border border-red-500/10';
 
                         if (isInvoice) {
-                          colorClass = ev.paid
+                          const isIgnored = ev.type === 'invoice_due' && ignoredInvoices.includes(ev.id);
+                          colorClass = isIgnored
+                            ? 'bg-slate-950/60 text-slate-600 border border-white/5 opacity-50 line-through'
+                            : ev.paid
                             ? 'bg-emerald-500/10 text-emerald-400/90 border border-emerald-500/10'
                             : 'bg-slate-800 text-slate-400 border border-slate-700/50';
                         }
@@ -1772,8 +1799,12 @@ export default function FinancialCalendar() {
                               )}
                             </div>
                             <div>
-                              <p className={`text-xs font-black text-slate-200 transition-all ${ev.paid ? 'line-through opacity-50' : ''}`}>{ev.title}</p>
-                              <span className={`text-[8px] font-bold uppercase tracking-widest mt-0.5 block transition-all ${ev.paid ? 'opacity-40' : 'text-slate-500'}`}>
+                              <p className={`text-xs font-black text-slate-200 transition-all ${
+                                ev.paid || (ev.type === 'invoice_due' && ignoredInvoices.includes(ev.id)) ? 'line-through opacity-50' : ''
+                              }`}>{ev.title}</p>
+                              <span className={`text-[8px] font-bold uppercase tracking-widest mt-0.5 block transition-all ${
+                                ev.paid || (ev.type === 'invoice_due' && ignoredInvoices.includes(ev.id)) ? 'opacity-40' : 'text-slate-500'
+                              }`}>
                                 {ev.category} • {ev.type.toUpperCase()}
                               </span>
                             </div>
@@ -1781,7 +1812,9 @@ export default function FinancialCalendar() {
 
                           <div className="flex items-center gap-3">
                             <div className="text-right">
-                              <p className={`text-xs font-black transition-all ${ev.paid ? 'opacity-40' : ''}`}>
+                              <p className={`text-xs font-black transition-all ${
+                                ev.paid || (ev.type === 'invoice_due' && ignoredInvoices.includes(ev.id)) ? 'opacity-40' : ''
+                              }`}>
                                 {renderCurrency(ev.amount, `drawer-item-${ev.id}`, isIncome ? 'text-emerald-400' : (isInvoiceEvent ? (ev.paid ? 'text-emerald-400' : 'text-slate-400') : 'text-slate-200'))}
                               </p>
                               {ev.paid !== undefined && (
@@ -1791,8 +1824,32 @@ export default function FinancialCalendar() {
                                   {ev.paid ? 'Pago' : 'Pendente'}
                                 </span>
                               )}
+                              {ev.type === 'invoice_due' && ignoredInvoices.includes(ev.id) && (
+                                <span className="text-[7px] font-black uppercase tracking-widest block text-amber-500 mt-0.5">
+                                  Ignorado no Saldo
+                                </span>
+                              )}
                             </div>
                             
+                            {ev.type === 'invoice_due' && (
+                              <button
+                                type="button"
+                                onClick={() => toggleIgnoreInvoice(ev.id)}
+                                className={`p-1.5 rounded-lg transition-colors cursor-pointer shrink-0 ${
+                                  ignoredInvoices.includes(ev.id)
+                                    ? 'text-amber-500 hover:text-amber-400 bg-amber-500/10'
+                                    : 'text-slate-500 hover:text-slate-300 hover:bg-white/5'
+                                }`}
+                                title={ignoredInvoices.includes(ev.id) ? 'Incluir na Projeção de Saldo' : 'Ignorar na Projeção de Saldo'}
+                              >
+                                {ignoredInvoices.includes(ev.id) ? (
+                                  <EyeOff className="w-3.5 h-3.5" />
+                                ) : (
+                                  <Eye className="w-3.5 h-3.5" />
+                                )}
+                              </button>
+                            )}
+
                             {!isInvoiceEvent && (
                               <button
                                 type="button"
