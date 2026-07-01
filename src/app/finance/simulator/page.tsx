@@ -551,8 +551,10 @@ export default function Simulator() {
       if (data.name) {
         setNewItemName(data.name);
       }
-      if (data.price !== undefined && data.price !== null) {
+      if (data.price !== undefined && data.price !== null && data.price > 0) {
         setNewItemAmount(String(data.price));
+      } else {
+        setNewItemAmount('');
       }
       
       setImportUrl('');

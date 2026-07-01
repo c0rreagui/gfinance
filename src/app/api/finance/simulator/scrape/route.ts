@@ -4,6 +4,22 @@ import { SchemaType } from '@google/generative-ai';
 
 export const dynamic = 'force-dynamic';
 
+function getSlugFromUrl(urlStr: string): string {
+  try {
+    const url = new URL(urlStr);
+    const pathParts = url.pathname.split('/').filter(Boolean);
+    for (const part of pathParts) {
+      if (part.includes('-') && !/^(p|dp|gp|product)$/i.test(part) && !/^MLB\d+$/i.test(part)) {
+        return part
+          .split('-')
+          .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+          .join(' ');
+      }
+    }
+  } catch {}
+  return '';
+}
+
 function extractMetadataAndScripts(html: string): string {
   // Extract <title>
   const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
@@ -319,6 +335,18 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // If the title is generic (bot-redirected/login page) or empty, fallback to parsing it from the URL slug
+    const genericTitles = ['mercado livre', 'mercadolivre', 'amazon', 'amazon.com', 'amazon.com.br', 'shopee', 'shopee brasil', 'verificação de conta'];
+    const isGenericTitle = title && genericTitles.some(gt => title.toLowerCase().trim().includes(gt)) && title.length < 25;
+
+    if (!title || isGenericTitle) {
+      const slugTitle = getSlugFromUrl(targetUrl);
+      if (slugTitle) {
+        title = slugTitle;
+        console.info(`[Scraper] Fallback para slug da URL ativado: "${title}"`);
+      }
+    }
+
     if (!title) {
       return NextResponse.json(
         { success: false, error: 'Não foi possível identificar o nome do produto na página.' },
@@ -330,6 +358,12 @@ export async function GET(req: NextRequest) {
       success: true,
       name: title,
       price: price || 0
+    }, {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+      }
     });
 
   } catch (err: any) {
