@@ -9,9 +9,25 @@ function extractMetadataAndScripts(html: string): string {
   const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   const title = titleMatch ? titleMatch[1].trim() : '';
 
-  // Extract all <meta> tags
+  // Extract filtered meta tags (only those relevant to price, product, title)
   const metaMatches = html.match(/<meta[^>]+>/g) || [];
-  const metas = metaMatches.map(m => m.trim()).join('\n');
+  const filteredMetas = metaMatches
+    .map(m => m.trim())
+    .filter(m => {
+      const lower = m.toLowerCase();
+      return (
+        lower.includes('price') ||
+        lower.includes('amount') ||
+        lower.includes('title') ||
+        lower.includes('og:') ||
+        lower.includes('twitter:') ||
+        lower.includes('itemprop') ||
+        lower.includes('currency') ||
+        lower.includes('product')
+      );
+    })
+    .slice(0, 40)
+    .join('\n');
 
   // Extract all <script type="application/ld+json"> contents containing product/offer/price info
   const ldJsonMatches: string[] = [];
@@ -22,13 +38,27 @@ function extractMetadataAndScripts(html: string): string {
       const content = match[1].trim();
       const lower = content.toLowerCase();
       if (lower.includes('price') || lower.includes('offer') || lower.includes('product') || lower.includes('priceamount')) {
-        // Truncate script tags if they are overly long to protect tokens
         ldJsonMatches.push(content.substring(0, 1500));
       }
     }
   }
 
-  // Extract first 3000 chars of body text (removing tags)
+  // Extract HTML elements containing price keywords/classes (e.g. Mercado Livre, Amazon)
+  const priceSnippets: string[] = [];
+  const priceRegex = /<[^>]*class=["'][^"']*(?:price|andes-money-amount|money|amount|ui-pdp-price)[^"']*["'][^>]*>[\s\S]*?<\/[^>]+>/gi;
+  let count = 0;
+  while ((match = priceRegex.exec(html)) !== null && count < 20) {
+    const cleanSnippet = match[0]
+      .replace(/<script[^>]*>([\s\S]*?)<\/script>/gi, '')
+      .replace(/<style[^>]*>([\s\S]*?)<\/style>/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .substring(0, 300);
+    priceSnippets.push(cleanSnippet);
+    count++;
+  }
+
+  // Extract first 2000 chars of body text (removing tags)
   const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
   let bodyText = '';
   if (bodyMatch && bodyMatch[1]) {
@@ -38,13 +68,15 @@ function extractMetadataAndScripts(html: string): string {
       .replace(/<[^>]+>/g, ' ')
       .replace(/\s+/g, ' ')
       .trim()
-      .substring(0, 3000);
+      .substring(0, 2000);
   }
 
   return `
 TITLE: ${title}
 METAS:
-${metas}
+${filteredMetas}
+PRICE HTML SNIPPETS:
+${priceSnippets.join('\n')}
 LD+JSON SCRIPTS:
 ${ldJsonMatches.join('\n')}
 BODY TEXT SAMPLE:
@@ -79,8 +111,10 @@ async function parseProductWithAI(html: string): Promise<{ name: string; price: 
     const simplifiedHtml = extractMetadataAndScripts(html);
     const prompt = `Analise os metadados e o conteúdo HTML simplificado de uma página de e-commerce e extraia o nome e o preço do produto anunciado.
     Retorne o nome de forma limpa e concisa em português.
-    Se houver várias ofertas ou produtos listados, selecione o produto principal anunciado na página.
-    Se não for possível encontrar o preço, defina o preço como 0.
+    Se houver várias ofertas ou produtos listados, selecione o preço e o nome do produto principal anunciado na página.
+    Examine com extrema atenção os blocos "PRICE HTML SNIPPETS" e "LD+JSON SCRIPTS" para localizar o preço exato.
+    Se encontrar o preço com centavos (ex: "89,90" ou "89.9"), converta corretamente para float (ex: 89.9).
+    Se não for possível encontrar o preço de jeito nenhum, defina o preço como 0.
 
     HTML Simplificado:
     \`\`\`
@@ -157,15 +191,20 @@ export async function GET(req: NextRequest) {
       const aiResult = await parseProductWithAI(html);
       if (aiResult && aiResult.name) {
         title = aiResult.name;
-        price = aiResult.price;
-        aiScrapeSuccess = true;
-        console.info(`[Scraper] Sucesso na extração com IA: "${title}" - R$ ${price}`);
+        // Verify price was actually found (greater than 0)
+        if (aiResult.price && aiResult.price > 0) {
+          price = aiResult.price;
+          aiScrapeSuccess = true;
+          console.info(`[Scraper] Sucesso na extração com IA: "${title}" - R$ ${price}`);
+        } else {
+          console.warn(`[Scraper] IA extraiu nome "${title}" mas retornou preço R$ 0. Tentando fallback...`);
+        }
       }
     } catch (aiErr) {
       console.warn('[Scraper] Falha ao extrair com IA, usando regex fallback:', aiErr);
     }
 
-    // Regex fallback if AI failed or not configured
+    // Regex fallback if AI failed, returned R$ 0, or not configured
     if (!aiScrapeSuccess) {
       // 1. Extract Product Name / Title
       // Attempt 1: OpenGraph Title
@@ -210,17 +249,29 @@ export async function GET(req: NextRequest) {
       }
 
       // 2. Extract Product Price
-      // Attempt 1: OpenGraph Price / Product Price Amount
-      const ogPriceMatch = html.match(/<meta\s+property=["'](?:product|og):price:amount["']\s+content=["']([^"']+)["']/i) ||
-                           html.match(/<meta\s+content=["']([^"']+)["']\s+property=["'](?:product|og):price:amount["']/i);
-      if (ogPriceMatch && ogPriceMatch[1]) {
-        const parsed = parseFloat(ogPriceMatch[1].replace(',', '.'));
+      // Attempt 1: Itemprop price meta tags
+      const itempropPriceMatch = html.match(/<meta[^>]+itemprop=["']price["'][^>]+content=["']([^"']+)["']/i) ||
+                                 html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+itemprop=["']price["']/i);
+      if (itempropPriceMatch && itempropPriceMatch[1]) {
+        const parsed = parseFloat(itempropPriceMatch[1].replace(',', '.'));
         if (!isNaN(parsed) && parsed > 0) {
           price = parsed;
         }
       }
 
-      // Attempt 2: Structured JSON-LD Product Price
+      // Attempt 2: OpenGraph Price / Product Price Amount
+      if (price === null) {
+        const ogPriceMatch = html.match(/<meta\s+property=["'](?:product|og):price:amount["']\s+content=["']([^"']+)["']/i) ||
+                             html.match(/<meta\s+content=["']([^"']+)["']\s+property=["'](?:product|og):price:amount["']/i);
+        if (ogPriceMatch && ogPriceMatch[1]) {
+          const parsed = parseFloat(ogPriceMatch[1].replace(',', '.'));
+          if (!isNaN(parsed) && parsed > 0) {
+            price = parsed;
+          }
+        }
+      }
+
+      // Attempt 3: Structured JSON-LD Product Price
       if (price === null) {
         const priceLdMatch = html.match(/"price"\s*:\s*"?([\d.,]+)"?/i);
         if (priceLdMatch && priceLdMatch[1]) {
@@ -232,12 +283,13 @@ export async function GET(req: NextRequest) {
         }
       }
 
-      // Attempt 3: Specific selectors (Mercado Livre / Amazon / Shopee)
+      // Attempt 4: Specific selectors (Mercado Livre / Amazon / Shopee)
       if (price === null) {
         if (targetUrl.includes('mercadolivre.com')) {
-          const mlPriceMatch = html.match(/<meta\s+property=["']product:prearranged_price:amount["']\s+content=["']([^"']+)["']/i);
+          const mlPriceMatch = html.match(/<meta\s+property=["']product:prearranged_price:amount["']\s+content=["']([^"']+)["']/i) ||
+                               html.match(/<span[^>]*class=["'][^"']*andes-money-amount__fraction[^"']*["'][^>]*>([^<]+)<\/span>/i);
           if (mlPriceMatch && mlPriceMatch[1]) {
-            price = parseFloat(mlPriceMatch[1]);
+            price = parseFloat(mlPriceMatch[1].replace('.', '').replace(',', '.'));
           }
         } else if (targetUrl.includes('amazon.com')) {
           const wholeMatch = html.match(/<span\s+class=["']a-price-whole["']>([^<]+)<\/span>/i);
@@ -253,7 +305,7 @@ export async function GET(req: NextRequest) {
         }
       }
 
-      // Attempt 4: Search for R$ followed by value anywhere in the DOM
+      // Attempt 5: Search for R$ followed by value anywhere in the DOM
       if (price === null) {
         const genericPriceMatch = html.match(/R\$\s*([\d\s.]+,\s*\d{2})/i) || html.match(/\$\s*([\d\s.]+,\s*\d{2})/i);
         if (genericPriceMatch && genericPriceMatch[1]) {
