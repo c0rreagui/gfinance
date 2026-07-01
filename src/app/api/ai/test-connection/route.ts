@@ -56,7 +56,7 @@ export async function POST(req: Request): Promise<NextResponse> {
   let endpoint = apiUrl || '';
   if (!endpoint) {
     if (provider === 'ollama') {
-      endpoint = 'http://localhost:11434';
+      endpoint = 'https://api.ollama.cloud';
     } else if (provider === 'openai') {
       endpoint = 'https://api.openai.com';
     } else {
@@ -87,7 +87,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       method: 'POST',
       headers,
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(10000) // 10s timeout
+      signal: AbortSignal.timeout(30000) // 30s timeout para dar tempo da LLM em nuvem responder
     });
 
     if (response.ok) {

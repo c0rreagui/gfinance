@@ -70,7 +70,7 @@ export async function generateCustomLLMResponse(
   let endpoint = llmConfig.apiUrl || '';
   if (!endpoint) {
     if (llmConfig.provider === 'ollama') {
-      endpoint = 'http://localhost:11434';
+      endpoint = 'https://api.ollama.cloud';
     } else if (llmConfig.provider === 'openai') {
       endpoint = 'https://api.openai.com';
     }

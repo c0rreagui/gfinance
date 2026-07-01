@@ -545,51 +545,6 @@ export default function Settings() {
     setTestingLlm(true);
     setLlmTestResult(null);
     try {
-      const isProductionDomain = typeof window !== 'undefined' && !window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1');
-      const targetUrl = llmApiUrl || (llmProvider === 'ollama' ? 'http://localhost:11434' : 'https://api.openai.com');
-      const isLocal = targetUrl.includes('localhost') || targetUrl.includes('127.0.0.1') || targetUrl.includes('192.168.') || targetUrl.includes('10.');
-
-      if (isLocal && isProductionDomain) {
-        // Test local endpoint directly from user browser to bypass Vercel server private network barrier
-        let endpoint = targetUrl;
-        if (!endpoint.includes('/chat/completions') && !endpoint.includes('/completions')) {
-          endpoint = endpoint.replace(/\/$/, '') + '/v1/chat/completions';
-        }
-
-        try {
-          const res = await fetch(endpoint, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...(llmApiKey ? { 'Authorization': `Bearer ${llmApiKey}` } : {})
-            },
-            body: JSON.stringify({
-              model: llmModel || 'llama3',
-              messages: [{ role: 'user', content: 'Ping' }],
-              max_tokens: 5
-            }),
-            signal: AbortSignal.timeout(6000)
-          });
-
-          if (res.ok) {
-            setLlmTestResult({
-              success: true,
-              message: 'Conectado com sucesso ao seu Ollama local! NOTA: Como você está acessando a nuvem (ghub-ia.vercel.app), as consultas do Chat falharão pois o servidor do Vercel não alcança sua máquina. Exponha o Ollama usando ngrok ou rode o projeto localmente no localhost:3000.'
-            });
-            return;
-          } else {
-            const txt = await res.text();
-            throw new Error(`Ollama retornou erro HTTP ${res.status}: ${txt}`);
-          }
-        } catch (clientErr: any) {
-          setLlmTestResult({
-            success: false,
-            message: `Falha ao conectar localmente: ${clientErr.message || 'CORS bloqueado ou Ollama desligado'}. Certifique-se de que o Ollama está rodando e com CORS ativado (OLLAMA_ORIGINS="*").`
-          });
-          return;
-        }
-      }
-
       const res = await fetch('/api/ai/test-connection', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1092,13 +1047,13 @@ export default function Settings() {
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">URL Base da API (Opcional)</label>
                     <input
                       type="url"
-                      placeholder={llmProvider === 'ollama' ? 'http://localhost:11434' : llmProvider === 'openai' ? 'https://api.openai.com' : 'https://api.seumodelo.com'}
+                      placeholder={llmProvider === 'ollama' ? 'https://api.ollama.cloud' : llmProvider === 'openai' ? 'https://api.openai.com' : 'https://api.seumodelo.com'}
                       value={llmApiUrl}
                       onChange={(e) => setLlmApiUrl(e.target.value)}
                       className="w-full px-6 py-4 bg-white/40 dark:bg-slate-800/40 border border-slate-200 dark:border-white/5 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all font-bold text-slate-700 dark:text-white"
                     />
                     <p className="text-[10px] text-slate-400 mt-2">
-                      Dica: Para o Ollama local, use <code className="text-indigo-400">http://localhost:11434</code>. Certifique-se de iniciar o Ollama com suporte a CORS ativo (variável de ambiente <code className="text-indigo-400">OLLAMA_ORIGINS="*"</code>). O endpoint de chat completions (/v1/chat/completions) será resolvido automaticamente.
+                      Dica: Adicione o endereço raiz da API (ex: <code className="text-indigo-400">https://api.ollama.cloud</code>). O endpoint de chat completions (/v1/chat/completions) será resolvido automaticamente se omitido.
                     </p>
                   </div>
                 )}
