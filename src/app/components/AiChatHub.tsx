@@ -567,9 +567,9 @@ export function AiChatHub({ isFloating = false, forcedModule }: { isFloating?: b
       {/* Input de Mensagem */}
       <div className="p-6 border-t border-white/5 bg-slate-950/30">
         {errorMsg && (
-          <div className="p-4 bg-red-500/5 border border-red-500/10 rounded-2xl flex items-center gap-2.5 text-[10px] font-bold uppercase tracking-wider text-red-400 mb-3 shadow-inner">
-            <AlertCircle className="w-4 h-4 shrink-0 text-red-500" />
-            <span className="truncate">{errorMsg}</span>
+          <div className="p-4 bg-red-500/5 border border-red-500/10 rounded-2xl flex items-start gap-2.5 text-xs text-red-400 mb-3 shadow-inner leading-relaxed">
+            <AlertCircle className="w-4 h-4 shrink-0 text-red-500 mt-0.5" />
+            <span className="whitespace-pre-line">{errorMsg}</span>
           </div>
         )}
         <form onSubmit={handleSubmit} className="flex gap-2 items-end">

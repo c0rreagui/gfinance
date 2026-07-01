@@ -56,7 +56,7 @@ export async function POST(req: Request): Promise<NextResponse> {
   let endpoint = apiUrl || '';
   if (!endpoint) {
     if (provider === 'ollama') {
-      endpoint = 'https://api.ollama.cloud';
+      endpoint = 'http://localhost:11434';
     } else if (provider === 'openai') {
       endpoint = 'https://api.openai.com';
     } else {

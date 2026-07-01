@@ -67,6 +67,9 @@ export async function POST(req: Request): Promise<NextResponse> {
   }
 
   let insertedUserMessageId: string | undefined = undefined;
+  let useCustomLLM = false;
+  let configuredUrl = '';
+  let providerName = 'custom';
 
   try {
     // 3. Gerenciar / Criar Sessão Persistente com módulo correto
@@ -153,7 +156,9 @@ export async function POST(req: Request): Promise<NextResponse> {
       .eq('id', user.id)
       .single();
 
-    const useCustomLLM = profile?.llm_provider && profile.llm_provider !== 'gemini';
+    useCustomLLM = !!(profile?.llm_provider && profile.llm_provider !== 'gemini');
+    configuredUrl = profile?.llm_api_url || '';
+    providerName = profile?.llm_provider || 'custom';
 
     let aiResponse: string;
 
@@ -333,6 +338,28 @@ export async function POST(req: Request): Promise<NextResponse> {
       return NextResponse.json(
         { error: 'O assistente de IA está temporariamente indisponível devido a alta demanda ou limite de requisições atingido. Por favor, aguarde alguns segundos e tente novamente.' },
         { status: 503 }
+      );
+    }
+
+    if (useCustomLLM) {
+      let friendlyMessage = `Não foi possível conectar ao seu provedor de IA customizado (${providerName.toUpperCase()}). `;
+      const displayUrl = configuredUrl || (providerName === 'ollama' ? 'http://localhost:11434' : 'https://api.openai.com');
+      
+      if (errStr.includes('timeout') || errStr.includes('aborted')) {
+        friendlyMessage += `A requisição para "${displayUrl}" expirou por timeout (limite de tempo excedido). Verifique se o servidor de IA está ativo e respondendo rápido o suficiente.`;
+      } else if (errStr.includes('fetch failed') || errStr.includes('econnrefused')) {
+        friendlyMessage += `O endereço "${displayUrl}" está inacessível ou recusou a conexão. Certifique-se de que o provedor está rodando e configurado com suporte a CORS ativo (se rodando localmente).`;
+      } else if (errStr.includes('404')) {
+        friendlyMessage += `O modelo selecionado não foi localizado ou o endpoint de chat está incorreto em "${displayUrl}". Verifique se o nome do modelo está digitado corretamente nos Ajustes.`;
+      } else if (errStr.includes('401') || errStr.includes('403') || errStr.includes('unauthorized') || errStr.includes('forbidden')) {
+        friendlyMessage += `Erro de autenticação para o host "${displayUrl}". Verifique se sua Chave de API nos Ajustes está correta.`;
+      } else {
+        friendlyMessage += `Detalhes técnicos: ${err.message || 'Falha de comunicação'}. Revise a URL, Chave de API e Modelo em "Ajustes".`;
+      }
+
+      return NextResponse.json(
+        { error: friendlyMessage },
+        { status: 502 }
       );
     }
 
