@@ -22,3 +22,11 @@ Whenever implementing integrations with external APIs, databases, or third-party
 3. **Graceful Fallbacks**: Design systems that do not crash completely when third-party components fail; fall back to safe defaults or report semantic error details clearly to the user.
 4. **Unrestricted Agent Access**: Always equip AI assistant endpoints with comprehensive tool definitions and database access capabilities (read and write). AI responses must never claim lack of access to mock or live variables when tools or system contexts are provided.
 <!-- END:integration-verification-rules -->
+
+<!-- BEGIN:vercel-deploy-rule -->
+# Vercel Deployment Guardrail
+
+Sempre que concluir e validar localmente uma funcionalidade ou correção:
+1. **Commit & Push Obrigatórios**: Não encerre a tarefa ou o turno sem realizar o `git commit` e `git push origin main`.
+2. **Deploy Trigger**: O commit e push no repositório remoto são indispensáveis, pois disparam o pipeline automático de build e deploy no Vercel.
+<!-- END:vercel-deploy-rule -->
