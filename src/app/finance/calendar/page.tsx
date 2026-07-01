@@ -214,6 +214,19 @@ export default function FinancialCalendar() {
   const [pickerYear, setPickerYear] = useState(() => new Date().getFullYear());
   const [pickerMonth, setPickerMonth] = useState(() => new Date().getMonth());
 
+  // Dedução de faturas no saldo projetado
+  const [deductInvoices, setDeductInvoices] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('deduct_invoices_projection');
+      return saved === 'true';
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    localStorage.setItem('deduct_invoices_projection', String(deductInvoices));
+  }, [deductInvoices]);
+
   // Helper to check if credit card invoice is paid for a specific cycle due date (dueYear, dueMonth)
   const checkInvoicePaid = (card: any, dueYear: number, dueMonth: number): boolean => {
     const targetDueDate = new Date(Date.UTC(dueYear, dueMonth, card.due_day, 12, 0, 0));
@@ -703,10 +716,16 @@ export default function FinancialCalendar() {
       
       // Sum up day events (ignoring paid state for projections to anticipate cash flows)
       events.forEach((ev) => {
-        // Exclude individual credit card transactions/reminders, invoice closing, and invoice due dates from cash flow
-        // Only the actual payment transaction (checking account debit) affects cash flow
-        const isCreditCardItem = ev.card_id || ev.type === 'invoice_closing' || ev.type === 'invoice_due';
-        if (!isCreditCardItem) {
+        // Exclude individual credit card transactions/reminders, invoice closing from cash flow.
+        // Include invoice due dates (invoice_due) if deductInvoices is active.
+        const isCreditCardItem = ev.card_id || ev.type === 'invoice_closing';
+        const isInvoiceDue = ev.type === 'invoice_due';
+        
+        if (isInvoiceDue) {
+          if (deductInvoices) {
+            currentRunningBalance += ev.amount;
+          }
+        } else if (!isCreditCardItem) {
           currentRunningBalance += ev.amount;
         }
       });
@@ -715,7 +734,7 @@ export default function FinancialCalendar() {
     }
 
     return map;
-  }, [startBalancePriorToMonth, dailyEvents, daysInMonth]);
+  }, [startBalancePriorToMonth, dailyEvents, daysInMonth, deductInvoices]);
 
   // Selected Day Items
   const selectedDayItems = useMemo(() => {
@@ -736,10 +755,16 @@ export default function FinancialCalendar() {
     for (let d = 1; d <= daysInMonth; d++) {
       const events = dailyEvents[d] || [];
       events.forEach((ev) => {
-        // Exclude individual credit card transactions/reminders, invoice closing, and invoice due dates from cash flow totals
-        // Only actual checking account transactions affect the totals
-        const isCreditCardItem = ev.card_id || ev.type === 'invoice_closing' || ev.type === 'invoice_due';
-        if (!isCreditCardItem) {
+        // Exclude individual credit card transactions/reminders, invoice closing from cash flow.
+        // Include invoice due dates (invoice_due) if deductInvoices is active.
+        const isCreditCardItem = ev.card_id || ev.type === 'invoice_closing';
+        const isInvoiceDue = ev.type === 'invoice_due';
+        
+        if (isInvoiceDue) {
+          if (deductInvoices) {
+            projectedExpenses += Math.abs(ev.amount);
+          }
+        } else if (!isCreditCardItem) {
           if (ev.amount > 0) projectedIncomes += ev.amount;
           else projectedExpenses += Math.abs(ev.amount);
         }
@@ -753,7 +778,7 @@ export default function FinancialCalendar() {
       projectedExpenses,
       netProjections
     };
-  }, [dailyEvents, daysInMonth]);
+  }, [dailyEvents, daysInMonth, deductInvoices]);
 
   // 7. iCal Subscription Copy Link Action
   const handleSyncCalendar = () => {
@@ -1149,6 +1174,23 @@ export default function FinancialCalendar() {
 
             {/* Navigation & Controls */}
             <div className="flex items-center gap-3">
+              {/* Toggle Dedução de Faturas */}
+              <button
+                onClick={() => {
+                  playHapticClick();
+                  setDeductInvoices(!deductInvoices);
+                }}
+                className={`flex items-center gap-2 px-3 py-2 border rounded-xl transition-all text-[10px] font-black uppercase tracking-widest cursor-pointer shadow-lg shadow-black/20 ${
+                  deductInvoices
+                    ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 hover:border-emerald-500/30'
+                    : 'bg-slate-900/60 border-white/5 text-slate-300 hover:bg-slate-900 hover:border-white/10 hover:text-white'
+                }`}
+                title="Deduzir vencimento de faturas no saldo projetado diário"
+              >
+                <CreditCard className="w-3.5 h-3.5 animate-pulse" />
+                <span>{deductInvoices ? 'Dedução Ativa' : 'Deduzir Faturas'}</span>
+              </button>
+
               {/* 7. iCal Sync Button */}
               {userId && (
                 <button
