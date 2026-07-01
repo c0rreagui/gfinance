@@ -11,6 +11,7 @@ Whenever designing backend routes, external API integrations (such as LLM client
 1. **Loop-based Execution**: Avoid assuming single-shot success. Implement robust loops for task resolution, retries, and sequential reasoning.
 2. **Transient Error Handling**: Always catch transient errors (429, 502, 503, 504, rate limits, timeouts) and handle them using backoff retry logic (up to 3-5 attempts).
 3. **Function Calling Loops**: Ensure that all LLM integrations run tool calling in a dynamic loop (e.g. up to 5 iterations) to resolve multiple database mutations and actions in a single chat turn.
+4. **Mandatory Runtime Validation Loop**: Do NOT rely solely on compile-time (`build` or `lint`) checks. You MUST create a scratch script (under `<appDataDir>\brain\<conversation-id>/scratch/` or project root) to execute the code against real-world inputs (e.g. actual URLs, mock requests) and check the stdout/stderr. Adjust and run this test loop repeatedly until the feature is validated, before pushing commits or declaring it ready to the user.
 <!-- END:loop-engineering-rules -->
 
 <!-- BEGIN:integration-verification-rules -->
