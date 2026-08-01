@@ -252,7 +252,10 @@ export default function Settings() {
             setDriveFolderId(currentProfile.google_drive_folder_id || '');
             setDriveFolderName(currentProfile.google_drive_folder_name || '');
             setLastSyncAt(currentProfile.google_drive_last_sync_at || null);
-            const provider = currentProfile.llm_provider || 'gemini';
+            let provider = currentProfile.llm_provider || 'gemini';
+            if (provider === 'custom' && (currentProfile.llm_api_url || '').includes('groq')) {
+              provider = 'groq';
+            }
             const modelVal = currentProfile.llm_model || '';
             setLlmProvider(provider as any);
             setLlmApiUrl(currentProfile.llm_api_url || '');
@@ -526,6 +529,37 @@ export default function Settings() {
     }
   };
 
+  const saveProfileLLM = async (targetId: string) => {
+    let { error } = await supabase
+      .from('profiles')
+      .update({
+        llm_provider: llmProvider,
+        llm_api_url: llmApiUrl || null,
+        llm_api_key: llmApiKey || null,
+        llm_model: llmModel || null,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', targetId);
+
+    if (error && error.message && error.message.includes('profiles_llm_provider_check')) {
+      const fallbackRes = await supabase
+        .from('profiles')
+        .update({
+          llm_provider: 'custom',
+          llm_api_url: llmApiUrl || (llmProvider === 'groq' ? 'https://api.groq.com/openai/v1' : null),
+          llm_api_key: llmApiKey || null,
+          llm_model: llmModel || null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', targetId);
+
+      if (fallbackRes.error) throw fallbackRes.error;
+      return;
+    }
+
+    if (error) throw error;
+  };
+
   const handleSaveLLMSettings = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setLlmSaveError('');
@@ -536,18 +570,8 @@ export default function Settings() {
       const targetId = profile.id || user?.id;
       if (!targetId) throw new Error('Usuário não autenticado no sistema.');
 
-      const { error } = await supabase
-        .from('profiles')
-        .update({
-          llm_provider: llmProvider,
-          llm_api_url: llmApiUrl || null,
-          llm_api_key: llmApiKey || null,
-          llm_model: llmModel || null,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', targetId);
+      await saveProfileLLM(targetId);
 
-      if (error) throw error;
       setLlmSaveSuccess('Configurações de inteligência artificial salvas com sucesso!');
       window.dispatchEvent(new Event('gfinance_llm_updated'));
       await fetchProfile();
@@ -582,16 +606,7 @@ export default function Settings() {
         const { data: { user } } = await supabase.auth.getUser();
         const targetId = profile.id || user?.id;
         if (targetId) {
-          await supabase
-            .from('profiles')
-            .update({
-              llm_provider: llmProvider,
-              llm_api_url: llmApiUrl || null,
-              llm_api_key: llmApiKey || null,
-              llm_model: llmModel || null,
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', targetId);
+          await saveProfileLLM(targetId);
           window.dispatchEvent(new Event('gfinance_llm_updated'));
         }
       } else {
