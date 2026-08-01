@@ -17,8 +17,8 @@ import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
 import { reconcileBalances } from './reconcile';
 
 const GEMINI_REST_BASE = 'https://generativelanguage.googleapis.com/v1beta';
-const PARSER_MODEL = 'gemini-flash-latest';
-const CONVERSATIONAL_MODEL = 'gemini-flash-latest';
+const PARSER_MODEL = 'gemini-2.0-flash';
+const CONVERSATIONAL_MODEL = 'gemini-2.0-flash';
 
 const apiKey = process.env.GEMINI_API_KEY;
 

@@ -10,7 +10,7 @@
 
 import { NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
-import { generateFinancialResponse, is429Error, getFinancialSystemPrompt } from '@/lib/gemini';
+import { generateFinancialResponse, is429Error, getFinancialSystemPrompt, parseStatementWithAI } from '@/lib/gemini';
 import { generateWorkResponse, getWorkSystemPrompt } from '@/lib/gemini-work';
 import { generateHubResponse, getHubSystemPrompt } from '@/lib/gemini-hub';
 import { compactSessionHistory, AppModule } from '@/lib/memory';
@@ -56,7 +56,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     );
   }
 
-  const { message, sessionId, module: rawModule } = body;
+  const { message, sessionId, module: rawModule, attachment } = body;
   const module: AppModule = rawModule === 'work' ? 'work' : rawModule === 'hub' ? 'hub' : 'finance';
 
   if (!message || typeof message !== 'string') {
@@ -149,6 +149,43 @@ export async function POST(req: Request): Promise<NextResponse> {
         parts: [{ text: msg.content }]
       }));
 
+    // 5.1 Processar Anexo de Extrato (PDF/Imagem) se enviado no Chat
+    let queryPrompt = message;
+    let extractedAttachmentData: any = null;
+
+    if (attachment && attachment.base64) {
+      try {
+        console.info(`[Chat Attachment] Processando anexo de visão computacional: "${attachment.filename}" (${attachment.mimeType})`);
+        const fileBuffer = Buffer.from(attachment.base64, 'base64');
+        const parsedTxs = await parseStatementWithAI(
+          fileBuffer,
+          attachment.mimeType || 'application/pdf',
+          providerToken || undefined
+        );
+
+        extractedAttachmentData = {
+          filename: attachment.filename || 'extrato.pdf',
+          count: parsedTxs.length,
+          transactions: parsedTxs
+        };
+
+        const txSummaryText = parsedTxs
+          .map(t => `- ${t.date}: ${t.description} (${t.amount > 0 ? '+' : ''}R$ ${t.amount.toFixed(2)}) [${t.category}]${t.isBalance ? ' (Saldo do Dia)' : ''}`)
+          .join('\n');
+
+        queryPrompt = `${message}
+
+📄 **[EXTRATO BANCÁRIO ANEXADO PELO USUÁRIO: "${attachment.filename}"]**
+Visão computacional extraiu ${parsedTxs.length} lançamentos do arquivo fornecido:
+${txSummaryText}
+
+Analise detalhadamente estes lançamentos extraídos, forneça um parecer sobre receitas, despesas e saldo final. Informe ao usuário que você pode cadastrar/conciliar estes lançamentos no banco de dados do G-Finance (usando suas ferramentas de escrita) se ele assim solicitar!`;
+      } catch (attErr: any) {
+        console.error('[Chat Attachment Error] Erro ao extrair anexo no chat:', attErr);
+        queryPrompt = `${message}\n\n⚠️ [Aviso: Ocorreu um erro ao processar o anexo "${attachment.filename}": ${attErr.message}]`;
+      }
+    }
+
     // Fetch profile, AI memory, and custom LLM settings
     const { data: profile } = await supabase
       .from('profiles')
@@ -197,7 +234,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       }
 
       aiResponse = await generateCustomLLMResponse(
-        message,
+        queryPrompt,
         chatHistory,
         module,
         {
@@ -213,35 +250,22 @@ export async function POST(req: Request): Promise<NextResponse> {
     } else {
       // Usar modelo nativo do Gemini (comportamento original)
       if (module === 'work') {
-        // =====================================================================
-        // G-WORK — CPO Assistant
-        // =====================================================================
-        const aiMemoryWork = profile?.ai_memory_work || '';
-
         aiResponse = await generateWorkResponse(
-          message,
+          queryPrompt,
           chatHistory,
           supabase,
-          aiMemoryWork
+          profile?.ai_memory_work || ''
         );
 
       } else if (module === 'hub') {
-        // =====================================================================
-        // G-HUB — CoS Assistant
-        // =====================================================================
-        const aiMemoryHub = profile?.ai_memory_hub || '';
-
         aiResponse = await generateHubResponse(
-          message,
+          queryPrompt,
           chatHistory,
           supabase,
-          aiMemoryHub
+          profile?.ai_memory_hub || ''
         );
 
       } else {
-        // =====================================================================
-        // G-FINANCE — CFO Assistant
-        // =====================================================================
         const aiMemory = profile?.ai_memory || '';
 
         const [
@@ -267,7 +291,7 @@ export async function POST(req: Request): Promise<NextResponse> {
         };
 
         aiResponse = await generateFinancialResponse(
-          message,
+          queryPrompt,
           financialContext,
           chatHistory,
           providerToken || undefined,
@@ -316,7 +340,8 @@ export async function POST(req: Request): Promise<NextResponse> {
       response: aiResponse,
       sessionId: finalSessionId,
       module,
-      autoCompacted
+      autoCompacted,
+      extractedAttachment: extractedAttachmentData
     });
 
   } catch (err: any) {

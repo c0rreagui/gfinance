@@ -63,12 +63,20 @@ export async function POST(req: Request): Promise<NextResponse> {
     const arrayBuffer = await file.arrayBuffer();
     const fileBuffer = Buffer.from(arrayBuffer);
 
-    // 4. Executar o processamento por IA
-    // Opcional: extrai o provider_token do Google caso queira repassar,
-    // mas a lógica agora prioriza a GEMINI_API_KEY global do servidor se configurada
+    // 4. Buscar perfil do usuário para verificar preferências de LLM
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('llm_provider, llm_model')
+      .eq('id', user.id)
+      .single();
+
+    const engineName = profile?.llm_provider && profile.llm_provider !== 'gemini'
+      ? `${profile.llm_provider.toUpperCase()} (${profile.llm_model || 'Custom Vision'})`
+      : 'Gemini 2.0 Flash Vision';
+
     const providerToken = req.headers.get('x-provider-token') || session?.provider_token;
 
-    console.info(`[Parser AI] Iniciando extração do arquivo: "${file.name}" (${file.type})`);
+    console.info(`[Parser AI] Iniciando extração do arquivo: "${file.name}" (${file.type}) usando engine: ${engineName}`);
     
     const transactions = await parseStatementWithAI(
       fileBuffer,
@@ -81,6 +89,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     return NextResponse.json({
       success: true,
       filename: file.name,
+      engineName,
       transactions
     });
 

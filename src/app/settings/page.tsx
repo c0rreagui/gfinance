@@ -15,17 +15,19 @@ interface Profile {
 }
 const PRESETS_MODELS = {
   ollama: [
+    { label: 'Qwen 2.5 Vision (Multimodal)', value: 'qwen2.5-vl' },
+    { label: 'Qwen 2 VL (Vision)', value: 'qwen2-vl' },
+    { label: 'LLaVA (Vision)', value: 'llava' },
+    { label: 'Qwen 2.5 Coder', value: 'qwen2.5-coder' },
+    { label: 'Qwen 2 7B', value: 'qwen2:7b' },
+    { label: 'Qwen 2', value: 'qwen2' },
+    { label: 'Llama 3.3 70B', value: 'llama3.3:70b' },
     { label: 'Llama 3 (Padrão)', value: 'llama3' },
     { label: 'Llama 3 8B', value: 'llama3:8b' },
-    { label: 'Llama 3 70B', value: 'llama3:70b' },
     { label: 'Gemma 2 (Padrão)', value: 'gemma2' },
     { label: 'Gemma 2 9B', value: 'gemma2:9b' },
-    { label: 'Gemma 2 27B', value: 'gemma2:27b' },
-    { label: 'Gemma (Legacy)', value: 'gemma' },
     { label: 'Mistral 7B', value: 'mistral' },
     { label: 'Phi 3', value: 'phi3' },
-    { label: 'Qwen 2', value: 'qwen2' },
-    { label: 'Qwen 2 7B', value: 'qwen2:7b' },
   ],
   openai: [
     { label: 'GPT-4o (Flagship)', value: 'gpt-4o' },
