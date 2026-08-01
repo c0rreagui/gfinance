@@ -97,6 +97,8 @@ export default function Settings() {
   const [testingLlm, setTestingLlm] = useState(false);
   const [llmTestResult, setLlmTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [isCustomModel, setIsCustomModel] = useState(false);
+  const [serverModels, setServerModels] = useState<string[]>([]);
+  const [fetchingServerModels, setFetchingServerModels] = useState(false);
 
   const fetchStaticMemory = async (type: string) => {
     setStaticLoading(true);
@@ -571,6 +573,37 @@ export default function Settings() {
     }
   };
 
+  const handleFetchServerModels = async () => {
+    setFetchingServerModels(true);
+    try {
+      const res = await fetch('/api/ai/list-models', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: llmProvider,
+          apiUrl: llmApiUrl,
+          apiKey: llmApiKey
+        })
+      });
+      const data = await res.json();
+      if (data.models && data.models.length > 0) {
+        setServerModels(data.models);
+        if (!llmModel || !data.models.includes(llmModel)) {
+          setLlmModel(data.models[0]);
+          setIsCustomModel(false);
+        }
+        alert(`Sucesso! Foram encontrados ${data.models.length} modelos instalados no servidor.`);
+      } else {
+        alert('Nenhum modelo foi retornado pelo servidor. Verifique a URL Base e a API Key.');
+      }
+    } catch (err: any) {
+      console.error('Erro ao buscar modelos do servidor:', err);
+      alert(`Falha ao conectar no servidor: ${err.message}`);
+    } finally {
+      setFetchingServerModels(false);
+    }
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setProfileError('');
     setProfileSuccess('');
@@ -1007,7 +1040,18 @@ export default function Settings() {
 
                 {llmProvider !== 'gemini' && (
                   <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Nome do Modelo (Model ID)</label>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Nome do Modelo (Model ID)</label>
+                      <button
+                        type="button"
+                        onClick={handleFetchServerModels}
+                        disabled={fetchingServerModels}
+                        className="text-[10px] font-black uppercase tracking-wider text-emerald-400 hover:text-emerald-300 flex items-center gap-1 cursor-pointer disabled:opacity-50 transition-colors"
+                        title="Consultar modelos instalados/disponíveis no servidor informado"
+                      >
+                        {fetchingServerModels ? 'Buscando...' : '⚡ Carregar Modelos do Servidor'}
+                      </button>
+                    </div>
                     <select
                       value={isCustomModel ? 'custom' : (llmModel || (llmProvider === 'ollama' ? 'qwen2-vl' : ''))}
                       onChange={(e) => {
@@ -1025,15 +1069,22 @@ export default function Settings() {
                       required
                     >
                       <option value="">Selecione um modelo...</option>
+                      {serverModels.length > 0 && (
+                        <optgroup label="Modelos Detectados no Servidor">
+                          {serverModels.map(m => (
+                            <option key={m} value={m}>{m}</option>
+                          ))}
+                        </optgroup>
+                      )}
                       {llmProvider === 'ollama' && (
-                        <optgroup label="Modelos Ollama (Cloud / Local)">
+                        <optgroup label="Modelos Presets (Ollama)">
                           {PRESETS_MODELS.ollama.map(m => (
                             <option key={m.value} value={m.value}>{m.label}</option>
                           ))}
                         </optgroup>
                       )}
                       {llmProvider === 'openai' && (
-                        <optgroup label="Modelos OpenAI">
+                        <optgroup label="Modelos Presets (OpenAI)">
                           {PRESETS_MODELS.openai.map(m => (
                             <option key={m.value} value={m.value}>{m.label}</option>
                           ))}
