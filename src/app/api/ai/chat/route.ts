@@ -268,55 +268,79 @@ Analise detalhadamente estes lançamentos extraídos, forneça um parecer sobre 
       }
 
     } else {
-      // Usar modelo nativo do Gemini (comportamento original)
-      if (module === 'work') {
-        aiResponse = await generateWorkResponse(
+      // Usar modelo nativo do Gemini (comportamento original) com backup automático no Groq Cloud
+      try {
+        if (module === 'work') {
+          aiResponse = await generateWorkResponse(
+            queryPrompt,
+            chatHistory,
+            supabase,
+            profile?.ai_memory_work || ''
+          );
+
+        } else if (module === 'hub') {
+          aiResponse = await generateHubResponse(
+            queryPrompt,
+            chatHistory,
+            supabase,
+            profile?.ai_memory_hub || ''
+          );
+
+        } else {
+          const aiMemory = profile?.ai_memory || '';
+
+          const [
+            { data: dbBalances },
+            { data: dbTransactions },
+            { data: dbGoals },
+            { data: dbReminders },
+            { data: dbCards }
+          ] = await Promise.all([
+            supabase.from('balances').select('label, amount, trend, icon, type').eq('user_id', user.id).limit(20),
+            supabase.from('transactions').select('date, description, amount, category, card_id').eq('user_id', user.id).order('date', { ascending: false }).limit(80),
+            supabase.from('goals').select('name, target_amount, current_amount').eq('user_id', user.id).limit(20),
+            supabase.from('reminders').select('title, due_date, amount, urgency, card_id').eq('user_id', user.id).eq('paid', false).order('due_date', { ascending: true }).limit(5),
+            supabase.from('credit_cards').select('card_name, card_limit, closing_day, due_day, last_four').eq('user_id', user.id)
+          ]);
+
+          const financialContext = {
+            balances: dbBalances || [],
+            transactions: dbTransactions || [],
+            goals: dbGoals || [],
+            reminders: dbReminders || [],
+            creditCards: dbCards || []
+          };
+
+          aiResponse = await generateFinancialResponse(
+            queryPrompt,
+            financialContext,
+            chatHistory,
+            providerToken || undefined,
+            supabase,
+            aiMemory
+          );
+        }
+      } catch (geminiErr: any) {
+        console.warn(`[AI Chat Route] Motor Gemini Nativo falhou (${geminiErr.message}). Executando backup ultra-rápido via Groq Cloud (Llama 3.3 70B)...`);
+        const groqBackupKey = process.env.GROQ_API_KEY || (profile?.llm_provider === 'groq' ? profile.llm_api_key : null);
+        const fallbackSystemPrompt = module === 'work'
+          ? getWorkSystemPrompt(profile?.ai_memory_work || '')
+          : module === 'hub'
+            ? getHubSystemPrompt(profile?.ai_memory_hub || '')
+            : getFinancialSystemPrompt(profile?.ai_memory || '', {});
+
+        aiResponse = await generateCustomLLMResponse(
           queryPrompt,
           chatHistory,
+          module,
+          {
+            provider: 'groq',
+            apiUrl: 'https://api.groq.com/openai/v1',
+            apiKey: groqBackupKey,
+            model: 'llama-3.3-70b-versatile'
+          },
           supabase,
-          profile?.ai_memory_work || ''
-        );
-
-      } else if (module === 'hub') {
-        aiResponse = await generateHubResponse(
-          queryPrompt,
-          chatHistory,
-          supabase,
-          profile?.ai_memory_hub || ''
-        );
-
-      } else {
-        const aiMemory = profile?.ai_memory || '';
-
-        const [
-          { data: dbBalances },
-          { data: dbTransactions },
-          { data: dbGoals },
-          { data: dbReminders },
-          { data: dbCards }
-        ] = await Promise.all([
-          supabase.from('balances').select('label, amount, trend, icon, type').eq('user_id', user.id).limit(20),
-          supabase.from('transactions').select('date, description, amount, category, card_id').eq('user_id', user.id).order('date', { ascending: false }).limit(80),
-          supabase.from('goals').select('name, target_amount, current_amount').eq('user_id', user.id).limit(20),
-          supabase.from('reminders').select('title, due_date, amount, urgency, card_id').eq('user_id', user.id).eq('paid', false).order('due_date', { ascending: true }).limit(5),
-          supabase.from('credit_cards').select('card_name, card_limit, closing_day, due_day, last_four').eq('user_id', user.id)
-        ]);
-
-        const financialContext = {
-          balances: dbBalances || [],
-          transactions: dbTransactions || [],
-          goals: dbGoals || [],
-          reminders: dbReminders || [],
-          creditCards: dbCards || []
-        };
-
-        aiResponse = await generateFinancialResponse(
-          queryPrompt,
-          financialContext,
-          chatHistory,
-          providerToken || undefined,
-          supabase,
-          aiMemory
+          fallbackSystemPrompt
         );
       }
     }
