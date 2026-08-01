@@ -52,21 +52,29 @@ export async function POST(req: Request): Promise<NextResponse> {
     }
   }
 
-  // Test OpenAI / Ollama connection
-  let endpoint = apiUrl || '';
+  // Test OpenAI / Ollama / Groq connection
+  let endpoint = (apiUrl || '').trim();
+
   if (!endpoint) {
-    if (provider === 'ollama') {
-      endpoint = 'https://ollama.com';
-    } else if (provider === 'groq') {
-      endpoint = 'https://api.groq.com/openai';
-    } else if (provider === 'openai') {
-      endpoint = 'https://api.openai.com';
-    } else {
+    if (provider === 'ollama') endpoint = 'https://ollama.com';
+    else if (provider === 'groq') endpoint = 'https://api.groq.com/openai';
+    else if (provider === 'openai') endpoint = 'https://api.openai.com';
+    else {
       return NextResponse.json({ success: false, error: 'A URL da API é obrigatória para este provedor.' });
     }
   }
-  if (!endpoint.includes('/chat/completions') && !endpoint.includes('/completions')) {
-    endpoint = endpoint.replace(/\/$/, '') + '/v1/chat/completions';
+
+  if (endpoint.endsWith('/chat/completions')) {
+    // URL já completa
+  } else if (endpoint.endsWith('/completions')) {
+    endpoint = endpoint.replace(/\/completions$/, '/chat/completions');
+  } else {
+    endpoint = endpoint.replace(/\/$/, '');
+    if (endpoint.endsWith('/v1')) {
+      endpoint = `${endpoint}/chat/completions`;
+    } else {
+      endpoint = `${endpoint}/v1/chat/completions`;
+    }
   }
 
   try {

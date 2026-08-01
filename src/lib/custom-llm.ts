@@ -67,16 +67,25 @@ export async function generateCustomLLMResponse(
   systemPrompt: string
 ): Promise<string> {
   // 1. Resolver URL do endpoint compatível com OpenAI chat com fallback para provedores conhecidos
-  let endpoint = llmConfig.apiUrl || '';
+  let endpoint = (llmConfig.apiUrl || '').trim();
+
   if (!endpoint) {
-    if (llmConfig.provider === 'ollama') {
-      endpoint = 'https://ollama.com';
-    } else if (llmConfig.provider === 'openai') {
-      endpoint = 'https://api.openai.com';
-    }
+    if (llmConfig.provider === 'ollama') endpoint = 'https://ollama.com';
+    else if (llmConfig.provider === 'groq') endpoint = 'https://api.groq.com/openai';
+    else if (llmConfig.provider === 'openai') endpoint = 'https://api.openai.com';
   }
-  if (!endpoint.includes('/chat/completions') && !endpoint.includes('/completions')) {
-    endpoint = endpoint.replace(/\/$/, '') + '/v1/chat/completions';
+
+  if (endpoint.endsWith('/chat/completions')) {
+    // Endpoint pronto
+  } else if (endpoint.endsWith('/completions')) {
+    endpoint = endpoint.replace(/\/completions$/, '/chat/completions');
+  } else {
+    endpoint = endpoint.replace(/\/$/, '');
+    if (endpoint.endsWith('/v1')) {
+      endpoint = `${endpoint}/chat/completions`;
+    } else {
+      endpoint = `${endpoint}/v1/chat/completions`;
+    }
   }
 
   // 2. Resolver as Ferramentas (Tools) com base no módulo
