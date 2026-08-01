@@ -519,8 +519,7 @@ export default function GeminiBrainPage() {
     } catch (err: any) {
       console.error(err);
       setUploadError(err.message || 'Falha ao conciliar os lançamentos no banco de dados.');
-    } font-sans
-    finally {
+    } finally {
       setImporting(false);
     }
   };

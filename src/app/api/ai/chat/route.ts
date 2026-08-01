@@ -200,13 +200,13 @@ Analise detalhadamente estes lançamentos extraídos, forneça um parecer sobre 
     let aiResponse: string;
 
     if (useCustomLLM) {
-      console.info(`[AI Chat Route] Usando LLM Customizada (${profile.llm_provider}) para o módulo: ${module}`);
+      console.info(`[AI Chat Route] Usando LLM Customizada (${profile?.llm_provider || 'custom'}) para o módulo: ${module}`);
       let systemPrompt = '';
       
       if (module === 'work') {
-        systemPrompt = getWorkSystemPrompt(profile.ai_memory_work || '');
+        systemPrompt = getWorkSystemPrompt(profile?.ai_memory_work || '');
       } else if (module === 'hub') {
-        systemPrompt = getHubSystemPrompt(profile.ai_memory_hub || '');
+        systemPrompt = getHubSystemPrompt(profile?.ai_memory_hub || '');
       } else {
         const [
           { data: dbBalances },
@@ -230,7 +230,7 @@ Analise detalhadamente estes lançamentos extraídos, forneça um parecer sobre 
           creditCards: dbCards || []
         };
 
-        systemPrompt = getFinancialSystemPrompt(profile.ai_memory || '', financialContext);
+        systemPrompt = getFinancialSystemPrompt(profile?.ai_memory || '', financialContext);
       }
 
       aiResponse = await generateCustomLLMResponse(
@@ -238,10 +238,10 @@ Analise detalhadamente estes lançamentos extraídos, forneça um parecer sobre 
         chatHistory,
         module,
         {
-          provider: profile.llm_provider,
-          apiUrl: profile.llm_api_url || '',
-          apiKey: profile.llm_api_key,
-          model: profile.llm_model || ''
+          provider: profile?.llm_provider || 'custom',
+          apiUrl: profile?.llm_api_url || '',
+          apiKey: profile?.llm_api_key || null,
+          model: profile?.llm_model || ''
         },
         supabase,
         systemPrompt
