@@ -149,6 +149,24 @@ export async function POST(req: Request): Promise<NextResponse> {
         parts: [{ text: msg.content }]
       }));
 
+    // Fetch profile, AI memory, and custom LLM settings
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('ai_memory, ai_memory_work, ai_memory_hub, llm_provider, llm_api_url, llm_api_key, llm_model')
+      .eq('id', user.id)
+      .single();
+
+    useCustomLLM = !!(profile?.llm_provider && profile.llm_provider !== 'gemini');
+    configuredUrl = profile?.llm_api_url || '';
+    providerName = profile?.llm_provider || 'custom';
+
+    const customLLMConfig = useCustomLLM ? {
+      provider: profile?.llm_provider || 'custom',
+      apiUrl: profile?.llm_api_url,
+      apiKey: profile?.llm_api_key,
+      model: profile?.llm_model || ''
+    } : undefined;
+
     // 5.1 Processar Anexo de Extrato (PDF/Imagem) se enviado no Chat
     let queryPrompt = message;
     let extractedAttachmentData: any = null;
@@ -160,7 +178,8 @@ export async function POST(req: Request): Promise<NextResponse> {
         const parsedTxs = await parseStatementWithAI(
           fileBuffer,
           attachment.mimeType || 'application/pdf',
-          providerToken || undefined
+          providerToken || undefined,
+          customLLMConfig
         );
 
         extractedAttachmentData = {
@@ -185,17 +204,6 @@ Analise detalhadamente estes lançamentos extraídos, forneça um parecer sobre 
         queryPrompt = `${message}\n\n⚠️ [Aviso: Ocorreu um erro ao processar o anexo "${attachment.filename}": ${attErr.message}]`;
       }
     }
-
-    // Fetch profile, AI memory, and custom LLM settings
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('ai_memory, ai_memory_work, ai_memory_hub, llm_provider, llm_api_url, llm_api_key, llm_model')
-      .eq('id', user.id)
-      .single();
-
-    useCustomLLM = !!(profile?.llm_provider && profile.llm_provider !== 'gemini');
-    configuredUrl = profile?.llm_api_url || '';
-    providerName = profile?.llm_provider || 'custom';
 
     let aiResponse: string;
 

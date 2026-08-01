@@ -15,8 +15,9 @@ interface Profile {
 }
 const PRESETS_MODELS = {
   ollama: [
-    { label: 'Qwen 2.5 Vision (Multimodal)', value: 'qwen2.5-vl' },
-    { label: 'Qwen 2 VL (Vision)', value: 'qwen2-vl' },
+    { label: 'Qwen 2 VL (Vision Multimodal)', value: 'qwen2-vl' },
+    { label: 'Qwen 2 VL 7B (Vision)', value: 'qwen2-vl:7b' },
+    { label: 'Llama 3.2 Vision (Multimodal)', value: 'llama3.2-vision' },
     { label: 'LLaVA (Vision)', value: 'llava' },
     { label: 'Qwen 2.5 Coder', value: 'qwen2.5-coder' },
     { label: 'Qwen 2 7B', value: 'qwen2:7b' },

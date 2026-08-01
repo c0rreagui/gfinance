@@ -99,7 +99,19 @@ export async function POST(req: Request): Promise<NextResponse> {
     }
 
     const errorText = await response.text();
-    return NextResponse.json({ success: false, error: `Status ${response.status}: ${errorText.substring(0, 150)}` });
+    let userFriendlyMsg = `Status ${response.status}: `;
+
+    if (response.status === 404 || errorText.includes('not_found') || errorText.includes('not found')) {
+      userFriendlyMsg = `Modelo "${model}" não localizado no provedor ${provider === 'ollama' ? 'Ollama' : 'OpenAI'}. Verifique a tag do modelo nos Ajustes (ex: use 'qwen2-vl', 'llama3.2-vision' ou 'llama3').`;
+    } else if (response.status === 401 || response.status === 403 || errorText.includes('unauthorized') || errorText.includes('forbidden')) {
+      userFriendlyMsg = `Chave de API (API Key) não autorizada ou recusada pelo servidor (${endpoint}). Verifique sua chave de autenticação nos Ajustes.`;
+    } else if (response.status === 429 || errorText.includes('quota') || errorText.includes('rate limit')) {
+      userFriendlyMsg = `Cota ou limite de requisições excedido no provedor (Erro 429).`;
+    } else {
+      userFriendlyMsg += errorText.substring(0, 150);
+    }
+
+    return NextResponse.json({ success: false, error: userFriendlyMsg });
 
   } catch (err: any) {
     console.error('[Test LLM Connection Error]', err);

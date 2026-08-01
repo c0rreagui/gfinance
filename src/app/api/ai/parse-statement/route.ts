@@ -66,12 +66,19 @@ export async function POST(req: Request): Promise<NextResponse> {
     // 4. Buscar perfil do usuário para verificar preferências de LLM
     const { data: profile } = await supabase
       .from('profiles')
-      .select('llm_provider, llm_model')
+      .select('llm_provider, llm_model, llm_api_url, llm_api_key')
       .eq('id', user.id)
       .single();
 
-    const engineName = profile?.llm_provider && profile.llm_provider !== 'gemini'
-      ? `${profile.llm_provider.toUpperCase()} (${profile.llm_model || 'Custom Vision'})`
+    const customLLMConfig = profile?.llm_provider && profile.llm_provider !== 'gemini' ? {
+      provider: profile.llm_provider,
+      apiUrl: profile.llm_api_url,
+      apiKey: profile.llm_api_key,
+      model: profile.llm_model || ''
+    } : undefined;
+
+    const engineName = customLLMConfig
+      ? `${customLLMConfig.provider.toUpperCase()} (${customLLMConfig.model || 'Custom Vision'})`
       : 'Gemini 2.0 Flash Vision';
 
     const providerToken = req.headers.get('x-provider-token') || session?.provider_token;
@@ -81,7 +88,8 @@ export async function POST(req: Request): Promise<NextResponse> {
     const transactions = await parseStatementWithAI(
       fileBuffer,
       file.type,
-      providerToken || undefined
+      providerToken || undefined,
+      customLLMConfig
     );
 
     console.info(`[Parser AI] Sucesso! Extraídas ${transactions.length} transações.`);

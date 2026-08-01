@@ -130,7 +130,8 @@ async function callGeminiREST(
 export async function parseStatementWithAI(
   fileBuffer: Buffer,
   mimeType: string,
-  oauthToken?: string
+  oauthToken?: string,
+  customLLMConfig?: { provider: string; apiUrl?: string | null; apiKey?: string | null; model: string }
 ): Promise<AITransaction[]> {
   const prompt = `
     Analise o extrato financeiro fornecido (PDF ou Imagem).
@@ -176,6 +177,66 @@ export async function parseStatementWithAI(
 
   const fileBase64 = fileBuffer.toString('base64');
 
+  // Caminho Custom LLM (Ollama Cloud / Local ou OpenAI)
+  if (customLLMConfig && customLLMConfig.provider !== 'gemini') {
+    let endpoint = customLLMConfig.apiUrl || '';
+    if (!endpoint) {
+      if (customLLMConfig.provider === 'ollama') endpoint = 'https://ollama.com';
+      else if (customLLMConfig.provider === 'openai') endpoint = 'https://api.openai.com';
+    }
+    if (!endpoint.includes('/chat/completions') && !endpoint.includes('/completions')) {
+      endpoint = endpoint.replace(/\/$/, '') + '/v1/chat/completions';
+    }
+
+    const dataUrl = `data:${mimeType};base64,${fileBase64}`;
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (customLLMConfig.apiKey) {
+      headers['Authorization'] = `Bearer ${customLLMConfig.apiKey}`;
+    }
+
+    const payload = {
+      model: customLLMConfig.model || 'qwen2-vl',
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: prompt + '\nRetorne estritamente um JSON no formato {"transactions": [...]}' },
+            { type: 'image_url', image_url: { url: dataUrl } }
+          ]
+        }
+      ],
+      temperature: 0.1
+    };
+
+    console.info(`[Parser Custom LLM] Enviando extrato para ${endpoint} com modelo "${customLLMConfig.model}"`);
+
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(60000)
+    });
+
+    if (!res.ok) {
+      const errorText = await res.text();
+      if (res.status === 404 || errorText.includes('not_found') || errorText.includes('not found')) {
+        throw new Error(`O modelo "${customLLMConfig.model}" não foi encontrado no provedor ${customLLMConfig.provider.toUpperCase()} (${endpoint}). Verifique o identificador do modelo nos Ajustes (ex: use 'qwen2-vl' ou 'llama3.2-vision').`);
+      }
+      throw new Error(`Provedor customizado (${customLLMConfig.provider.toUpperCase()}) retornou HTTP ${res.status}: ${errorText.substring(0, 180)}`);
+    }
+
+    const json = await res.json();
+    const rawContent = json.choices?.[0]?.message?.content || '';
+    try {
+      const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
+      const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : rawContent);
+      return parsed.transactions || [];
+    } catch {
+      console.error('[Parser Custom LLM] Erro ao parsear JSON:', rawContent);
+      throw new Error('Falha ao processar a resposta JSON do provedor customizado.');
+    }
+  }
+
   const hasApiKey = apiKey && apiKey !== 'your-gemini-api-key-here';
 
   if (oauthToken && !hasApiKey) {
@@ -200,47 +261,48 @@ export async function parseStatementWithAI(
     return parsed.transactions || [];
   }
 
-  // Caminho API Key: SDK padrão com Structured Outputs
-  const genAI = getGeminiClient();
-  const model = genAI.getGenerativeModel({
-    model: PARSER_MODEL,
-    generationConfig: {
-      responseMimeType: 'application/json',
-      responseSchema: {
-        type: SchemaType.OBJECT,
-        properties: {
-          transactions: {
-            type: SchemaType.ARRAY,
-            description: 'Lista de lançamentos extraídos do extrato bancário',
-            items: {
-              type: SchemaType.OBJECT,
-              properties: {
-                date: { type: SchemaType.STRING, description: 'Data ISO (YYYY-MM-DD)' },
-                description: { type: SchemaType.STRING, description: 'Descrição do lançamento ou indicação de saldo' },
-                amount: { type: SchemaType.NUMBER, description: 'Valor (negativo=saída, positivo=entrada, ou valor do saldo)' },
-                category: { type: SchemaType.STRING, description: 'Categoria do lançamento (use "Saldo" para saldos diários)' },
-                icon: { type: SchemaType.STRING, description: 'Ícone Lucide' },
-                isBalance: { type: SchemaType.BOOLEAN, description: 'Indica se este item representa o saldo diário (saldo do dia / o que se manteve) em vez de uma transação' }
+  // Caminho Gemini Nativo com tratamento de cota 429
+  try {
+    const genAI = getGeminiClient();
+    const model = genAI.getGenerativeModel({
+      model: PARSER_MODEL,
+      generationConfig: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: SchemaType.OBJECT,
+          properties: {
+            transactions: {
+              type: SchemaType.ARRAY,
+              description: 'Lista de lançamentos extraídos do extrato bancário',
+              items: {
+                type: SchemaType.OBJECT,
+                properties: {
+                  date: { type: SchemaType.STRING, description: 'Data ISO (YYYY-MM-DD)' },
+                  description: { type: SchemaType.STRING, description: 'Descrição do lançamento ou indicação de saldo' },
+                  amount: { type: SchemaType.NUMBER, description: 'Valor (negativo=saída, positivo=entrada, ou valor do saldo)' },
+                  category: { type: SchemaType.STRING, description: 'Categoria do lançamento (use "Saldo" para saldos diários)' },
+                  icon: { type: SchemaType.STRING, description: 'Ícone Lucide' },
+                  isBalance: { type: SchemaType.BOOLEAN, description: 'Indica se este item representa o saldo diário' }
+                },
+                required: ['date', 'description', 'amount', 'category', 'icon', 'isBalance'],
               },
-              required: ['date', 'description', 'amount', 'category', 'icon', 'isBalance'],
             },
           },
+          required: ['transactions'],
         },
-        required: ['transactions'],
       },
-    },
-  });
+    });
 
-  const filePart = { inlineData: { data: fileBase64, mimeType } };
-  const result = await withRetry(() => model.generateContent([prompt, filePart]));
-  const responseText = result.response.text();
-
-  try {
+    const filePart = { inlineData: { data: fileBase64, mimeType } };
+    const result = await withRetry(() => model.generateContent([prompt, filePart]));
+    const responseText = result.response.text();
     const parsed = JSON.parse(responseText);
     return parsed.transactions || [];
-  } catch (err) {
-    console.error('[Gemini AI Brain] Erro ao processar o JSON de retorno do Gemini:', err);
-    throw new Error('Falha ao processar os dados estruturados de IA de retorno.');
+  } catch (err: any) {
+    if (is429Error(err)) {
+      throw new Error('Sua cota gratuita da API do Gemini foi temporariamente excedida (Erro 429). Para utilizar a visão computacional sem limites, selecione o provedor Ollama Cloud (com o modelo "qwen2-vl" ou "llama3.2-vision") nos Ajustes.');
+    }
+    throw err;
   }
 }
 
