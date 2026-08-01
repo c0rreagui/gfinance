@@ -981,8 +981,20 @@ export default function Settings() {
                     onChange={(e) => {
                       const prov = e.target.value as any;
                       setLlmProvider(prov);
-                      setIsCustomModel(prov === 'custom');
-                      setLlmModel('');
+                      setLlmTestResult(null);
+                      if (prov === 'ollama') {
+                        setIsCustomModel(false);
+                        setLlmModel('qwen2-vl');
+                      } else if (prov === 'openai') {
+                        setIsCustomModel(false);
+                        setLlmModel('gpt-4o');
+                      } else if (prov === 'custom') {
+                        setIsCustomModel(true);
+                        setLlmModel('');
+                      } else {
+                        setIsCustomModel(false);
+                        setLlmModel('');
+                      }
                     }}
                     className="w-full px-6 py-4 bg-white/40 dark:bg-slate-800/40 border border-slate-200 dark:border-white/5 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all font-bold text-slate-700 dark:text-white text-sm cursor-pointer"
                   >
@@ -997,9 +1009,10 @@ export default function Settings() {
                   <div>
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Nome do Modelo (Model ID)</label>
                     <select
-                      value={isCustomModel ? 'custom' : llmModel}
+                      value={isCustomModel ? 'custom' : (llmModel || (llmProvider === 'ollama' ? 'qwen2-vl' : ''))}
                       onChange={(e) => {
                         const val = e.target.value;
+                        setLlmTestResult(null);
                         if (val === 'custom') {
                           setIsCustomModel(true);
                           setLlmModel('');
@@ -1013,7 +1026,7 @@ export default function Settings() {
                     >
                       <option value="">Selecione um modelo...</option>
                       {llmProvider === 'ollama' && (
-                        <optgroup label="Modelos Ollama">
+                        <optgroup label="Modelos Ollama (Cloud / Local)">
                           {PRESETS_MODELS.ollama.map(m => (
                             <option key={m.value} value={m.value}>{m.label}</option>
                           ))}
