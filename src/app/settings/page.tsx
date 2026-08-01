@@ -524,8 +524,8 @@ export default function Settings() {
     }
   };
 
-  const handleSaveLLMSettings = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSaveLLMSettings = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     if (!profile.id) return;
     setProfileError('');
     setProfileSuccess('');
@@ -544,6 +544,7 @@ export default function Settings() {
 
       if (error) throw error;
       setProfileSuccess('Configurações de inteligência artificial salvas com sucesso!');
+      window.dispatchEvent(new Event('gfinance_llm_updated'));
       await fetchProfile();
     } catch (err: any) {
       setProfileError(`Erro ao salvar configurações de LLM: ${err.message}`);
@@ -569,6 +570,20 @@ export default function Settings() {
       const data = await res.json();
       if (res.ok && data.success) {
         setLlmTestResult({ success: true, message: 'Conexão estabelecida com sucesso!' });
+        // Persistir automaticamente no perfil e avisar a interface
+        if (profile.id) {
+          await supabase
+            .from('profiles')
+            .update({
+              llm_provider: llmProvider,
+              llm_api_url: llmApiUrl || null,
+              llm_api_key: llmApiKey || null,
+              llm_model: llmModel || null,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', profile.id);
+          window.dispatchEvent(new Event('gfinance_llm_updated'));
+        }
       } else {
         setLlmTestResult({ success: false, message: data.error || 'Erro desconhecido na resposta.' });
       }

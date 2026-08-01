@@ -162,11 +162,36 @@ export default function GeminiBrainPage() {
   const [userId, setUserId] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchUser = async () => {
+    const fetchUserAndEngine = async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      if (user) setUserId(user.id);
+      if (user) {
+        setUserId(user.id);
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('llm_provider, llm_model')
+          .eq('id', user.id)
+          .single();
+
+        if (profile) {
+          if (profile.llm_provider && profile.llm_provider !== 'gemini') {
+            const prov = profile.llm_provider.toUpperCase();
+            const mod = profile.llm_model || 'default';
+            setActiveEngine(`${prov} (${mod})`);
+          } else {
+            setActiveEngine('Gemini 2.0 Flash Vision');
+          }
+        }
+      }
     };
-    fetchUser();
+
+    fetchUserAndEngine();
+
+    window.addEventListener('gfinance_llm_updated', fetchUserAndEngine);
+    window.addEventListener('focus', fetchUserAndEngine);
+    return () => {
+      window.removeEventListener('gfinance_llm_updated', fetchUserAndEngine);
+      window.removeEventListener('focus', fetchUserAndEngine);
+    };
   }, []);
 
   // Auto-scroll chat

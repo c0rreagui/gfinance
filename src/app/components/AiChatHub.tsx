@@ -161,7 +161,7 @@ export function AiChatHub({ isFloating = false, forcedModule }: { isFloating?: b
               const modelLabel = profile.llm_model || 'default';
               setActiveModel(`${providerLabel} (${modelLabel})`);
             } else {
-              setActiveModel('Gemini 1.5 Flash');
+              setActiveModel('Gemini 2.0 Flash Vision');
             }
           }
         }
@@ -171,6 +171,13 @@ export function AiChatHub({ isFloating = false, forcedModule }: { isFloating?: b
     };
 
     fetchActiveModel();
+
+    window.addEventListener('gfinance_llm_updated', fetchActiveModel);
+    window.addEventListener('focus', fetchActiveModel);
+    return () => {
+      window.removeEventListener('gfinance_llm_updated', fetchActiveModel);
+      window.removeEventListener('focus', fetchActiveModel);
+    };
   }, [module]);
 
   // Auto-resize textarea height based on content
