@@ -28,6 +28,14 @@ const PRESETS_MODELS = {
     { label: '💬 Gemma 2 (Padrão) — Apenas Texto', value: 'gemma2' },
     { label: '💬 Mistral 7B — Apenas Texto', value: 'mistral' },
   ],
+  groq: [
+    { label: '👁️ Llama 3.2 90B Vision — Visão Ultra-Rápida (Groq)', value: 'llama-3.2-90b-vision-preview' },
+    { label: '👁️ Llama 3.2 11B Vision — Visão Rápida (Groq)', value: 'llama-3.2-11b-vision-preview' },
+    { label: '💬 Llama 3.3 70B Versatile — Chat / Texto (Groq)', value: 'llama-3.3-70b-versatile' },
+    { label: '💬 DeepSeek R1 Distill Llama 70B — Raciocínio (Groq)', value: 'deepseek-r1-distill-llama-70b' },
+    { label: '💬 Llama 3 8B — Chat (Groq)', value: 'llama3-8b-8192' },
+    { label: '💬 Mixtral 8x7B — Chat (Groq)', value: 'mixtral-8x7b-32768' },
+  ],
   openai: [
     { label: '👁️ GPT-4o — Visão + Texto (Flagship Multimodal)', value: 'gpt-4o' },
     { label: '👁️ GPT-4o Mini — Visão + Texto (Rápido)', value: 'gpt-4o-mini' },
@@ -88,7 +96,7 @@ export default function Settings() {
   const [dynamicLoading, setDynamicLoading] = useState(false);
 
   // Custom LLM Settings states
-  const [llmProvider, setLlmProvider] = useState<'gemini' | 'ollama' | 'openai' | 'custom'>('gemini');
+  const [llmProvider, setLlmProvider] = useState<'gemini' | 'ollama' | 'groq' | 'openai' | 'custom'>('gemini');
   const [llmApiUrl, setLlmApiUrl] = useState('');
   const [llmApiKey, setLlmApiKey] = useState('');
   const [llmModel, setLlmModel] = useState('');
@@ -250,7 +258,7 @@ export default function Settings() {
             setLlmModel(modelVal);
 
             // Determine if model is custom
-            const presets = PRESETS_MODELS[provider as 'ollama' | 'openai'] || [];
+            const presets = PRESETS_MODELS[provider as 'ollama' | 'groq' | 'openai'] || [];
             const isPreset = presets.some(m => m.value === modelVal);
             setIsCustomModel(modelVal !== '' && !isPreset);
           }
@@ -1015,10 +1023,16 @@ export default function Settings() {
                       setLlmTestResult(null);
                       if (prov === 'ollama') {
                         setIsCustomModel(false);
-                        setLlmModel('qwen2-vl');
+                        setLlmModel('deepseek-v4-flash');
+                        setLlmApiUrl('https://ollama.com');
+                      } else if (prov === 'groq') {
+                        setIsCustomModel(false);
+                        setLlmModel('llama-3.3-70b-versatile');
+                        setLlmApiUrl('https://api.groq.com/openai/v1');
                       } else if (prov === 'openai') {
                         setIsCustomModel(false);
                         setLlmModel('gpt-4o');
+                        setLlmApiUrl('https://api.openai.com');
                       } else if (prov === 'custom') {
                         setIsCustomModel(true);
                         setLlmModel('');
@@ -1031,6 +1045,7 @@ export default function Settings() {
                   >
                     <option value="gemini">Google Gemini (Nativo)</option>
                     <option value="ollama">Ollama Cloud / Local</option>
+                    <option value="groq">Groq Cloud (Llama 3.3 70B Ultra-Fast)</option>
                     <option value="openai">OpenAI (GPT Models)</option>
                     <option value="custom">API Customizada (Compatível com OpenAI)</option>
                   </select>
@@ -1051,7 +1066,7 @@ export default function Settings() {
                       </button>
                     </div>
                     <select
-                      value={isCustomModel ? 'custom' : (llmModel || (llmProvider === 'ollama' ? 'qwen2-vl' : ''))}
+                      value={isCustomModel ? 'custom' : (llmModel || (llmProvider === 'groq' ? 'llama-3.3-70b-versatile' : llmProvider === 'ollama' ? 'deepseek-v4-flash' : ''))}
                       onChange={(e) => {
                         const val = e.target.value;
                         setLlmTestResult(null);
@@ -1078,6 +1093,13 @@ export default function Settings() {
                               </option>
                             );
                           })}
+                        </optgroup>
+                      )}
+                      {llmProvider === 'groq' && (
+                        <optgroup label="Modelos Presets (Groq Cloud)">
+                          {PRESETS_MODELS.groq.map(m => (
+                            <option key={m.value} value={m.value}>{m.label}</option>
+                          ))}
                         </optgroup>
                       )}
                       {llmProvider === 'ollama' && (

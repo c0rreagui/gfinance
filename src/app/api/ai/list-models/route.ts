@@ -33,6 +33,7 @@ export async function POST(req: Request): Promise<NextResponse> {
   let endpoint = apiUrl || '';
   if (!endpoint) {
     if (provider === 'ollama') endpoint = 'https://ollama.com';
+    else if (provider === 'groq') endpoint = 'https://api.groq.com/openai';
     else if (provider === 'openai') endpoint = 'https://api.openai.com';
     else {
       return NextResponse.json({ success: false, models: [] });
