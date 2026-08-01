@@ -117,8 +117,13 @@ export async function generateCustomLLMResponse(
     'Content-Type': 'application/json'
   };
 
-  if (llmConfig.apiKey) {
-    headers['Authorization'] = `Bearer ${llmConfig.apiKey}`;
+  let apiKeyToUse = llmConfig.apiKey;
+  if (!apiKeyToUse && (llmConfig.provider === 'groq' || (llmConfig.apiUrl || '').includes('groq'))) {
+    apiKeyToUse = process.env.GROQ_API_KEY || '';
+  }
+
+  if (apiKeyToUse) {
+    headers['Authorization'] = `Bearer ${apiKeyToUse}`;
   }
 
   let loopCount = 0;

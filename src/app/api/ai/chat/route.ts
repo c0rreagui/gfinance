@@ -243,6 +243,10 @@ Analise detalhadamente estes lançamentos extraídos, forneça um parecer sobre 
       }
 
       try {
+        const isGroq = profile?.llm_provider === 'groq' || (profile?.llm_api_url || '').includes('groq');
+        const effectiveApiKey = profile?.llm_api_key || (isGroq ? (process.env.GROQ_API_KEY || null) : null);
+        const effectiveModel = profile?.llm_model || (isGroq ? 'llama-3.3-70b-versatile' : '');
+
         aiResponse = await generateCustomLLMResponse(
           queryPrompt,
           chatHistory,
@@ -250,8 +254,8 @@ Analise detalhadamente estes lançamentos extraídos, forneça um parecer sobre 
           {
             provider: profile?.llm_provider || 'custom',
             apiUrl: profile?.llm_api_url || '',
-            apiKey: profile?.llm_api_key || null,
-            model: profile?.llm_model || ''
+            apiKey: effectiveApiKey,
+            model: effectiveModel
           },
           supabase,
           systemPrompt
