@@ -77,8 +77,18 @@ export async function POST(req: Request): Promise<NextResponse> {
       model: profile.llm_model || ''
     } : undefined;
 
+    const isCustomVision = customLLMConfig?.model && (
+      customLLMConfig.model.toLowerCase().includes('vl') ||
+      customLLMConfig.model.toLowerCase().includes('vision') ||
+      customLLMConfig.model.toLowerCase().includes('llava') ||
+      customLLMConfig.model.toLowerCase().includes('gpt-4o') ||
+      customLLMConfig.model.toLowerCase().includes('gemini')
+    );
+
     const engineName = customLLMConfig
-      ? `${customLLMConfig.provider.toUpperCase()} (${customLLMConfig.model || 'Custom Vision'})`
+      ? (isCustomVision 
+          ? `${customLLMConfig.provider.toUpperCase()} (${customLLMConfig.model})`
+          : `Gemini 2.0 Flash Vision (Visão Híbrida — Chat via ${customLLMConfig.provider.toUpperCase()} ${customLLMConfig.model})`)
       : 'Gemini 2.0 Flash Vision';
 
     const providerToken = req.headers.get('x-provider-token') || session?.provider_token;

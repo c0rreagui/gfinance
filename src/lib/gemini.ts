@@ -177,8 +177,21 @@ export async function parseStatementWithAI(
 
   const fileBase64 = fileBuffer.toString('base64');
 
-  // Caminho Custom LLM (Ollama Cloud / Local ou OpenAI)
-  if (customLLMConfig && customLLMConfig.provider !== 'gemini') {
+  const isVisionModelId = (id: string) => {
+    if (!id) return false;
+    const lower = id.toLowerCase();
+    return (
+      lower.includes('vl') ||
+      lower.includes('vision') ||
+      lower.includes('llava') ||
+      lower.includes('multimodal') ||
+      lower.includes('gpt-4o') ||
+      lower.includes('gemini')
+    );
+  };
+
+  // Caminho Custom LLM (somente se o modelo configurado tiver suporte a Visão)
+  if (customLLMConfig && customLLMConfig.provider !== 'gemini' && isVisionModelId(customLLMConfig.model)) {
     let endpoint = customLLMConfig.apiUrl || '';
     if (!endpoint) {
       if (customLLMConfig.provider === 'ollama') endpoint = 'https://ollama.com';
@@ -208,7 +221,7 @@ export async function parseStatementWithAI(
       temperature: 0.1
     };
 
-    console.info(`[Parser Custom LLM] Enviando extrato para ${endpoint} com modelo "${customLLMConfig.model}"`);
+    console.info(`[Parser Custom LLM] Enviando extrato para ${endpoint} com modelo de visão "${customLLMConfig.model}"`);
 
     const res = await fetch(endpoint, {
       method: 'POST',
@@ -220,21 +233,23 @@ export async function parseStatementWithAI(
     if (!res.ok) {
       const errorText = await res.text();
       if (res.status === 404 || errorText.includes('not_found') || errorText.includes('not found')) {
-        throw new Error(`O modelo "${customLLMConfig.model}" não foi encontrado no provedor ${customLLMConfig.provider.toUpperCase()} (${endpoint}). Verifique o identificador do modelo nos Ajustes (ex: use 'qwen2-vl' ou 'llama3.2-vision').`);
+        console.warn(`[Parser Custom LLM] Modelo "${customLLMConfig.model}" não encontrado no servidor. Executando fallback para Gemini 2.0 Flash Vision.`);
+      } else {
+        throw new Error(`Provedor customizado (${customLLMConfig.provider.toUpperCase()}) retornou HTTP ${res.status}: ${errorText.substring(0, 180)}`);
       }
-      throw new Error(`Provedor customizado (${customLLMConfig.provider.toUpperCase()}) retornou HTTP ${res.status}: ${errorText.substring(0, 180)}`);
+    } else {
+      const json = await res.json();
+      const rawContent = json.choices?.[0]?.message?.content || '';
+      try {
+        const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
+        const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : rawContent);
+        return parsed.transactions || [];
+      } catch {
+        console.error('[Parser Custom LLM] Erro ao parsear JSON:', rawContent);
+      }
     }
-
-    const json = await res.json();
-    const rawContent = json.choices?.[0]?.message?.content || '';
-    try {
-      const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
-      const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : rawContent);
-      return parsed.transactions || [];
-    } catch {
-      console.error('[Parser Custom LLM] Erro ao parsear JSON:', rawContent);
-      throw new Error('Falha ao processar a resposta JSON do provedor customizado.');
-    }
+  } else if (customLLMConfig && customLLMConfig.provider !== 'gemini') {
+    console.info(`[Parser AI Híbrido] O modelo customizado "${customLLMConfig.model}" é focado em texto. Executando extração de visão pelo motor Gemini 2.0 Flash Vision nativo.`);
   }
 
   const hasApiKey = apiKey && apiKey !== 'your-gemini-api-key-here';
