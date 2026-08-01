@@ -15,27 +15,25 @@ interface Profile {
 }
 const PRESETS_MODELS = {
   ollama: [
-    { label: 'Qwen 2 VL (Vision Multimodal)', value: 'qwen2-vl' },
-    { label: 'Qwen 2 VL 7B (Vision)', value: 'qwen2-vl:7b' },
-    { label: 'Llama 3.2 Vision (Multimodal)', value: 'llama3.2-vision' },
-    { label: 'LLaVA (Vision)', value: 'llava' },
-    { label: 'Qwen 2.5 Coder', value: 'qwen2.5-coder' },
-    { label: 'Qwen 2 7B', value: 'qwen2:7b' },
-    { label: 'Qwen 2', value: 'qwen2' },
-    { label: 'Llama 3.3 70B', value: 'llama3.3:70b' },
-    { label: 'Llama 3 (Padrão)', value: 'llama3' },
-    { label: 'Llama 3 8B', value: 'llama3:8b' },
-    { label: 'Gemma 2 (Padrão)', value: 'gemma2' },
-    { label: 'Gemma 2 9B', value: 'gemma2:9b' },
-    { label: 'Mistral 7B', value: 'mistral' },
-    { label: 'Phi 3', value: 'phi3' },
+    { label: '👁️ Qwen 2 VL — Visão + Texto (PDFs/Extratos)', value: 'qwen2-vl' },
+    { label: '👁️ Qwen 2 VL 7B — Visão + Texto', value: 'qwen2-vl:7b' },
+    { label: '👁️ Llama 3.2 Vision — Visão + Texto', value: 'llama3.2-vision' },
+    { label: '👁️ LLaVA — Visão + Texto', value: 'llava' },
+    { label: '💬 DeepSeek V4 Flash — Apenas Texto / Chat', value: 'deepseek-v4-flash' },
+    { label: '💬 Qwen 3.5 397B — Apenas Texto / Chat', value: 'qwen3.5:397b' },
+    { label: '💬 Qwen 2.5 Coder — Apenas Texto / Chat', value: 'qwen2.5-coder' },
+    { label: '💬 Qwen 2 7B — Apenas Texto', value: 'qwen2:7b' },
+    { label: '💬 Llama 3.3 70B — Apenas Texto', value: 'llama3.3:70b' },
+    { label: '💬 Llama 3 (Padrão) — Apenas Texto', value: 'llama3' },
+    { label: '💬 Gemma 2 (Padrão) — Apenas Texto', value: 'gemma2' },
+    { label: '💬 Mistral 7B — Apenas Texto', value: 'mistral' },
   ],
   openai: [
-    { label: 'GPT-4o (Flagship)', value: 'gpt-4o' },
-    { label: 'GPT-4o Mini (Fast & Cheap)', value: 'gpt-4o-mini' },
-    { label: 'GPT-4 Turbo', value: 'gpt-4-turbo' },
-    { label: 'GPT-4', value: 'gpt-4' },
-    { label: 'GPT-3.5 Turbo', value: 'gpt-3.5-turbo' },
+    { label: '👁️ GPT-4o — Visão + Texto (Flagship Multimodal)', value: 'gpt-4o' },
+    { label: '👁️ GPT-4o Mini — Visão + Texto (Rápido)', value: 'gpt-4o-mini' },
+    { label: '👁️ GPT-4 Turbo — Visão + Texto', value: 'gpt-4-turbo' },
+    { label: '💬 GPT-4 — Apenas Texto', value: 'gpt-4' },
+    { label: '💬 GPT-3.5 Turbo — Apenas Texto', value: 'gpt-3.5-turbo' },
   ]
 };
 
@@ -1071,9 +1069,15 @@ export default function Settings() {
                       <option value="">Selecione um modelo...</option>
                       {serverModels.length > 0 && (
                         <optgroup label="Modelos Detectados no Servidor">
-                          {serverModels.map(m => (
-                            <option key={m} value={m}>{m}</option>
-                          ))}
+                          {serverModels.map(m => {
+                            const mLower = m.toLowerCase();
+                            const isVis = mLower.includes('vl') || mLower.includes('vision') || mLower.includes('llava') || mLower.includes('multimodal') || mLower.includes('gpt-4o') || mLower.includes('gemini');
+                            return (
+                              <option key={m} value={m}>
+                                {isVis ? `👁️ ${m} — Visão + Texto (Extratos & Chat)` : `💬 ${m} — Apenas Texto / Chat`}
+                              </option>
+                            );
+                          })}
                         </optgroup>
                       )}
                       {llmProvider === 'ollama' && (
@@ -1092,6 +1096,22 @@ export default function Settings() {
                       )}
                       <option value="custom">Outro (Especificar ID personalizado)...</option>
                     </select>
+
+                    {llmModel && (
+                      <div className="mt-2.5 text-[11px] font-medium leading-relaxed">
+                        {(llmModel.toLowerCase().includes('vl') || llmModel.toLowerCase().includes('vision') || llmModel.toLowerCase().includes('llava') || llmModel.toLowerCase().includes('gpt-4o') || llmModel.toLowerCase().includes('gemini')) ? (
+                          <div className="text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-3.5 py-2 rounded-xl flex items-center gap-2">
+                            <span>👁️</span>
+                            <span><strong>Visão Multimodal Ativa:</strong> Capaz de analisar extratos em PDF/Imagem e responder no Chat.</span>
+                          </div>
+                        ) : (
+                          <div className="text-slate-300 bg-slate-800/60 border border-white/5 px-3.5 py-2 rounded-xl flex items-center gap-2">
+                            <span>💬</span>
+                            <span><strong>Modelo de Texto / Chat:</strong> Excelente para conversas e análises. Leitura de extratos bancários em imagem utilizará a visão nativa.</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 
