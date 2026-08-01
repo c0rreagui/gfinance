@@ -105,6 +105,8 @@ export default function Settings() {
   const [isCustomModel, setIsCustomModel] = useState(false);
   const [serverModels, setServerModels] = useState<string[]>([]);
   const [fetchingServerModels, setFetchingServerModels] = useState(false);
+  const [llmSaveSuccess, setLlmSaveSuccess] = useState('');
+  const [llmSaveError, setLlmSaveError] = useState('');
 
   const fetchStaticMemory = async (type: string) => {
     setStaticLoading(true);
@@ -526,11 +528,14 @@ export default function Settings() {
 
   const handleSaveLLMSettings = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!profile.id) return;
-    setProfileError('');
-    setProfileSuccess('');
+    setLlmSaveError('');
+    setLlmSaveSuccess('');
     setSaving(true);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const targetId = profile.id || user?.id;
+      if (!targetId) throw new Error('Usuário não autenticado no sistema.');
+
       const { error } = await supabase
         .from('profiles')
         .update({
@@ -540,14 +545,14 @@ export default function Settings() {
           llm_model: llmModel || null,
           updated_at: new Date().toISOString()
         })
-        .eq('id', profile.id);
+        .eq('id', targetId);
 
       if (error) throw error;
-      setProfileSuccess('Configurações de inteligência artificial salvas com sucesso!');
+      setLlmSaveSuccess('Configurações de inteligência artificial salvas com sucesso!');
       window.dispatchEvent(new Event('gfinance_llm_updated'));
       await fetchProfile();
     } catch (err: any) {
-      setProfileError(`Erro ao salvar configurações de LLM: ${err.message}`);
+      setLlmSaveError(`Erro ao salvar configurações de LLM: ${err.message}`);
     } finally {
       setSaving(false);
     }
@@ -556,6 +561,8 @@ export default function Settings() {
   const handleTestLLMConnection = async () => {
     setTestingLlm(true);
     setLlmTestResult(null);
+    setLlmSaveError('');
+    setLlmSaveSuccess('');
     try {
       const res = await fetch('/api/ai/test-connection', {
         method: 'POST',
@@ -569,9 +576,12 @@ export default function Settings() {
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        setLlmTestResult({ success: true, message: 'Conexão estabelecida com sucesso!' });
+        setLlmTestResult({ success: true, message: 'Conexão estabelecida com sucesso! Ajustes salvos e ativos.' });
+        setLlmSaveSuccess('Configurações ativas e salvas no seu perfil com sucesso!');
         // Persistir automaticamente no perfil e avisar a interface
-        if (profile.id) {
+        const { data: { user } } = await supabase.auth.getUser();
+        const targetId = profile.id || user?.id;
+        if (targetId) {
           await supabase
             .from('profiles')
             .update({
@@ -581,14 +591,14 @@ export default function Settings() {
               llm_model: llmModel || null,
               updated_at: new Date().toISOString()
             })
-            .eq('id', profile.id);
+            .eq('id', targetId);
           window.dispatchEvent(new Event('gfinance_llm_updated'));
         }
       } else {
         setLlmTestResult({ success: false, message: data.error || 'Erro desconhecido na resposta.' });
       }
     } catch (err: any) {
-      setLlmTestResult({ success: false, message: err.message || 'Erro de rede ao testar conexão.' });
+      setLlmTestResult({ success: false, message: `Erro ao testar conexão: ${err.message}` });
     } finally {
       setTestingLlm(false);
     }
@@ -1197,7 +1207,14 @@ export default function Settings() {
                 )}
               </div>
 
-              {llmTestResult && (
+              {llmSaveSuccess && (
+                <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-sm font-semibold flex items-center gap-2 animate-in">
+                  <CheckCircle className="w-5 h-5 shrink-0" />
+                  <span>{llmSaveSuccess}</span>
+                </div>
+              )}
+
+              {!llmSaveSuccess && llmTestResult && (
                 <div className={`p-4 rounded-2xl border text-sm font-semibold flex items-start gap-2 ${
                   llmTestResult.success
                     ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400'
@@ -1209,6 +1226,13 @@ export default function Settings() {
                     <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
                   )}
                   <span>{llmTestResult.message}</span>
+                </div>
+              )}
+
+              {llmSaveError && (
+                <div className="p-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 text-sm font-semibold flex items-center gap-2 animate-in">
+                  <AlertCircle className="w-5 h-5 shrink-0" />
+                  <span>{llmSaveError}</span>
                 </div>
               )}
 
