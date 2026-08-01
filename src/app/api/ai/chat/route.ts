@@ -211,6 +211,7 @@ Analise detalhadamente estes lançamentos extraídos, forneça um parecer sobre 
       console.info(`[AI Chat Route] Usando LLM Customizada (${profile?.llm_provider || 'custom'}) para o módulo: ${module}`);
       let systemPrompt = '';
       
+      let finCtx: any = null;
       if (module === 'work') {
         systemPrompt = getWorkSystemPrompt(profile?.ai_memory_work || '');
       } else if (module === 'hub') {
@@ -230,7 +231,7 @@ Analise detalhadamente estes lançamentos extraídos, forneça um parecer sobre 
           supabase.from('credit_cards').select('card_name, card_limit, closing_day, due_day, last_four').eq('user_id', user.id)
         ]);
 
-        const financialContext = {
+        finCtx = {
           balances: dbBalances || [],
           transactions: dbTransactions || [],
           goals: dbGoals || [],
@@ -238,22 +239,33 @@ Analise detalhadamente estes lançamentos extraídos, forneça um parecer sobre 
           creditCards: dbCards || []
         };
 
-        systemPrompt = getFinancialSystemPrompt(profile?.ai_memory || '', financialContext);
+        systemPrompt = getFinancialSystemPrompt(profile?.ai_memory || '', finCtx);
       }
 
-      aiResponse = await generateCustomLLMResponse(
-        queryPrompt,
-        chatHistory,
-        module,
-        {
-          provider: profile?.llm_provider || 'custom',
-          apiUrl: profile?.llm_api_url || '',
-          apiKey: profile?.llm_api_key || null,
-          model: profile?.llm_model || ''
-        },
-        supabase,
-        systemPrompt
-      );
+      try {
+        aiResponse = await generateCustomLLMResponse(
+          queryPrompt,
+          chatHistory,
+          module,
+          {
+            provider: profile?.llm_provider || 'custom',
+            apiUrl: profile?.llm_api_url || '',
+            apiKey: profile?.llm_api_key || null,
+            model: profile?.llm_model || ''
+          },
+          supabase,
+          systemPrompt
+        );
+      } catch (customErr: any) {
+        console.warn(`[AI Chat Route] Provedor customizado falhou: ${customErr.message}. Executando fallback automático para o motor nativo Gemini.`);
+        if (module === 'work') {
+          aiResponse = await generateWorkResponse(queryPrompt, chatHistory, supabase, profile?.ai_memory_work || '');
+        } else if (module === 'hub') {
+          aiResponse = await generateHubResponse(queryPrompt, chatHistory, supabase, profile?.ai_memory_hub || '');
+        } else {
+          aiResponse = await generateFinancialResponse(queryPrompt, finCtx, chatHistory, providerToken || undefined, supabase, profile?.ai_memory || '');
+        }
+      }
 
     } else {
       // Usar modelo nativo do Gemini (comportamento original)
