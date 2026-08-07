@@ -221,35 +221,57 @@ export async function parseStatementWithAI(
       temperature: 0.1
     };
 
-    console.info(`[Parser Custom LLM] Enviando extrato para ${endpoint} com modelo de visão "${customLLMConfig.model}"`);
+    console.info(`[Parser Custom LLM Loop] Iniciando pipeline de visão para ${endpoint} com modelo "${customLLMConfig.model}"`);
 
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(60000)
-    });
+    let attempt = 0;
+    let customSuccess = false;
+    let customTransactions: AITransaction[] = [];
 
-    if (!res.ok) {
-      const errorText = await res.text();
-      if (res.status === 404 || errorText.includes('not_found') || errorText.includes('not found')) {
-        console.warn(`[Parser Custom LLM] Modelo "${customLLMConfig.model}" não encontrado no servidor. Executando fallback para Gemini 2.0 Flash Vision.`);
-      } else {
-        throw new Error(`Provedor customizado (${customLLMConfig.provider.toUpperCase()}) retornou HTTP ${res.status}: ${errorText.substring(0, 180)}`);
-      }
-    } else {
-      const json = await res.json();
-      const rawContent = json.choices?.[0]?.message?.content || '';
+    while (attempt < 3 && !customSuccess) {
+      attempt++;
       try {
-        const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
-        const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : rawContent);
-        return parsed.transactions || [];
-      } catch {
-        console.error('[Parser Custom LLM] Erro ao parsear JSON:', rawContent);
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(45000)
+        });
+
+        if (res.ok) {
+          const json = await res.json();
+          const rawContent = json.choices?.[0]?.message?.content || '';
+          const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
+          const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : rawContent);
+          if (Array.isArray(parsed.transactions)) {
+            customTransactions = parsed.transactions;
+            customSuccess = true;
+            console.info(`[Parser Custom LLM Loop] Sucesso na tentativa ${attempt}! Extraídos ${customTransactions.length} lançamentos.`);
+            return customTransactions;
+          }
+        } else {
+          const errorText = await res.text();
+          if (res.status === 404 || errorText.includes('not_found') || errorText.includes('not found')) {
+            console.warn(`[Parser Custom LLM Loop] Modelo "${customLLMConfig.model}" não encontrado (HTTP 404). Interrompendo loop para fallback.`);
+            break;
+          }
+          console.warn(`[Parser Custom LLM Loop] Tentativa ${attempt} falhou com HTTP ${res.status}: ${errorText.substring(0, 100)}`);
+        }
+      } catch (loopErr: any) {
+        console.warn(`[Parser Custom LLM Loop] Tentativa ${attempt} capturou erro: ${loopErr.message}`);
+      }
+
+      if (attempt < 3 && !customSuccess) {
+        const delay = Math.pow(2, attempt) * 500;
+        console.info(`[Parser Custom LLM Loop] Aguardando ${delay}ms para retry exponencial...`);
+        await new Promise((r) => setTimeout(r, delay));
       }
     }
+
+    if (!customSuccess) {
+      console.warn(`[Parser Custom LLM Loop] Falha após ${attempt} tentativas no provedor customizado. Redirecionando visão para o Gemini 2.0 Flash Vision.`);
+    }
   } else if (customLLMConfig && customLLMConfig.provider !== 'gemini') {
-    console.info(`[Parser AI Híbrido] O modelo customizado "${customLLMConfig.model}" é focado em texto. Executando extração de visão pelo motor Gemini 2.0 Flash Vision nativo.`);
+    console.info(`[Parser AI Híbrido] O modelo customizado "${customLLMConfig.model}" é focado em texto. Extração de visão será executada pelo motor Gemini 2.0 Flash Vision nativo.`);
   }
 
   const hasApiKey = apiKey && apiKey !== 'your-gemini-api-key-here';

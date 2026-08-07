@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
+import { validateAccessToken } from './oauth-store';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -37,6 +38,19 @@ export async function validateMcpRequest(req: Request): Promise<McpAuthResult> {
 
   if (!rawToken) {
     return { authenticated: false, error: 'Token de autenticação MCP não fornecido. Forneça via Bearer Token ou parâmetro ?key=ghub_pat_...' };
+  }
+
+  // Verificação de token OAuth 2.0 (MCP)
+  if (rawToken.startsWith('ghub_oauth_')) {
+    const at = validateAccessToken(rawToken);
+    if (at) {
+      return {
+        authenticated: true,
+        userId: at.user_id,
+        permissions: 'full'
+      };
+    }
+    return { authenticated: false, error: 'Token OAuth inválido ou expirado.' };
   }
 
   // 1. Verificar se o token é um token PAT da tabela mcp_api_keys
