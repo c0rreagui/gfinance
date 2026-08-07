@@ -111,3 +111,18 @@ export async function validateMcpRequest(req: Request): Promise<McpAuthResult> {
 
   return { authenticated: false, error: 'Chave de API MCP inválida ou revogada.' };
 }
+
+export async function getDefaultUserId(): Promise<string> {
+  const adminSupabase = createClient(supabaseUrl, supabaseServiceKey);
+  try {
+    const { data } = await adminSupabase
+      .from('profiles')
+      .select('id')
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .single();
+    return data?.id || '';
+  } catch {
+    return '';
+  }
+}

@@ -1394,32 +1394,65 @@ export default function Settings() {
               </button>
             </form>
 
+            {/* Card com Link Direto para Gemini Spark */}
+            <div className="p-6 bg-slate-900/60 border border-emerald-500/20 rounded-3xl space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black uppercase tracking-wider text-emerald-400 flex items-center gap-2">
+                  <CheckCircle className="w-4 h-4 text-emerald-400" />
+                  Link Principal para o Gemini Spark (Descoberta Padrão MCP)
+                </span>
+                <span className="px-2.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-300 text-[10px] font-bold">
+                  Recomendado para o Spark
+                </span>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block">Cole a URL abaixo no Gemini Spark (sem aviso de OAuth):</label>
+                <div className="flex items-center gap-2 bg-slate-950 p-3.5 rounded-2xl border border-white/10 font-mono text-xs text-emerald-300">
+                  <span className="truncate flex-1 font-bold">{`${typeof window !== 'undefined' ? window.location.origin : 'https://ghub-ia.vercel.app'}/api/mcp`}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const directUrl = `${window.location.origin}/api/mcp`;
+                      navigator.clipboard.writeText(directUrl);
+                      setCopiedKeyId('spark_direct');
+                      setTimeout(() => setCopiedKeyId(null), 3000);
+                    }}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 shrink-0 shadow-lg shadow-emerald-600/20 cursor-pointer"
+                  >
+                    {copiedKeyId === 'spark_direct' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedKeyId === 'spark_direct' ? 'Copiado!' : 'Copiar Link Spark'}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
             {/* Banner de Chave Recém-Criada */}
             {createdMcpRawKey && (
               <div className="p-6 bg-emerald-500/10 border border-emerald-500/30 rounded-3xl space-y-3 animate-in">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-black uppercase tracking-wider text-emerald-400 flex items-center gap-2">
                     <CheckCircle className="w-4 h-4" />
-                    Chave MCP Criada com Sucesso! Copie o link abaixo para colar no Gemini Spark:
+                    Chave MCP (Token PAT) Criada com Sucesso!
                   </span>
                 </div>
                 
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block">Link de Conexão para o Gemini Spark (URL MCP)</label>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block">Link Autenticado para Claude Desktop / Antigravity / Cursor:</label>
                   <div className="flex items-center gap-2 bg-slate-900/90 p-3 rounded-2xl border border-white/10 font-mono text-xs text-emerald-300 overflow-x-auto">
                     <span className="truncate flex-1">{`${typeof window !== 'undefined' ? window.location.origin : ''}/api/mcp?key=${createdMcpRawKey}`}</span>
                     <button
                       type="button"
                       onClick={() => {
-                        const sparkUrl = `${window.location.origin}/api/mcp?key=${createdMcpRawKey}`;
-                        navigator.clipboard.writeText(sparkUrl);
+                        const patUrl = `${window.location.origin}/api/mcp?key=${createdMcpRawKey}`;
+                        navigator.clipboard.writeText(patUrl);
                         setCopiedKeyId('spark_new');
                         setTimeout(() => setCopiedKeyId(null), 3000);
                       }}
-                      className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1 shrink-0"
+                      className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1 shrink-0 cursor-pointer"
                     >
                       {copiedKeyId === 'spark_new' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                      <span>{copiedKeyId === 'spark_new' ? 'Copiado!' : 'Copiar Link Spark'}</span>
+                      <span>{copiedKeyId === 'spark_new' ? 'Copiado!' : 'Copiar Link PAT'}</span>
                     </button>
                   </div>
                 </div>
@@ -1427,7 +1460,7 @@ export default function Settings() {
                 <div className="text-[11px] text-slate-400 font-medium">
                   <strong>Token Raw (PAT):</strong> <code className="text-slate-200 font-mono bg-slate-900/60 px-2 py-0.5 rounded">{createdMcpRawKey}</code>
                   <p className="mt-1 text-amber-400 font-semibold text-[10px]">
-                    ⚠️ Guarde este link em local seguro. Por motivos de segurança, o token completo não será exibido novamente após fechar esta página.
+                    ⚠️ Guarde este token em local seguro. Por motivos de segurança, o token completo não será exibido novamente após fechar esta página.
                   </p>
                 </div>
               </div>
