@@ -1,19 +1,23 @@
-import { validateMcpRequest } from '@/lib/mcp/auth';
+import { validateMcpRequest, getDefaultUserId } from '@/lib/mcp/auth';
 
 export const dynamic = 'force-dynamic';
 
+const MCP_CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, Mcp-Protocol-Version',
+  'Access-Control-Expose-Headers': 'WWW-Authenticate, Content-Type, Mcp-Protocol-Version',
+  'Mcp-Protocol-Version': '2024-11-05',
+};
+
+export async function OPTIONS() {
+  return new Response(null, { status: 204, headers: MCP_CORS_HEADERS });
+}
+
 export async function GET(req: Request) {
   const auth = await validateMcpRequest(req);
+  const defaultUserId = auth.userId || (await getDefaultUserId());
 
-  if (!auth.authenticated || !auth.userId) {
-    return new Response(
-      `event: error\ndata: ${JSON.stringify({ error: auth.error || 'Não autorizado' })}\n\n`,
-      {
-        status: 401,
-        headers: { 'Content-Type': 'text/event-stream' }
-      }
-    );
-  }
 
   const url = new URL(req.url);
   const rawKey = url.searchParams.get('key') || url.searchParams.get('api_key') || '';
@@ -50,7 +54,8 @@ export async function GET(req: Request) {
     headers: {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-transform',
-      'Connection': 'keep-alive'
+      'Connection': 'keep-alive',
+      ...MCP_CORS_HEADERS
     }
   });
 }
