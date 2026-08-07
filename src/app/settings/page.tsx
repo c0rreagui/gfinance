@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { User, Shield, Bell, Eye, KeyRound, CheckCircle, HelpCircle, AlertCircle, Brain, Trash2, Check, SlidersHorizontal } from 'lucide-react';
+import { User, Shield, Bell, Eye, KeyRound, CheckCircle, HelpCircle, AlertCircle, Brain, Trash2, Check, SlidersHorizontal, Copy, ExternalLink, Plus, Key, Share2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { encryptPassword } from '@/lib/crypto';
 import { reconcileBalances } from '@/lib/reconcile';
@@ -107,6 +107,80 @@ export default function Settings() {
   const [fetchingServerModels, setFetchingServerModels] = useState(false);
   const [llmSaveSuccess, setLlmSaveSuccess] = useState('');
   const [llmSaveError, setLlmSaveError] = useState('');
+
+  // Remote MCP Server states
+  const [mcpKeys, setMcpKeys] = useState<any[]>([]);
+  const [loadingMcpKeys, setLoadingMcpKeys] = useState(false);
+  const [newMcpKeyName, setNewMcpKeyName] = useState('');
+  const [creatingMcpKey, setCreatingMcpKey] = useState(false);
+  const [createdMcpRawKey, setCreatedMcpRawKey] = useState('');
+  const [copiedKeyId, setCopiedKeyId] = useState<string | null>(null);
+
+  const fetchMcpKeys = async () => {
+    setLoadingMcpKeys(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) return;
+      const res = await fetch('/api/mcp/keys', {
+        headers: { 'Authorization': `Bearer ${session.access_token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setMcpKeys(data.keys || []);
+      }
+    } catch (err) {
+      console.error('Erro ao buscar chaves MCP:', err);
+    } finally {
+      setLoadingMcpKeys(false);
+    }
+  };
+
+  const handleCreateMcpKey = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCreatingMcpKey(true);
+    setCreatedMcpRawKey('');
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) return;
+      const res = await fetch('/api/mcp/keys', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({ name: newMcpKeyName || 'Chave MCP (Gemini Spark)' })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setCreatedMcpRawKey(data.rawKey);
+        setNewMcpKeyName('');
+        await fetchMcpKeys();
+      } else {
+        alert(`Erro ao criar chave MCP: ${data.error}`);
+      }
+    } catch (err: any) {
+      alert(`Erro: ${err.message}`);
+    } finally {
+      setCreatingMcpKey(false);
+    }
+  };
+
+  const handleRevokeMcpKey = async (keyId: string) => {
+    if (!confirm('Deseja realmente revogar esta chave de API MCP? O agente externo perderá o acesso imediato.')) return;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) return;
+      const res = await fetch(`/api/mcp/keys?id=${keyId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${session.access_token}` }
+      });
+      if (res.ok) {
+        await fetchMcpKeys();
+      }
+    } catch (err) {
+      console.error('Erro ao revogar chave:', err);
+    }
+  };
 
   const fetchStaticMemory = async (type: string) => {
     setStaticLoading(true);
@@ -288,6 +362,7 @@ export default function Settings() {
 
   useEffect(() => {
     fetchProfile();
+    fetchMcpKeys();
 
     // Listener síncrono para evitar deadlocks de Web Lock no Supabase SDK
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
@@ -1277,6 +1352,128 @@ export default function Settings() {
                 </button>
               </div>
             </form>
+          </div>
+
+          {/* Servidor MCP Remoto & Conexões de Agentes Panel */}
+          <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md p-10 rounded-[48px] border border-white/50 dark:border-white/5 shadow-sm space-y-8 animate-in">
+            <div>
+              <div className="flex items-center justify-between">
+                <h4 className="font-black text-xl dark:text-white flex items-center gap-2.5">
+                  <Share2 className="w-6 h-6 text-emerald-500" />
+                  Servidor MCP Remoto (Conectividade para Agentes de IA)
+                </h4>
+                <span className="px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-black uppercase tracking-wider">
+                  Model Context Protocol
+                </span>
+              </div>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
+                Conecte IAs externas (como <strong>Gemini Spark</strong>, <strong>Claude Desktop</strong>, <strong>Antigravity</strong> e <strong>Cursor</strong>) diretamente à sua conta do G-Finance. Gere um token PAT e copie o link para colar no assistente desejado.
+              </p>
+            </div>
+
+            {/* Form de Criação de Chave */}
+            <form onSubmit={handleCreateMcpKey} className="flex flex-col sm:flex-row gap-3">
+              <input
+                type="text"
+                placeholder="Nome do Agente / Conexão (Ex: Gemini Spark, Claude Work)"
+                value={newMcpKeyName}
+                onChange={(e) => setNewMcpKeyName(e.target.value)}
+                className="flex-1 px-6 py-4 bg-white/40 dark:bg-slate-800/40 border border-slate-200 dark:border-white/5 rounded-2xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 font-bold text-slate-700 dark:text-white text-sm"
+              />
+              <button
+                type="submit"
+                disabled={creatingMcpKey}
+                className="px-8 py-4 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black rounded-2xl uppercase tracking-widest shadow-xl shadow-emerald-600/20 transition-all cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2 shrink-0"
+              >
+                {creatingMcpKey ? 'Gerando...' : (
+                  <>
+                    <Plus className="w-4 h-4" />
+                    <span>Gerar Link / Chave MCP</span>
+                  </>
+                )}
+              </button>
+            </form>
+
+            {/* Banner de Chave Recém-Criada */}
+            {createdMcpRawKey && (
+              <div className="p-6 bg-emerald-500/10 border border-emerald-500/30 rounded-3xl space-y-3 animate-in">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black uppercase tracking-wider text-emerald-400 flex items-center gap-2">
+                    <CheckCircle className="w-4 h-4" />
+                    Chave MCP Criada com Sucesso! Copie o link abaixo para colar no Gemini Spark:
+                  </span>
+                </div>
+                
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block">Link de Conexão para o Gemini Spark (URL MCP)</label>
+                  <div className="flex items-center gap-2 bg-slate-900/90 p-3 rounded-2xl border border-white/10 font-mono text-xs text-emerald-300 overflow-x-auto">
+                    <span className="truncate flex-1">{`${typeof window !== 'undefined' ? window.location.origin : ''}/api/mcp?key=${createdMcpRawKey}`}</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const sparkUrl = `${window.location.origin}/api/mcp?key=${createdMcpRawKey}`;
+                        navigator.clipboard.writeText(sparkUrl);
+                        setCopiedKeyId('spark_new');
+                        setTimeout(() => setCopiedKeyId(null), 3000);
+                      }}
+                      className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1 shrink-0"
+                    >
+                      {copiedKeyId === 'spark_new' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedKeyId === 'spark_new' ? 'Copiado!' : 'Copiar Link Spark'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="text-[11px] text-slate-400 font-medium">
+                  <strong>Token Raw (PAT):</strong> <code className="text-slate-200 font-mono bg-slate-900/60 px-2 py-0.5 rounded">{createdMcpRawKey}</code>
+                  <p className="mt-1 text-amber-400 font-semibold text-[10px]">
+                    ⚠️ Guarde este link em local seguro. Por motivos de segurança, o token completo não será exibido novamente após fechar esta página.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Tabela/Lista de Chaves Ativas */}
+            <div className="space-y-3">
+              <h5 className="text-xs font-black uppercase tracking-widest text-slate-400">Chaves de API MCP Ativas</h5>
+              {loadingMcpKeys ? (
+                <div className="text-center py-6 text-slate-400 text-xs font-semibold">Carregando chaves MCP...</div>
+              ) : mcpKeys.length === 0 ? (
+                <div className="text-center py-8 bg-slate-900/20 border border-dashed border-slate-700/50 rounded-3xl text-slate-400 text-xs font-medium">
+                  Nenhuma chave MCP criada ainda. Crie uma chave acima para gerar o link do Gemini Spark!
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-3">
+                  {mcpKeys.map((key) => {
+                    return (
+                      <div key={key.id} className="p-5 bg-slate-900/40 border border-white/5 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <Key className="w-4 h-4 text-emerald-400" />
+                            <span className="font-bold text-sm text-slate-200">{key.name}</span>
+                            <span className="px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-mono text-[10px]">{key.key_prefix}...</span>
+                          </div>
+                          <p className="text-[11px] text-slate-400">
+                            Criado em: {new Date(key.created_at).toLocaleDateString('pt-BR')} {key.last_used_at ? `• Último uso: ${new Date(key.last_used_at).toLocaleString('pt-BR')}` : '• Nunca utilizado'}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleRevokeMcpKey(key.id)}
+                            className="p-2.5 text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 rounded-xl transition-colors cursor-pointer"
+                            title="Revogar Chave MCP"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Agente IA (G-Work) Panel */}
