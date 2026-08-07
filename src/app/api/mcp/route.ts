@@ -37,9 +37,13 @@ export async function OPTIONS() {
 
 // GET: Descoberta do protocolo MCP (Retorna 401 com WWW-Authenticate para instruir o Gemini Spark a usar OAuth)
 export async function GET(req: Request) {
-  const auth = await validateMcpRequest(req);
+  const authHeader = req.headers.get('authorization') || req.headers.get('Authorization');
+  
+  if (!authHeader || !authHeader.toLowerCase().startsWith('bearer ')) {
+    return getUnauthorizedResponse();
+  }
 
-  // Se não estiver autenticado via OAuth ou PAT, retorna 401 com header WWW-Authenticate
+  const auth = await validateMcpRequest(req);
   if (!auth.authenticated) {
     return getUnauthorizedResponse();
   }
@@ -63,26 +67,19 @@ export async function GET(req: Request) {
 
 // POST: Execução de chamadas JSON-RPC 2.0 do protocolo MCP
 export async function POST(req: Request) {
-  const auth = await validateMcpRequest(req);
+  const authHeader = req.headers.get('authorization') || req.headers.get('Authorization');
 
-  // Se a requisição vier sem autenticação válida e sem token
-  if (!auth.authenticated) {
-    // Verificar se o payload é um 'initialize' de teste do Gemini para ver se aceita open ou exige auth
-    let body: any;
-    try {
-      const clonedReq = req.clone();
-      body = await clonedReq.json();
-    } catch {
-      // Ignore
-    }
-
-    // Se a requisição não for autenticada, responde 401 com WWW-Authenticate
-    if (!auth.userId) {
-      return getUnauthorizedResponse();
-    }
+  // Se a requisição vier sem cabeçalho Authorization Bearer (descoberta do Gemini Spark)
+  if (!authHeader || !authHeader.toLowerCase().startsWith('bearer ')) {
+    return getUnauthorizedResponse();
   }
 
-  const resolvedUserId = auth.userId || (await getDefaultUserId());
+  const auth = await validateMcpRequest(req);
+  if (!auth.authenticated || !auth.userId) {
+    return getUnauthorizedResponse();
+  }
+
+  const resolvedUserId = auth.userId;
 
   if (!resolvedUserId) {
     return getUnauthorizedResponse();
