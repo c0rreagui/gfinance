@@ -1,5 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { executeFinancialTool } from '@/lib/gemini';
+import { executeWorkTool } from '@/lib/gemini-work';
+import { executeHubTool } from '@/lib/gemini-hub';
 import { reconcileBalances } from '@/lib/reconcile';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -224,6 +226,263 @@ export const MCP_TOOLS_DEFINITION = [
       type: 'object',
       properties: {}
     }
+  },
+
+  // --- G-FINANCE: GOALS (UPDATE/DELETE) ---
+  {
+    name: 'update_user_goal',
+    description: 'Atualiza uma meta de investimento existente (nome, valor alvo, valor acumulado, cor).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        goalId: { type: 'string', description: 'UUID da meta' },
+        name: { type: 'string', description: 'Novo nome descritivo' },
+        targetAmount: { type: 'number', description: 'Novo valor alvo' },
+        currentAmount: { type: 'number', description: 'Novo valor acumulado' },
+        color: { type: 'string', description: 'Nova cor' }
+      },
+      required: ['goalId']
+    }
+  },
+  {
+    name: 'delete_user_goal',
+    description: 'Remove definitivamente uma meta de investimento pelo UUID.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        goalId: { type: 'string', description: 'UUID da meta a excluir' }
+      },
+      required: ['goalId']
+    }
+  },
+
+  // --- G-FINANCE: BULK DELETE ---
+  {
+    name: 'delete_user_transactions',
+    description: 'Exclui múltiplas transações por lista de UUIDs, por categoria específica ou limpa TODO o histórico financeiro.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        transactionIds: { type: 'array', items: { type: 'string' }, description: 'Lista de UUIDs' },
+        deleteAll: { type: 'boolean', description: 'Se true, remove TODAS as transações' },
+        category: { type: 'string', description: 'Remove todas de uma categoria' }
+      }
+    }
+  },
+
+  // --- G-FINANCE: CREDIT CARDS ---
+  {
+    name: 'list_user_credit_cards',
+    description: 'Lista os cartões de crédito cadastrados com limites, faturas, dias de vencimento/fechamento e cores.',
+    inputSchema: {
+      type: 'object',
+      properties: {}
+    }
+  },
+  {
+    name: 'update_user_credit_card',
+    description: 'Atualiza configurações de um cartão de crédito (limite, fatura manual, nome, dias de vencimento/fechamento, cor).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        cardId: { type: 'string', description: 'UUID do cartão' },
+        cardName: { type: 'string', description: 'Novo nome do cartão' },
+        cardLimit: { type: 'number', description: 'Novo limite total' },
+        manualInvoiceAmount: { type: 'number', description: 'Valor manual da fatura (null para automático)' },
+        closingDay: { type: 'number', description: 'Dia de fechamento (1-31)' },
+        dueDay: { type: 'number', description: 'Dia de vencimento (1-31)' },
+        colorTheme: { type: 'string', description: 'Tema de cor: emerald, indigo, rose, amber, crimson' }
+      },
+      required: ['cardId']
+    }
+  },
+
+  // --- G-WORK: PROJECTS ---
+  {
+    name: 'list_work_projects',
+    description: 'Lista todos os projetos do G-Work.',
+    inputSchema: {
+      type: 'object',
+      properties: {}
+    }
+  },
+  {
+    name: 'create_work_project',
+    description: 'Cria um novo projeto no G-Work.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Nome do projeto' },
+        description: { type: 'string', description: 'Descrição do projeto' },
+        color: { type: 'string', description: 'Cor do projeto' }
+      },
+      required: ['name']
+    }
+  },
+  {
+    name: 'update_work_project',
+    description: 'Atualiza um projeto existente no G-Work.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        projectId: { type: 'string', description: 'UUID do projeto' },
+        name: { type: 'string', description: 'Novo nome' },
+        description: { type: 'string', description: 'Nova descrição' },
+        color: { type: 'string', description: 'Nova cor' }
+      },
+      required: ['projectId']
+    }
+  },
+  {
+    name: 'delete_work_project',
+    description: 'Remove um projeto do G-Work pelo UUID.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        projectId: { type: 'string', description: 'UUID do projeto' }
+      },
+      required: ['projectId']
+    }
+  },
+
+  // --- G-WORK: TASKS (UPDATE/DELETE) ---
+  {
+    name: 'update_work_task',
+    description: 'Atualiza campos de uma tarefa no G-Work (título, status, prioridade, projeto, tipo, prazo).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        taskId: { type: 'string', description: 'UUID da tarefa' },
+        title: { type: 'string', description: 'Novo título' },
+        description: { type: 'string', description: 'Nova descrição' },
+        status: { type: 'string', description: 'Novo status: backlog, todo, in_progress, in_review, done' },
+        priority: { type: 'string', description: 'Nova prioridade: low, medium, high, critical' },
+        type: { type: 'string', description: 'Tipo: task, story, feature, epic' },
+        project_id: { type: 'string', description: 'UUID do projeto' },
+        dueDate: { type: 'string', description: 'Nova data de entrega (YYYY-MM-DD)' }
+      },
+      required: ['taskId']
+    }
+  },
+  {
+    name: 'delete_work_task',
+    description: 'Remove uma tarefa do G-Work pelo UUID.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        taskId: { type: 'string', description: 'UUID da tarefa' }
+      },
+      required: ['taskId']
+    }
+  },
+
+  // --- G-WORK: TRANSCRIPTIONS & INSIGHTS ---
+  {
+    name: 'list_transcriptions',
+    description: 'Lista transcrições de reuniões/gravações processadas no G-Work.',
+    inputSchema: {
+      type: 'object',
+      properties: {}
+    }
+  },
+  {
+    name: 'delete_transcription',
+    description: 'Remove uma transcrição de reunião pelo UUID.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        transcriptionId: { type: 'string', description: 'UUID da transcrição' }
+      },
+      required: ['transcriptionId']
+    }
+  },
+  {
+    name: 'list_ai_insights',
+    description: 'Lista insights gerados pela IA a partir de transcrições de reuniões.',
+    inputSchema: {
+      type: 'object',
+      properties: {}
+    }
+  },
+  {
+    name: 'dismiss_ai_insight',
+    description: 'Descarta/remove um insight de IA pelo UUID.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        insightId: { type: 'string', description: 'UUID do insight' }
+      },
+      required: ['insightId']
+    }
+  },
+
+  // --- G-HUB: CALENDAR ---
+  {
+    name: 'list_calendar_events',
+    description: 'Lista eventos da agenda pessoal do G-Hub, sincronizados com o Google Calendar.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        startDate: { type: 'string', description: 'Data inicial (YYYY-MM-DD)' },
+        endDate: { type: 'string', description: 'Data final (YYYY-MM-DD)' },
+        search: { type: 'string', description: 'Termo de busca no título/descrição' }
+      }
+    }
+  },
+  {
+    name: 'create_calendar_event',
+    description: 'Cria um evento na agenda e sincroniza com o Google Calendar.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'Título do evento' },
+        description: { type: 'string', description: 'Descrição detalhada' },
+        startTime: { type: 'string', description: 'Início (ISO 8601)' },
+        endTime: { type: 'string', description: 'Fim (ISO 8601)' },
+        location: { type: 'string', description: 'Local do evento' },
+        isAllDay: { type: 'boolean', description: 'Se é evento de dia inteiro' },
+        color: { type: 'string', description: 'Cor do evento' },
+        category: { type: 'string', description: 'Categoria (work, personal, health, finance)' }
+      },
+      required: ['title', 'startTime']
+    }
+  },
+  {
+    name: 'update_calendar_event',
+    description: 'Atualiza um evento da agenda existente e sincroniza com o Google Calendar.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        eventId: { type: 'string', description: 'UUID do evento' },
+        title: { type: 'string', description: 'Novo título' },
+        description: { type: 'string', description: 'Nova descrição' },
+        startTime: { type: 'string', description: 'Novo início (ISO 8601)' },
+        endTime: { type: 'string', description: 'Novo fim (ISO 8601)' },
+        location: { type: 'string', description: 'Novo local' }
+      },
+      required: ['eventId']
+    }
+  },
+  {
+    name: 'delete_calendar_event',
+    description: 'Remove um evento da agenda e deleta do Google Calendar.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        eventId: { type: 'string', description: 'UUID do evento a remover' }
+      },
+      required: ['eventId']
+    }
+  },
+
+  // --- G-HUB: FINANCIAL BALANCES (Read-only) ---
+  {
+    name: 'list_financial_balances',
+    description: 'Lista as contas de saldo do usuário (Corrente, Poupança, Investimentos, Caixa) com valores atuais e tendências.',
+    inputSchema: {
+      type: 'object',
+      properties: {}
+    }
   }
 ];
 
@@ -245,8 +504,8 @@ export async function processMcpJsonRpcRequest(
           resources: { subscribe: false, listChanged: false }
         },
         serverInfo: {
-          name: 'G-Hub Executive MCP Server',
-          version: '2.0.0'
+          name: 'G-Hub Ecosystem MCP Server',
+          version: '3.0.0'
         }
       }
     };
@@ -356,25 +615,35 @@ ${(reminders || []).map(r => `- **${r.title}**: R$ ${r.amount} (Vence: ${r.due_d
           success: true,
           briefingMarkdown: markdown
         };
-      } else if (name === 'list_work_tasks' || name === 'create_work_task') {
-        // Fallback de tarefas G-Work
-        toolResult = {
-          success: true,
-          tasks: [
-            { id: 'w1', title: 'Revisar Relatório Mensal G-Finance', priority: 'high', status: 'in_progress' },
-            { id: 'w2', title: 'Validar Conexão MCP do Gemini Spark', priority: 'high', status: 'done' }
-          ]
-        };
       } else if (name === 'search_user_memory' || name === 'get_ecosystem_status') {
-        const { data: profile } = await adminSupabase.from('profiles').select('ai_memory, llm_provider, llm_model').eq('id', userId).single();
+        const { data: profile } = await adminSupabase.from('profiles').select('ai_memory, ai_memory_work, ai_memory_hub, llm_provider, llm_model').eq('id', userId).single();
         toolResult = {
           success: true,
           memory: profile?.ai_memory || 'Sem preferências gravadas.',
+          memoryWork: profile?.ai_memory_work || '',
+          memoryHub: profile?.ai_memory_hub || '',
           llmProvider: profile?.llm_provider || 'gemini',
           llmModel: profile?.llm_model || 'default'
         };
+      } else if (
+        // G-Work tools → executeWorkTool
+        ['list_work_tasks', 'create_work_task', 'update_work_task', 'delete_work_task',
+         'list_work_projects', 'create_work_project', 'update_work_project', 'delete_work_project',
+         'list_transcriptions', 'delete_transcription', 'list_ai_insights', 'dismiss_ai_insight'
+        ].includes(name)
+      ) {
+        const execution = await executeWorkTool(name, args, adminSupabase, userId);
+        toolResult = execution.toolResult;
+      } else if (
+        // Hub tools → executeHubTool
+        ['list_calendar_events', 'create_calendar_event', 'update_calendar_event', 'delete_calendar_event',
+         'list_financial_balances', 'list_financial_reminders'
+        ].includes(name)
+      ) {
+        const execution = await executeHubTool(name, args, adminSupabase, userId);
+        toolResult = execution.toolResult;
       } else {
-        // Ferramentas financeiras padrões em gemini.ts
+        // G-Finance tools → executeFinancialTool
         const execution = await executeFinancialTool(name, args, adminSupabase, userId);
         toolResult = execution.toolResult;
       }
