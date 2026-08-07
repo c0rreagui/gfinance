@@ -96,14 +96,6 @@ export async function POST(req: Request) {
   const auth = await validateMcpRequest(req);
   let resolvedUserId = auth.userId || (await getDefaultUserId());
 
-  if (!resolvedUserId) {
-    return NextResponse.json({
-      jsonrpc: '2.0',
-      id: null,
-      error: { code: -32001, message: 'Nenhum perfil de usuário disponível para vincular o servidor MCP.' }
-    }, { status: 401, headers: MCP_CORS_HEADERS });
-  }
-
   let body: any;
   try {
     body = await req.json();

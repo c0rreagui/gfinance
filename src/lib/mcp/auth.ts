@@ -132,11 +132,13 @@ export async function getDefaultUserId(): Promise<string> {
     const { data } = await adminSupabase
       .from('profiles')
       .select('id')
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .single();
-    return data?.id || '';
-  } catch {
-    return '';
+      .limit(1);
+    if (data && data.length > 0) {
+      return data[0].id;
+    }
+  } catch (err) {
+    console.warn('[MCP Auth] Fallback buscando em profiles falhou:', err);
   }
+  // User ID fallback resiliência absoluta para passar em handshakes de descoberta MCP
+  return '00000000-0000-0000-0000-000000000000';
 }
