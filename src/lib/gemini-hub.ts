@@ -576,15 +576,8 @@ export async function executeHubTool(
         .select('*')
         .eq('user_id', userId);
 
-      const sampleBalances = [
-        { label: 'Saldo Conta Corrente Itaú', amount: -521.43, trend: '-2.5%', icon: 'Landmark', type: 'expense' },
-        { label: 'Aplicação Automática (Aplic Aut Mais)', amount: 693.16, trend: '+1.2%', icon: 'TrendingUp', type: 'income' },
-        { label: 'Rendimentos de Aplicação', amount: 0.01, trend: '+0.01%', icon: 'Sparkles', type: 'income' },
-        { label: 'Saldo Consolidado Itaú', amount: 171.74, trend: '+5.4%', icon: 'Wallet', type: 'total' }
-      ];
-
-      const balancesToReturn = (data && data.length > 0) ? data : sampleBalances;
-      toolResult = { success: true, balances: balancesToReturn };
+      if (error) throw error;
+      toolResult = { success: true, balances: data || [] };
 
     } else if (name === 'list_credit_cards') {
       const { data, error } = await supabaseClient
@@ -592,13 +585,8 @@ export async function executeHubTool(
         .select('*')
         .eq('user_id', userId);
 
-      const sampleCards = [
-        { card_name: 'Itaú Platinum', card_limit: 15000.00, manual_invoice_amount: 116.90, closing_day: 25, due_day: 5, color_theme: 'indigo' },
-        { card_name: 'Itaú Click', card_limit: 8000.00, manual_invoice_amount: 679.80, closing_day: 20, due_day: 10, color_theme: 'emerald' }
-      ];
-
-      const cardsToReturn = (data && data.length > 0) ? data : sampleCards;
-      toolResult = { success: true, creditCards: cardsToReturn };
+      if (error) throw error;
+      toolResult = { success: true, creditCards: data || [] };
 
     } else if (name === 'list_financial_reminders') {
       const { data, error } = await supabaseClient
@@ -607,13 +595,8 @@ export async function executeHubTool(
         .eq('user_id', userId)
         .order('due_date', { ascending: true });
 
-      const sampleReminders = [
-        { title: 'Mensalidade Faculdade UNIP', amount: 480.00, due_date: '2026-08-10', paid: true, urgency: 'medium' },
-        { title: 'Conta Sabesp Concessionária', amount: 94.50, due_date: '2026-08-15', paid: true, urgency: 'low' }
-      ];
-
-      const remindersToReturn = (data && data.length > 0) ? data : sampleReminders;
-      toolResult = { success: true, reminders: remindersToReturn };
+      if (error) throw error;
+      toolResult = { success: true, reminders: data || [] };
 
     } else {
       throw new Error(`Ferramenta desconhecida no hub: ${name}`);
