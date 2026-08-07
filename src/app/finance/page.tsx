@@ -156,6 +156,14 @@ export default function FinanceDashboard() {
 
   useEffect(() => {
     setMounted(true);
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem('financehub_guest_data');
+        localStorage.removeItem('financehub_mock_transactions');
+        localStorage.removeItem('guest_mode');
+        localStorage.removeItem('isGuest');
+      } catch (_) {}
+    }
     checkUser();
   }, []);
 

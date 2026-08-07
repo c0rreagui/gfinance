@@ -28,6 +28,15 @@ export default function RootLayout({
           dangerouslySetInnerHTML={{
             __html: `
               try {
+                localStorage.removeItem('financehub_guest_data');
+                localStorage.removeItem('financehub_mock_transactions');
+                localStorage.removeItem('guest_mode');
+                localStorage.removeItem('isGuest');
+                if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+                  navigator.serviceWorker.getRegistrations().then(function(regs) {
+                    regs.forEach(function(r) { r.unregister(); });
+                  });
+                }
                 const theme = localStorage.getItem('theme');
                 if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
                   document.documentElement.classList.add('dark');
