@@ -55,7 +55,6 @@ export async function validateMcpRequest(req: Request): Promise<McpAuthResult> {
         return { authenticated: false, error: 'Chave de API MCP expirada.' };
       }
 
-      // Atualizar timestamp de último uso em background
       adminSupabase
         .from('mcp_api_keys')
         .update({ last_used_at: new Date().toISOString() })
@@ -70,6 +69,30 @@ export async function validateMcpRequest(req: Request): Promise<McpAuthResult> {
     }
   } catch (err) {
     console.warn('[MCP Auth] Erro ao consultar tabela mcp_api_keys:', err);
+  }
+
+  // 1.5. Fallback para profiles se a tabela mcp_api_keys não existir
+  try {
+    const { data: profiles } = await adminSupabase
+      .from('profiles')
+      .select('id, mcp_keys');
+
+    if (profiles && Array.isArray(profiles)) {
+      for (const p of profiles) {
+        if (Array.isArray(p.mcp_keys)) {
+          const match = p.mcp_keys.find((k: any) => k.key_hash === keyHash);
+          if (match) {
+            return {
+              authenticated: true,
+              userId: p.id,
+              permissions: match.permissions || 'full'
+            };
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[MCP Auth Fallback] Erro ao buscar chaves em profiles:', err);
   }
 
   // 2. Fallback: Se o token for uma chave JWT de sessão do Supabase
