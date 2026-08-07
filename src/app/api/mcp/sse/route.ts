@@ -4,9 +4,9 @@ export const dynamic = 'force-dynamic';
 
 const MCP_CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, Mcp-Protocol-Version',
-  'Access-Control-Expose-Headers': 'WWW-Authenticate, Content-Type, Mcp-Protocol-Version',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': '*',
+  'Access-Control-Expose-Headers': '*',
   'Mcp-Protocol-Version': '2024-11-05',
 };
 
