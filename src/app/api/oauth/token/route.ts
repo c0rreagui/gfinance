@@ -12,8 +12,22 @@ export async function POST(req: Request) {
       body = await req.json();
     }
 
-    const grant_type = body.grant_type;
-    const client_id = body.client_id;
+    let grant_type = body.grant_type;
+    let client_id = body.client_id;
+
+    // Tentar extrair do header Authorization Basic se não vier no body
+    if (!client_id) {
+      const authHeader = req.headers.get('authorization');
+      if (authHeader && authHeader.toLowerCase().startsWith('basic ')) {
+        const credentials = Buffer.from(authHeader.substring(6), 'base64').toString('utf-8');
+        const [id] = credentials.split(':');
+        if (id) client_id = id;
+      }
+    }
+
+    if (!client_id) {
+      client_id = 'client_0d4515c0c48d7b588becae4ad64716c3';
+    }
     
     if (grant_type === 'authorization_code') {
       const code = body.code;
